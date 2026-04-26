@@ -30,4 +30,10 @@ pub enum Cmd {
     HeadBucket(s3util_rs::config::args::HeadBucketArgs),
     /// Head an S3 object
     HeadObject(s3util_rs::config::args::HeadObjectArgs),
+    /// Get an S3 object's tagging
+    GetObjectTagging(s3util_rs::config::args::GetObjectTaggingArgs),
+    /// Put tagging on an S3 object
+    PutObjectTagging(s3util_rs::config::args::PutObjectTaggingArgs),
+    /// Delete tagging from an S3 object
+    DeleteObjectTagging(s3util_rs::config::args::DeleteObjectTaggingArgs),
 }

@@ -189,6 +189,66 @@ async fn main() -> Result<()> {
             };
             std::process::exit(exit_code);
         }
+        Cmd::GetObjectTagging(args) => {
+            if let Some(shell) = args.auto_complete_shell() {
+                generate(shell, &mut Cli::command(), "s7cmd",
+                    &mut std::io::stdout());
+                return Ok(());
+            }
+            let tracing_config = args.common.build_tracing_config();
+            if let Some(tc) = &tracing_config {
+                util_bin::tracing_init::init_tracing(tc);
+            }
+            let client_config = args.common.build_client_config();
+            let exit_code = match util_bin::cli::run_get_object_tagging(args, client_config).await {
+                Ok(status) => status.code(),
+                Err(e) => {
+                    tracing::error!(error = format!("{e:#}"));
+                    util_bin::cli::EXIT_CODE_ERROR
+                }
+            };
+            std::process::exit(exit_code);
+        }
+        Cmd::PutObjectTagging(args) => {
+            if let Some(shell) = args.auto_complete_shell() {
+                generate(shell, &mut Cli::command(), "s7cmd",
+                    &mut std::io::stdout());
+                return Ok(());
+            }
+            let tracing_config = args.common.build_tracing_config();
+            if let Some(tc) = &tracing_config {
+                util_bin::tracing_init::init_tracing(tc);
+            }
+            let client_config = args.common.build_client_config();
+            let exit_code = match util_bin::cli::run_put_object_tagging(args, client_config).await {
+                Ok(()) => util_bin::cli::EXIT_CODE_SUCCESS,
+                Err(e) => {
+                    tracing::error!(error = format!("{e:#}"));
+                    util_bin::cli::EXIT_CODE_ERROR
+                }
+            };
+            std::process::exit(exit_code);
+        }
+        Cmd::DeleteObjectTagging(args) => {
+            if let Some(shell) = args.auto_complete_shell() {
+                generate(shell, &mut Cli::command(), "s7cmd",
+                    &mut std::io::stdout());
+                return Ok(());
+            }
+            let tracing_config = args.common.build_tracing_config();
+            if let Some(tc) = &tracing_config {
+                util_bin::tracing_init::init_tracing(tc);
+            }
+            let client_config = args.common.build_client_config();
+            let exit_code = match util_bin::cli::run_delete_object_tagging(args, client_config).await {
+                Ok(()) => util_bin::cli::EXIT_CODE_SUCCESS,
+                Err(e) => {
+                    tracing::error!(error = format!("{e:#}"));
+                    util_bin::cli::EXIT_CODE_ERROR
+                }
+            };
+            std::process::exit(exit_code);
+        }
     }
 }
 

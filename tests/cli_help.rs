@@ -91,3 +91,24 @@ fn head_object_help_works() {
         .args(["head-object", "--help"])
         .assert().success();
 }
+
+#[test]
+fn get_object_tagging_help_works() {
+    Command::cargo_bin("s7cmd").unwrap()
+        .args(["get-object-tagging", "--help"])
+        .assert().success();
+}
+
+#[test]
+fn put_object_tagging_help_works() {
+    Command::cargo_bin("s7cmd").unwrap()
+        .args(["put-object-tagging", "--help"])
+        .assert().success();
+}
+
+#[test]
+fn delete_object_tagging_help_works() {
+    Command::cargo_bin("s7cmd").unwrap()
+        .args(["delete-object-tagging", "--help"])
+        .assert().success();
+}
