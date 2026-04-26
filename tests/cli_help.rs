@@ -142,3 +142,13 @@ fn delete_bucket_policy_help_works() {
     Command::cargo_bin("s7cmd").unwrap()
         .args(["delete-bucket-policy", "--help"]).assert().success();
 }
+#[test]
+fn get_bucket_versioning_help_works() {
+    Command::cargo_bin("s7cmd").unwrap()
+        .args(["get-bucket-versioning", "--help"]).assert().success();
+}
+#[test]
+fn put_bucket_versioning_help_works() {
+    Command::cargo_bin("s7cmd").unwrap()
+        .args(["put-bucket-versioning", "--help"]).assert().success();
+}

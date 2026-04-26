@@ -48,4 +48,8 @@ pub enum Cmd {
     PutBucketPolicy(s3util_rs::config::args::PutBucketPolicyArgs),
     /// Delete a bucket's policy
     DeleteBucketPolicy(s3util_rs::config::args::DeleteBucketPolicyArgs),
+    /// Get a bucket's versioning configuration
+    GetBucketVersioning(s3util_rs::config::args::GetBucketVersioningArgs),
+    /// Put a bucket versioning configuration
+    PutBucketVersioning(s3util_rs::config::args::PutBucketVersioningArgs),
 }
