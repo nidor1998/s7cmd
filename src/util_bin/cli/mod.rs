@@ -27,9 +27,9 @@ pub mod tagging;
 pub mod ui_config;
 
 // Per-subcommand modules — uncomment as each is vendored in later tasks.
-// pub mod cp;
-// pub mod mv;
-// pub mod rm;
+pub mod cp;
+pub mod mv;
+pub mod rm;
 // pub mod create_bucket;
 // pub mod delete_bucket;
 // pub mod head_bucket;
