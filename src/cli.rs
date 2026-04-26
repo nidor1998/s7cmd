@@ -15,4 +15,11 @@ pub struct Cli {
 pub enum Cmd {
     /// Synchronize files between local and S3 (or S3 to S3)
     Sync(Box<s3sync::CLIArgs>),
+
+    /// Copy objects from/to S3
+    Cp(s3util_rs::config::args::CpArgs),
+    /// Move objects from/to S3 (copy then delete source)
+    Mv(s3util_rs::config::args::MvArgs),
+    /// Delete a single S3 object
+    Rm(s3util_rs::config::args::RmArgs),
 }
