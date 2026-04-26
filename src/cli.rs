@@ -22,7 +22,7 @@ shadow!(build);
 #[command(
     name = "s7cmd",
     about = "Unified S3 CLI: s3sync + s3util",
-    arg_required_else_help = true,
+    arg_required_else_help = true
 )]
 pub struct Cli {
     /// Generate shell completions for s7cmd (all subcommands) and exit.

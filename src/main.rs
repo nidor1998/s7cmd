@@ -26,32 +26,29 @@ async fn main() -> Result<()> {
     // per-subcommand --auto-complete-shell still works (handled below in
     // each dispatch arm).
     if let Some(shell) = cli_args.auto_complete_shell {
-        generate(shell, &mut Cli::command(), "s7cmd",
-            &mut std::io::stdout());
+        generate(shell, &mut Cli::command(), "s7cmd", &mut std::io::stdout());
         return Ok(());
     }
 
     // arg_required_else_help on the Cli ensures we always have a command
     // by this point — but the type is Option<Cmd>, so unwrap explicitly.
-    let command = cli_args.command.expect(
-        "clap's arg_required_else_help should have prevented this"
-    );
+    let command = cli_args
+        .command
+        .expect("clap's arg_required_else_help should have prevented this");
 
     match command {
         // ── port of s3sync's main.rs ───────────────────────────
         Cmd::Sync(boxed_args) => {
             let mut config = match s3sync::Config::try_from(*boxed_args) {
                 Ok(c) => c,
-                Err(msg) => clap::Error::raw(
-                    clap::error::ErrorKind::ValueValidation, msg).exit(),
+                Err(msg) => clap::Error::raw(clap::error::ErrorKind::ValueValidation, msg).exit(),
             };
             // s3sync's main: when reporting sync status, force dry_run=true.
             if config.report_sync_status {
                 config.dry_run = true;
             }
             if let Some(shell) = config.auto_complete_shell {
-                generate(shell, &mut Cli::command(), "s7cmd",
-                    &mut std::io::stdout());
+                generate(shell, &mut Cli::command(), "s7cmd", &mut std::io::stdout());
                 return Ok(());
             }
             if let Some(tc) = &config.tracing_config {
@@ -67,8 +64,7 @@ async fn main() -> Result<()> {
         Cmd::Ls(boxed_args) => {
             let config = ls_bin::load_config_exit_if_err(*boxed_args);
             if let Some(shell) = config.auto_complete_shell {
-                generate(shell, &mut Cli::command(), "s7cmd",
-                    &mut std::io::stdout());
+                generate(shell, &mut Cli::command(), "s7cmd", &mut std::io::stdout());
                 return Ok(());
             }
             ls_bin::start_tracing_if_necessary(&config);
@@ -79,8 +75,7 @@ async fn main() -> Result<()> {
         Cmd::Clean(boxed_args) => {
             let config = clean_bin::load_config_exit_if_err(*boxed_args);
             if let Some(shell) = config.auto_complete_shell {
-                generate(shell, &mut Cli::command(), "s7cmd",
-                    &mut std::io::stdout());
+                generate(shell, &mut Cli::command(), "s7cmd", &mut std::io::stdout());
                 return Ok(());
             }
             clean_bin::start_tracing_if_necessary(&config);
@@ -90,14 +85,12 @@ async fn main() -> Result<()> {
         // ── ports of s3util-rs's main.rs match arms ─────────────
         Cmd::Cp(args) => {
             if let Some(shell) = args.auto_complete_shell() {
-                generate(shell, &mut Cli::command(), "s7cmd",
-                    &mut std::io::stdout());
+                generate(shell, &mut Cli::command(), "s7cmd", &mut std::io::stdout());
                 return Ok(());
             }
             let config = match s3util_rs::Config::try_from(args) {
                 Ok(c) => c,
-                Err(msg) => clap::Error::raw(
-                    clap::error::ErrorKind::ValueValidation, msg).exit(),
+                Err(msg) => clap::Error::raw(clap::error::ErrorKind::ValueValidation, msg).exit(),
             };
             start_tracing_if_necessary(&config);
             trace_config_summary(&config);
@@ -112,14 +105,12 @@ async fn main() -> Result<()> {
         }
         Cmd::Mv(args) => {
             if let Some(shell) = args.auto_complete_shell() {
-                generate(shell, &mut Cli::command(), "s7cmd",
-                    &mut std::io::stdout());
+                generate(shell, &mut Cli::command(), "s7cmd", &mut std::io::stdout());
                 return Ok(());
             }
             let config = match s3util_rs::Config::try_from(args) {
                 Ok(c) => c,
-                Err(msg) => clap::Error::raw(
-                    clap::error::ErrorKind::ValueValidation, msg).exit(),
+                Err(msg) => clap::Error::raw(clap::error::ErrorKind::ValueValidation, msg).exit(),
             };
             start_tracing_if_necessary(&config);
             trace_config_summary(&config);
@@ -134,8 +125,7 @@ async fn main() -> Result<()> {
         }
         Cmd::Rm(args) => {
             if let Some(shell) = args.auto_complete_shell() {
-                generate(shell, &mut Cli::command(), "s7cmd",
-                    &mut std::io::stdout());
+                generate(shell, &mut Cli::command(), "s7cmd", &mut std::io::stdout());
                 return Ok(());
             }
             let tracing_config = args.common.build_tracing_config();
@@ -154,8 +144,7 @@ async fn main() -> Result<()> {
         }
         Cmd::CreateBucket(args) => {
             if let Some(shell) = args.auto_complete_shell() {
-                generate(shell, &mut Cli::command(), "s7cmd",
-                    &mut std::io::stdout());
+                generate(shell, &mut Cli::command(), "s7cmd", &mut std::io::stdout());
                 return Ok(());
             }
             let tracing_config = args.common.build_tracing_config();
@@ -174,8 +163,7 @@ async fn main() -> Result<()> {
         }
         Cmd::DeleteBucket(args) => {
             if let Some(shell) = args.auto_complete_shell() {
-                generate(shell, &mut Cli::command(), "s7cmd",
-                    &mut std::io::stdout());
+                generate(shell, &mut Cli::command(), "s7cmd", &mut std::io::stdout());
                 return Ok(());
             }
             let tracing_config = args.common.build_tracing_config();
@@ -194,8 +182,7 @@ async fn main() -> Result<()> {
         }
         Cmd::HeadBucket(args) => {
             if let Some(shell) = args.auto_complete_shell() {
-                generate(shell, &mut Cli::command(), "s7cmd",
-                    &mut std::io::stdout());
+                generate(shell, &mut Cli::command(), "s7cmd", &mut std::io::stdout());
                 return Ok(());
             }
             let tracing_config = args.common.build_tracing_config();
@@ -214,8 +201,7 @@ async fn main() -> Result<()> {
         }
         Cmd::HeadObject(args) => {
             if let Some(shell) = args.auto_complete_shell() {
-                generate(shell, &mut Cli::command(), "s7cmd",
-                    &mut std::io::stdout());
+                generate(shell, &mut Cli::command(), "s7cmd", &mut std::io::stdout());
                 return Ok(());
             }
             let tracing_config = args.common.build_tracing_config();
@@ -234,8 +220,7 @@ async fn main() -> Result<()> {
         }
         Cmd::GetObjectTagging(args) => {
             if let Some(shell) = args.auto_complete_shell() {
-                generate(shell, &mut Cli::command(), "s7cmd",
-                    &mut std::io::stdout());
+                generate(shell, &mut Cli::command(), "s7cmd", &mut std::io::stdout());
                 return Ok(());
             }
             let tracing_config = args.common.build_tracing_config();
@@ -254,8 +239,7 @@ async fn main() -> Result<()> {
         }
         Cmd::PutObjectTagging(args) => {
             if let Some(shell) = args.auto_complete_shell() {
-                generate(shell, &mut Cli::command(), "s7cmd",
-                    &mut std::io::stdout());
+                generate(shell, &mut Cli::command(), "s7cmd", &mut std::io::stdout());
                 return Ok(());
             }
             let tracing_config = args.common.build_tracing_config();
@@ -274,8 +258,7 @@ async fn main() -> Result<()> {
         }
         Cmd::DeleteObjectTagging(args) => {
             if let Some(shell) = args.auto_complete_shell() {
-                generate(shell, &mut Cli::command(), "s7cmd",
-                    &mut std::io::stdout());
+                generate(shell, &mut Cli::command(), "s7cmd", &mut std::io::stdout());
                 return Ok(());
             }
             let tracing_config = args.common.build_tracing_config();
@@ -283,19 +266,19 @@ async fn main() -> Result<()> {
                 util_bin::tracing_init::init_tracing(tc);
             }
             let client_config = args.common.build_client_config();
-            let exit_code = match util_bin::cli::run_delete_object_tagging(args, client_config).await {
-                Ok(()) => util_bin::cli::EXIT_CODE_SUCCESS,
-                Err(e) => {
-                    tracing::error!(error = format!("{e:#}"));
-                    util_bin::cli::EXIT_CODE_ERROR
-                }
-            };
+            let exit_code =
+                match util_bin::cli::run_delete_object_tagging(args, client_config).await {
+                    Ok(()) => util_bin::cli::EXIT_CODE_SUCCESS,
+                    Err(e) => {
+                        tracing::error!(error = format!("{e:#}"));
+                        util_bin::cli::EXIT_CODE_ERROR
+                    }
+                };
             std::process::exit(exit_code);
         }
         Cmd::GetBucketTagging(args) => {
             if let Some(shell) = args.auto_complete_shell() {
-                generate(shell, &mut Cli::command(), "s7cmd",
-                    &mut std::io::stdout());
+                generate(shell, &mut Cli::command(), "s7cmd", &mut std::io::stdout());
                 return Ok(());
             }
             let tracing_config = args.common.build_tracing_config();
@@ -314,8 +297,7 @@ async fn main() -> Result<()> {
         }
         Cmd::PutBucketTagging(args) => {
             if let Some(shell) = args.auto_complete_shell() {
-                generate(shell, &mut Cli::command(), "s7cmd",
-                    &mut std::io::stdout());
+                generate(shell, &mut Cli::command(), "s7cmd", &mut std::io::stdout());
                 return Ok(());
             }
             let tracing_config = args.common.build_tracing_config();
@@ -334,8 +316,7 @@ async fn main() -> Result<()> {
         }
         Cmd::DeleteBucketTagging(args) => {
             if let Some(shell) = args.auto_complete_shell() {
-                generate(shell, &mut Cli::command(), "s7cmd",
-                    &mut std::io::stdout());
+                generate(shell, &mut Cli::command(), "s7cmd", &mut std::io::stdout());
                 return Ok(());
             }
             let tracing_config = args.common.build_tracing_config();
@@ -343,19 +324,19 @@ async fn main() -> Result<()> {
                 util_bin::tracing_init::init_tracing(tc);
             }
             let client_config = args.common.build_client_config();
-            let exit_code = match util_bin::cli::run_delete_bucket_tagging(args, client_config).await {
-                Ok(()) => util_bin::cli::EXIT_CODE_SUCCESS,
-                Err(e) => {
-                    tracing::error!(error = format!("{e:#}"));
-                    util_bin::cli::EXIT_CODE_ERROR
-                }
-            };
+            let exit_code =
+                match util_bin::cli::run_delete_bucket_tagging(args, client_config).await {
+                    Ok(()) => util_bin::cli::EXIT_CODE_SUCCESS,
+                    Err(e) => {
+                        tracing::error!(error = format!("{e:#}"));
+                        util_bin::cli::EXIT_CODE_ERROR
+                    }
+                };
             std::process::exit(exit_code);
         }
         Cmd::GetBucketPolicy(args) => {
             if let Some(shell) = args.auto_complete_shell() {
-                generate(shell, &mut Cli::command(), "s7cmd",
-                    &mut std::io::stdout());
+                generate(shell, &mut Cli::command(), "s7cmd", &mut std::io::stdout());
                 return Ok(());
             }
             let tracing_config = args.common.build_tracing_config();
@@ -374,8 +355,7 @@ async fn main() -> Result<()> {
         }
         Cmd::PutBucketPolicy(args) => {
             if let Some(shell) = args.auto_complete_shell() {
-                generate(shell, &mut Cli::command(), "s7cmd",
-                    &mut std::io::stdout());
+                generate(shell, &mut Cli::command(), "s7cmd", &mut std::io::stdout());
                 return Ok(());
             }
             let tracing_config = args.common.build_tracing_config();
@@ -394,8 +374,7 @@ async fn main() -> Result<()> {
         }
         Cmd::DeleteBucketPolicy(args) => {
             if let Some(shell) = args.auto_complete_shell() {
-                generate(shell, &mut Cli::command(), "s7cmd",
-                    &mut std::io::stdout());
+                generate(shell, &mut Cli::command(), "s7cmd", &mut std::io::stdout());
                 return Ok(());
             }
             let tracing_config = args.common.build_tracing_config();
@@ -403,7 +382,8 @@ async fn main() -> Result<()> {
                 util_bin::tracing_init::init_tracing(tc);
             }
             let client_config = args.common.build_client_config();
-            let exit_code = match util_bin::cli::run_delete_bucket_policy(args, client_config).await {
+            let exit_code = match util_bin::cli::run_delete_bucket_policy(args, client_config).await
+            {
                 Ok(()) => util_bin::cli::EXIT_CODE_SUCCESS,
                 Err(e) => {
                     tracing::error!(error = format!("{e:#}"));
@@ -414,8 +394,7 @@ async fn main() -> Result<()> {
         }
         Cmd::GetBucketVersioning(args) => {
             if let Some(shell) = args.auto_complete_shell() {
-                generate(shell, &mut Cli::command(), "s7cmd",
-                    &mut std::io::stdout());
+                generate(shell, &mut Cli::command(), "s7cmd", &mut std::io::stdout());
                 return Ok(());
             }
             let tracing_config = args.common.build_tracing_config();
@@ -423,19 +402,19 @@ async fn main() -> Result<()> {
                 util_bin::tracing_init::init_tracing(tc);
             }
             let client_config = args.common.build_client_config();
-            let exit_code = match util_bin::cli::run_get_bucket_versioning(args, client_config).await {
-                Ok(status) => status.code(),
-                Err(e) => {
-                    tracing::error!(error = format!("{e:#}"));
-                    util_bin::cli::EXIT_CODE_ERROR
-                }
-            };
+            let exit_code =
+                match util_bin::cli::run_get_bucket_versioning(args, client_config).await {
+                    Ok(status) => status.code(),
+                    Err(e) => {
+                        tracing::error!(error = format!("{e:#}"));
+                        util_bin::cli::EXIT_CODE_ERROR
+                    }
+                };
             std::process::exit(exit_code);
         }
         Cmd::PutBucketVersioning(args) => {
             if let Some(shell) = args.auto_complete_shell() {
-                generate(shell, &mut Cli::command(), "s7cmd",
-                    &mut std::io::stdout());
+                generate(shell, &mut Cli::command(), "s7cmd", &mut std::io::stdout());
                 return Ok(());
             }
             let tracing_config = args.common.build_tracing_config();
@@ -443,13 +422,14 @@ async fn main() -> Result<()> {
                 util_bin::tracing_init::init_tracing(tc);
             }
             let client_config = args.common.build_client_config();
-            let exit_code = match util_bin::cli::run_put_bucket_versioning(args, client_config).await {
-                Ok(()) => util_bin::cli::EXIT_CODE_SUCCESS,
-                Err(e) => {
-                    tracing::error!(error = format!("{e:#}"));
-                    util_bin::cli::EXIT_CODE_ERROR
-                }
-            };
+            let exit_code =
+                match util_bin::cli::run_put_bucket_versioning(args, client_config).await {
+                    Ok(()) => util_bin::cli::EXIT_CODE_SUCCESS,
+                    Err(e) => {
+                        tracing::error!(error = format!("{e:#}"));
+                        util_bin::cli::EXIT_CODE_ERROR
+                    }
+                };
             std::process::exit(exit_code);
         }
     }

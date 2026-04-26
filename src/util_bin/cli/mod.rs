@@ -28,23 +28,23 @@ pub mod ui_config;
 
 // Per-subcommand modules — uncomment as each is vendored in later tasks.
 pub mod cp;
-pub mod mv;
-pub mod rm;
 pub mod create_bucket;
 pub mod delete_bucket;
+pub mod delete_bucket_policy;
+pub mod delete_bucket_tagging;
+pub mod delete_object_tagging;
+pub mod get_bucket_policy;
+pub mod get_bucket_tagging;
+pub mod get_bucket_versioning;
+pub mod get_object_tagging;
 pub mod head_bucket;
 pub mod head_object;
-pub mod get_object_tagging;
-pub mod put_object_tagging;
-pub mod delete_object_tagging;
-pub mod get_bucket_tagging;
-pub mod put_bucket_tagging;
-pub mod delete_bucket_tagging;
-pub mod get_bucket_policy;
+pub mod mv;
 pub mod put_bucket_policy;
-pub mod delete_bucket_policy;
-pub mod get_bucket_versioning;
+pub mod put_bucket_tagging;
 pub mod put_bucket_versioning;
+pub mod put_object_tagging;
+pub mod rm;
 
 pub use cp::run_cp;
 pub use create_bucket::run_create_bucket;
