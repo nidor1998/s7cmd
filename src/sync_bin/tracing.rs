@@ -1,0 +1,46 @@
+// Vendored from s3sync@1.57.1
+//   src/bin/s3sync/tracing/mod.rs
+// Adjustments: stripped rusty_fork_test! tests
+use std::env;
+
+use tracing_subscriber::fmt::format::FmtSpan;
+
+use s3sync::config::TracingConfig;
+
+const EVENT_FILTER_ENV_VAR: &str = "RUST_LOG";
+
+pub fn init_tracing(config: &TracingConfig) {
+    let fmt_span = if config.span_events_tracing {
+        FmtSpan::NEW | FmtSpan::CLOSE
+    } else {
+        FmtSpan::NONE
+    };
+
+    let subscriber_builder = tracing_subscriber::fmt()
+        .compact()
+        .with_target(false)
+        .with_ansi(!config.disable_color_tracing)
+        .with_span_events(fmt_span);
+
+    let mut show_target = true;
+    let tracing_level = config.tracing_level;
+    let event_filter = if config.aws_sdk_tracing {
+        format!(
+            "s3sync={tracing_level},aws_smithy_runtime={tracing_level},aws_config={tracing_level},aws_sigv4={tracing_level}"
+        )
+    } else if env::var(EVENT_FILTER_ENV_VAR).is_ok() {
+        env::var(EVENT_FILTER_ENV_VAR).unwrap()
+    } else {
+        show_target = false;
+        format!("s3sync={tracing_level}")
+    };
+
+    let subscriber_builder = subscriber_builder
+        .with_env_filter(event_filter)
+        .with_target(show_target);
+    if config.json_tracing {
+        subscriber_builder.json().init();
+    } else {
+        subscriber_builder.init();
+    }
+}
