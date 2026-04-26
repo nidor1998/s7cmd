@@ -37,6 +37,7 @@ async fn main() -> Result<()> {
             if let Some(tc) = &config.tracing_config {
                 sync_bin::tracing::init_tracing(tc);
             }
+            tracing::trace!("config = {:?}", config);
             // sync_bin::cli::run handles ctrl-c, pipeline, indicator, and
             // exits the process with EXIT_CODE_WARNING (3) on warning.
             // Errors propagate up; anyhow → main returns Err → exit 1.
