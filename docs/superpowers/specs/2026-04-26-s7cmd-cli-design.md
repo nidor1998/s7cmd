@@ -37,22 +37,27 @@ Only `s7cmd` changes. `s3sync` and `s3util-rs` are untouched.
 │ s7cmd  (this repo, binary crate)                │
 │                                                 │
 │   Cargo.toml depends on:                        │
-│     s3sync   = "1.57"                           │
+│     s3sync    = "1.57"                          │
 │     s3util-rs = "0.2"                           │
 │                                                 │
 │   Code:                                         │
-│     CLI: top-level Subcommand enum that         │
-│          flattens each lib's existing args      │
-│     Runners: thin wrappers per subcommand       │
-│       - sync:        s3sync::Pipeline (lib API) │
-│       - cp/mv/rm:    s3util_rs::transfer +      │
-│                      storage (lib API),         │
-│                      orchestration written here │
-│       - create/del/  s3util_rs::storage::s3::api│
-│         head bucket: (lib API)                  │
-│       - tagging/     s3util_rs::storage::s3::api│
-│         policy/      (lib API)                  │
-│         versioning                              │
+│     src/cli.rs          : Cli + Cmd enum        │
+│     src/main.rs         : per-subcommand match  │
+│                           arms vendored from    │
+│                           each lib's main.rs    │
+│     src/sync_bin/       : vendored from         │
+│                           s3sync/src/bin/s3sync │
+│                           (cli::run, tracing,   │
+│                            ctrl_c, indicator,   │
+│                            ui_config)           │
+│     src/util_bin/       : vendored from         │
+│                           s3util-rs/src/bin/    │
+│                           s3util  (~25 cli/*    │
+│                           files, tracing_init)  │
+│                                                 │
+│   The vendored code calls into each lib's       │
+│   public API: s3sync::Pipeline,                 │
+│   s3util_rs::{Config, storage::*, transfer::*}. │
 └─────────────────────────────────────────────────┘
 ```
 
@@ -61,7 +66,21 @@ Standalone `s3sync` and `s3util` binaries continue to exist in their own crates 
 ### 3.2 Why this works without lib modifications
 
 - `s3sync` officially supports library use (`s3sync::Pipeline::new(config, token).run().await`).
-- `s3util-rs` declares "no API stability" but exposes the necessary public types: `Config`, `storage::s3::api::*`, `transfer::*`, and per-subcommand args structs (`CpArgs`, `MvArgs`, `CreateBucketArgs`, …). The runners (`run_cp`, `run_mv`, …) live in `bin/s3util/cli/` and are *not* in the lib — s7cmd writes its own equivalents on top of the public lib types.
+- `s3util-rs` declares "no API stability" but exposes the necessary public types: `Config`, `storage::s3::api::*`, `transfer::*`, and per-subcommand args structs (`CpArgs`, `MvArgs`, `CreateBucketArgs`, …).
+- The runners (`run_cp`, `run_mv`, …), the ctrl-c handler, the tracing init, and the per-subcommand exit-code mapping all live in each lib's `src/bin/` tree, *not* in the lib. **s7cmd vendors that bin code verbatim** — translated to s7cmd's module paths and with the program name swapped (`"s3sync"` / `"s3util"` → `"s7cmd"`) — so behavior is identical to what each standalone binary does. We do not redesign these orchestration concerns; we copy them.
+
+### 3.3 Behavior preserved verbatim per command
+
+For each subcommand, s7cmd reproduces the standalone binary's behavior:
+
+| Concern | Source | Approach |
+|---|---|---|
+| Ctrl-C handling | `s3sync/src/bin/s3sync/cli/ctrl_c_handler/mod.rs` (sync) / `s3util-rs/src/bin/s3util/cli/ctrl_c_handler.rs` (all others) | Vendor verbatim (the two files are byte-identical apart from one import path). |
+| Tracing init | `s3sync/src/bin/s3sync/tracing/mod.rs` (sync) / `s3util-rs/src/bin/s3util/tracing_init/mod.rs` (all others) | Vendor verbatim — note s3sync writes to stdout, s3util writes to stderr; we keep both. |
+| Per-subcommand exit code | `s3util-rs/src/bin/s3util/main.rs` match arms / `s3sync/src/bin/s3sync/cli/mod.rs::run()` | Vendor each match arm verbatim into the dispatcher in s7cmd's `main.rs`; same `EXIT_CODE_*` constants from each lib's `cli/mod.rs`. |
+| `run_xxx` orchestration | `s3sync/src/bin/s3sync/cli/mod.rs::run()` (sync) / `s3util-rs/src/bin/s3util/cli/<cmd>.rs` (all others) | Vendor verbatim into s7cmd, calling into each lib's public types (`Pipeline`, `storage::s3::api`, `transfer::*`, `Config`). |
+| Indicator / progress UI | `s3sync/src/bin/s3sync/cli/indicator.rs` + `ui_config.rs` (sync) / `s3util-rs/src/bin/s3util/cli/indicator.rs` + `ui_config.rs` (cp/mv/rm) | Vendor both, separately — sync uses s3sync's, cp/mv/rm use s3util's. |
+| Auto-complete shell | both bins' main.rs | Same short-circuit pattern; only swap `Cli::command()` and `"s7cmd"` as the program name. |
 
 ## 4. CLI structure
 
@@ -133,117 +152,118 @@ Notes:
 
 ## 5. Runner architecture
 
-Three categories by how much code they need.
+**Guiding rule: vendor the bin code verbatim from each lib.** s7cmd does not redesign orchestration; it transcribes it. Two parallel module trees mirror each lib's `src/bin/` layout.
 
-### 5.1 Category A — sync (s3sync as a proper library)
+### 5.1 Sync — port of `s3sync/src/bin/s3sync/`
 
-Wraps the supported `s3sync::Pipeline` lib API. ~40 LOC.
+`src/sync_bin/cli/mod.rs::run(config)` is the vendored copy of s3sync's `cli::run`, including:
+
+- callback registration (`UserDefinedEventCallback`, `UserDefinedFilterCallback`, `UserDefinedPreprocessCallback` — needed for `test_user_defined_callback` parity)
+- `ctrl_c_handler::spawn_ctrl_c_handler(token)` from the vendored `cli/ctrl_c_handler/mod.rs`
+- `indicator::show_indicator(...)` and `ui_config::is_progress_indicator_needed(...)` / `is_show_result_needed(...)` from vendored `cli/indicator.rs` + `cli/ui_config.rs`
+- `Pipeline::new(config, token).await`, `pipeline.run().await`, then the `has_error` / `has_warning` branches with the same `EXIT_CODE_*` constants (`SUCCESS=0`, `ERROR=1`, `INVALID_ARGS=2`, `WARNING=3`)
+- `show_sync_report_summary(...)` helper — verbatim
+
+The dispatch arm in `src/main.rs` for `Cmd::Sync` mirrors s3sync's `main()` exactly:
 
 ```rust
-// src/runners/sync.rs
-pub async fn run(args: s3sync::CLIArgs) -> Result<ExitCode> {
-    let mut config = s3sync::Config::try_from(args).map_err(|e| anyhow!("{}", e))?;
+Cmd::Sync(args) => {
+    // ports s3sync/src/bin/s3sync/main.rs verbatim
+    let mut config = s3sync::Config::try_from(*args)
+        .unwrap_or_else(|msg| {
+            clap::Error::raw(clap::error::ErrorKind::ValueValidation, msg).exit()
+        });
     if config.report_sync_status { config.dry_run = true; }
 
     if let Some(shell) = config.auto_complete_shell {
-        clap_complete::generate(shell, &mut Cli::command(), "s7cmd", &mut io::stdout());
-        return Ok(ExitCode::SUCCESS);
+        clap_complete::generate(shell, &mut Cli::command(), "s7cmd",
+            &mut std::io::stdout());
+        return Ok(());                         // (only program-name swap)
     }
-
-    if let Some(tc) = &config.tracing_config { crate::tracing_init::init_tracing(tc); }
-
-    let token = create_pipeline_cancellation_token();
-    crate::ctrl_c::install(token.clone());
-
-    let mut pipeline = Pipeline::new(config, token).await;
-    pipeline.run().await;
-
-    if pipeline.has_error() {
-        let errs = pipeline.get_errors_and_consume().unwrap();
-        eprintln!("{:?}", errs[0]);
-        return Ok(ExitCode::from(EXIT_ERROR));
+    if let Some(tc) = &config.tracing_config {
+        sync_bin::tracing::init_tracing(tc);  // vendored from s3sync
     }
-    if pipeline.has_warning() { return Ok(ExitCode::from(EXIT_WARNING)); }
-    Ok(ExitCode::SUCCESS)
+    sync_bin::cli::run(config).await           // anyhow::Result<()>
 }
 ```
 
-### 5.2 Category B — bucket / object metadata (direct lib API calls)
+### 5.2 s3util commands — port of `s3util-rs/src/bin/s3util/`
 
-`create-bucket`, `delete-bucket`, `head-bucket`, `head-object`, `*-bucket-policy`, `*-bucket-tagging`, `*-bucket-versioning`, `*-object-tagging` — 17 commands, each ~30–60 LOC, all direct calls into `s3util_rs::storage::s3::api::*`.
+`src/util_bin/cli/<cmd>.rs` is the vendored `cli/<cmd>.rs` from s3util-rs (e.g. `cp.rs`, `create_bucket.rs`, `head_object.rs`, ..., 20 files). They call back into `s3util_rs::storage::*`, `s3util_rs::transfer::*`, and the s3util-rs lib's public functions. The shared infrastructure (`cli/mod.rs` with `ExitStatus`, `run_copy_phase`, `build_rate_limiter`; `cli/indicator.rs`; `cli/ui_config.rs`; `cli/ctrl_c_handler.rs`; `cli/tagging.rs`) is also vendored.
 
-Example:
+The dispatch arm for each `Cmd::<UtilCmd>` in `src/main.rs` is a verbatim port of the corresponding match arm in `s3util-rs/src/bin/s3util/main.rs`. Two patterns appear, depending on the runner's return type:
 
 ```rust
-// src/runners/create_bucket.rs
-pub async fn run(args: CreateBucketArgs) -> Result<ExitCode> {
-    let bucket = args.bucket_name().map_err(|e| anyhow!("{}", e.trim_end()))?;
-    let client_config = args.common.build_client_config();
-    crate::tracing_init::from_common(&args.common);
-    let client = client_config.create_client().await;
-
-    api::create_bucket(&client, &bucket).await?;
-    info!(bucket = %bucket, "Bucket created.");
-
-    if let Some(raw) = args.tagging.as_deref() {
-        let tags = parse_tagging_to_tags(raw)?;
-        let tagging = Tagging::builder().set_tag_set(Some(tags)).build()?;
-        if let Err(e) = api::put_bucket_tagging(&client, &bucket, tagging).await {
-            warn!(error = format!("{e:#}"), "bucket created but tagging failed");
-            return Ok(ExitCode::from(EXIT_WARNING));
-        }
+// Pattern A — runners that return Result<ExitStatus>
+//   (cp, mv, head_object, head_bucket, get_object_tagging,
+//    get_bucket_tagging, get_bucket_versioning,
+//    get_bucket_policy, create_bucket)
+Cmd::Cp(args) => {
+    if let Some(shell) = args.auto_complete_shell() {
+        clap_complete::generate(shell, &mut Cli::command(), "s7cmd",
+            &mut std::io::stdout());
+        return Ok(());
     }
-    Ok(ExitCode::SUCCESS)
-}
-```
-
-These are mostly mechanical ports of the equivalent files in `s3util-rs/src/bin/s3util/cli/` — they call the same lib functions, with the same exit-status semantics.
-
-### 5.3 Category C — cp / mv / rm (transfer pipeline)
-
-These share an orchestration layer that today lives in `s3util-rs/src/bin/s3util/cli/mod.rs` (`run_copy_phase`, `build_rate_limiter`, `ExitStatus`, `detect_direction` plumbing). s7cmd writes its own equivalent on top of the lib's `transfer::*` modules:
-
-```rust
-// src/runners/transfer_pipeline.rs    (≈250 LOC; shared by cp/mv/rm)
-pub struct TransferPhase { /* cancelled, transfer_result, has_warning */ }
-
-pub async fn run_copy_phase(config: Config) -> Result<TransferPhase> {
-    let token = create_pipeline_cancellation_token();
-    crate::ctrl_c::install(token.clone());
-
-    let direction = detect_direction(&config.source, &config.target);
-    let factory = match direction {
-        TransferDirection::LocalToS3 => /* build local source + s3 target */,
-        TransferDirection::S3ToLocal => /* build s3 source + local target */,
-        TransferDirection::S3ToS3    => /* build s3 source + s3 target */,
-        TransferDirection::Stdio(_)  => /* stdio variant */,
+    let config = match s3util_rs::Config::try_from(args) {
+        Ok(c) => c,
+        Err(msg) => clap::Error::raw(
+            clap::error::ErrorKind::ValueValidation, msg).exit(),
     };
-    let rate_limiter = build_rate_limiter(&config);
-    let indicator = Indicator::new(&config);
-
-    let outcome = factory.run(token.clone(), rate_limiter, indicator).await;
-    Ok(TransferPhase::from(outcome, token))
+    start_tracing_if_necessary(&config);   // vendored helper
+    trace_config_summary(&config);         // vendored helper
+    let exit_code = match util_bin::cli::run_cp(config).await {
+        Ok(status) => status.code(),       // s3util_rs::cli::ExitStatus::code
+        Err(e) => {
+            tracing::error!(error = format!("{e:#}"));
+            util_bin::cli::EXIT_CODE_ERROR
+        }
+    };
+    std::process::exit(exit_code);
 }
 
-// src/runners/cp.rs, mv.rs, rm.rs    (≈30 LOC each)
-pub async fn run_cp(args: CpArgs) -> Result<ExitCode> {
-    let config = Config::try_from(args).map_err(|e| anyhow!("{}", e))?;
-    let phase = transfer_pipeline::run_copy_phase(config).await?;
-    /* same exit-code mapping as s3util's cp.rs */
+// Pattern B — runners that return Result<()>
+//   (rm, delete_bucket, put_object_tagging, delete_object_tagging,
+//    put_bucket_tagging, delete_bucket_tagging,
+//    put_bucket_policy, delete_bucket_policy,
+//    put_bucket_versioning)
+Cmd::Rm(args) => {
+    if let Some(shell) = args.auto_complete_shell() { /* ...same... */ }
+    let tc = args.common.build_tracing_config();
+    if let Some(tc) = &tc { util_bin::tracing_init::init_tracing(tc); }
+    let client_config = args.common.build_client_config();
+    let exit_code = match util_bin::cli::run_rm(args, client_config).await {
+        Ok(()) => util_bin::cli::EXIT_CODE_SUCCESS,
+        Err(e) => {
+            tracing::error!(error = format!("{e:#}"));
+            util_bin::cli::EXIT_CODE_ERROR
+        }
+    };
+    std::process::exit(exit_code);
 }
 ```
 
-### 5.4 Estimated runner LOC
+The only changes from the upstream code are: program-name string (`"s3util"` → `"s7cmd"`), and the `Cli` type referenced in `clap_complete::generate` (s7cmd's `Cli`, not s3util's). Everything else — including `EXIT_CODE_*` constants, `ExitStatus::code()` mapping, `start_tracing_if_necessary` / `trace_config_summary` helpers — is copied unchanged into `src/main.rs` (or `src/util_bin/`).
 
-| Category | Commands | Per-command | Total |
-|---|---|---|---|
-| A (sync) | 1 | ~40 | ~40 |
-| B (api wrappers) | 17 | ~40 | ~680 |
-| C (cp/mv/rm + shared) | 3 + shared | ~30 each + ~250 shared | ~340 |
-| Shared infra (`ExitStatus`, ctrl-c, indicator scaffold, tracing init, tagging parser, exit-code constants) | — | — | ~200 |
-| **Total** | | | **~1260 LOC** |
+### 5.3 Estimated vendored LOC
+
+Counted by `wc -l` on the source files:
+
+| Source | Files | LOC |
+|---|---|---|
+| `s3sync/src/bin/s3sync/cli/` (mod, ctrl_c_handler, indicator, ui_config) | 4 | ~520 |
+| `s3sync/src/bin/s3sync/tracing/` | 1 | ~140 |
+| `s3sync/src/bin/s3sync/main.rs` (match arm only) | (partial) | ~30 |
+| `s3util-rs/src/bin/s3util/cli/` (all 25 files) | 25 | ~3055 |
+| `s3util-rs/src/bin/s3util/tracing_init/` | 1 | ~210 |
+| `s3util-rs/src/bin/s3util/main.rs` (all 20 match arms + 2 helpers) | (partial) | ~400 |
+| s7cmd `src/cli.rs` + `src/main.rs` integration | new | ~150 |
+| **Total** | | **~4500 LOC** |
+
+Higher than the previous "~1260 written from scratch" estimate, because vendoring includes test code, long help strings, and the per-subcommand main.rs arms in full. The trade-off is what the user asked for: zero risk of behavioral drift from the libs, no novel orchestration logic to reason about.
 
 ## 6. Project layout
+
+Two parallel `*_bin/` trees mirror each lib's `src/bin/` structure. Each file in `sync_bin/` and `util_bin/` corresponds 1:1 to a file in the upstream lib's `src/bin/`, vendored verbatim (with the program-name and module-path adjustments from §5).
 
 ```
 s7cmd/
@@ -252,28 +272,49 @@ s7cmd/
 ├── CHANGELOG.md
 ├── LICENSE
 ├── build.rs                       # shadow-rs (optional `version` feature)
+├── docs/superpowers/specs/        # this design + future specs
 ├── src/
-│   ├── main.rs                    # ~50 LOC: parse Cli, dispatch, set exit code
-│   ├── cli.rs                     # Cli + Cmd enum (Section 4)
-│   ├── exit.rs                    # ExitCode constants & ExitStatus → ExitCode
-│   ├── tracing_init.rs            # init_tracing(&TracingConfig)
-│   ├── ctrl_c.rs                  # install_ctrl_c(token)
-│   └── runners/
-│       ├── mod.rs                 # pub use re-exports
-│       ├── sync.rs                # Category A
-│       ├── transfer_pipeline.rs   # Category C shared
-│       ├── cp.rs                  # Category C
-│       ├── mv.rs                  # Category C
-│       ├── rm.rs                  # Category C
-│       ├── create_bucket.rs       # Category B
-│       ├── delete_bucket.rs       # Category B
-│       ├── head_bucket.rs         # Category B
-│       ├── head_object.rs         # Category B
-│       ├── tagging_common.rs      # parse_tagging_to_tags() etc.
-│       ├── object_tagging.rs      # get/put/delete object tagging
-│       ├── bucket_tagging.rs      # get/put/delete bucket tagging
-│       ├── bucket_policy.rs       # get/put/delete bucket policy
-│       └── bucket_versioning.rs   # get/put bucket versioning
+│   ├── main.rs                    # parse Cli, dispatch; per-subcommand
+│   │                              # match arms vendored from each lib's main.rs
+│   ├── cli.rs                     # s7cmd's Cli + Cmd enum (§4)
+│   │
+│   ├── sync_bin/                  # mirrors s3sync/src/bin/s3sync/
+│   │   ├── mod.rs
+│   │   ├── tracing.rs             # vendored from s3sync bin tracing/mod.rs
+│   │   └── cli/
+│   │       ├── mod.rs             # vendored: run(config), EXIT_CODE_*, helpers
+│   │       ├── ctrl_c_handler.rs  # vendored verbatim
+│   │       ├── indicator.rs       # vendored verbatim
+│   │       └── ui_config.rs       # vendored verbatim
+│   │
+│   └── util_bin/                  # mirrors s3util-rs/src/bin/s3util/
+│       ├── mod.rs
+│       ├── tracing_init.rs        # vendored from s3util-rs bin
+│       └── cli/
+│           ├── mod.rs             # vendored: ExitStatus, run_copy_phase,
+│           │                      # build_rate_limiter, EXIT_CODE_*
+│           ├── ctrl_c_handler.rs  # vendored verbatim
+│           ├── indicator.rs       # vendored verbatim
+│           ├── ui_config.rs       # vendored verbatim
+│           ├── tagging.rs         # vendored: parse_tagging_to_tags etc.
+│           ├── cp.rs              # vendored
+│           ├── mv.rs              # vendored
+│           ├── rm.rs              # vendored
+│           ├── create_bucket.rs   # vendored
+│           ├── delete_bucket.rs   # vendored
+│           ├── head_bucket.rs     # vendored
+│           ├── head_object.rs     # vendored
+│           ├── get_object_tagging.rs       # vendored
+│           ├── put_object_tagging.rs       # vendored
+│           ├── delete_object_tagging.rs    # vendored
+│           ├── get_bucket_tagging.rs       # vendored
+│           ├── put_bucket_tagging.rs       # vendored
+│           ├── delete_bucket_tagging.rs    # vendored
+│           ├── get_bucket_policy.rs        # vendored
+│           ├── put_bucket_policy.rs        # vendored
+│           ├── delete_bucket_policy.rs     # vendored
+│           ├── get_bucket_versioning.rs    # vendored
+│           └── put_bucket_versioning.rs    # vendored
 └── tests/
     ├── cli_help.rs                # smoke: --help output for each subcommand
     ├── cli_dispatch.rs            # parse-only tests for each Cmd variant
@@ -282,6 +323,17 @@ s7cmd/
         ├── transfer_e2e.rs
         └── bucket_ops_e2e.rs
 ```
+
+**Vendoring contract:** every file under `sync_bin/` and `util_bin/` carries a header comment naming the source file and the upstream version it was copied from, e.g.:
+
+```rust
+// Vendored from s3util-rs v0.2.0
+//   src/bin/s3util/cli/cp.rs
+// Adjustments: program name "s3util" → "s7cmd"; uses crate-local ExitStatus
+// from util_bin::cli::mod.
+```
+
+This makes upstream re-syncs auditable.
 
 ### 6.1 Cargo.toml sketch
 
@@ -332,28 +384,36 @@ Key call-outs:
 
 ## 7. Testing
 
+Because the bin code is vendored verbatim, the existing test suites of each lib already cover the orchestration logic. s7cmd's own tests focus on the integration seam — that the dispatcher routes correctly and that the lib's behavior reaches the user via the s7cmd binary.
+
 | Layer | Scope | Cost | What it catches |
 |---|---|---|---|
-| Compile-time | `cargo build` | seconds | API drift in either lib; arg-struct refactors; new fields |
-| `tests/cli_help.rs` | `s7cmd --help`, `s7cmd <subcmd> --help` exit 0 and contain known headings; assert `s7cmd sync --help` includes `--filter-callback-lua-script` (Lua passthrough smoke) | ms | Subcommand wiring; flatten works; flag conflicts; Lua feature reaches the user |
+| Compile-time | `cargo build` | seconds | API drift in either lib; arg-struct refactors; new pub fields needed by vendored bin code |
+| `tests/cli_help.rs` | `s7cmd --help`, `s7cmd <subcmd> --help` exit 0 and contain known headings; `s7cmd sync --help` includes `--filter-callback-lua-script` (Lua passthrough smoke) | ms | Subcommand wiring; flatten works; flag conflicts; Lua feature reaches the user |
 | `tests/cli_dispatch.rs` | `Cli::try_parse_from(&[...])` per variant; assert correct `Cmd::*` matched with expected fields | ms | Subcommand routing; positional/flag parsing |
-| `tests/e2e/` (gated by `S7CMD_E2E=1` + `AWS_*` env) | Real S3 / MinIO against a test bucket | seconds–minutes | Behavioral parity with `s3sync`/`s3util` standalone |
+| Vendored unit tests | `cargo test` runs the test modules vendored alongside each `cli/*.rs` | seconds | Detect when an upstream change to a vendored file would break a vendored test |
+| `tests/e2e/` (gated by `S7CMD_E2E=1` + `AWS_*` env) | Real S3 / MinIO against a test bucket | seconds–minutes | End-to-end smoke: each subcommand produces the same observable outcome as the standalone tool |
 
-E2E tests are *behavioral parity* tests against the standalone binaries: for the same input and config, `s7cmd cp` should leave the bucket in the same state as `s3util cp`. Two test fixtures: a small file set and a multipart-threshold-crossing file. Anything beyond that is duplicating each lib's own test suite.
+E2E coverage is intentionally narrow (one fixture per category — small object, multipart-threshold object, bucket-create+head+delete) since the deeper coverage already lives in each lib's own test suites. Two fixtures per category at most.
 
 ## 8. Known risks
 
-1. **`s3util-rs`'s "no API stability" disclaimer.** s7cmd uses `Config`, `storage::s3::api::*`, `transfer::*`, and per-subcommand args structs. Mitigation: pin to `s3util-rs = "0.2"`; add a CI job that bumps to the latest s3util-rs and runs the test suite. If still passing, ratchet the pin; if broken, file an issue or patch s7cmd.
-2. **Behavioral parity drift.** `s3util cp` vs `s7cmd cp` could diverge on output, exit codes, or ctrl-c handling. Mitigation: runners are deliberate ports of `bin/s3util/cli/`, copying the same `ExitStatus` semantics and indicator usage. E2E parity tests catch divergence.
+1. **Vendored bin code drifts from upstream.** The vendoring strategy (§3.2, §6) freezes the bin code at the pinned lib version. When s3sync or s3util-rs releases a new version with bug fixes / new flags / new subcommands, those don't reach s7cmd until someone manually re-runs the vendoring. Mitigation: every vendored file has a header naming its source path and upstream version; a maintenance script (`scripts/vendor-sync.sh`) diffs each vendored file against the upstream pin and emits a delta report. Run on every lib version bump.
+2. **`s3util-rs`'s "no API stability" disclaimer.** s7cmd uses `Config`, `storage::s3::api::*`, `transfer::*`, and per-subcommand args structs. Mitigation: pin to `s3util-rs = "0.2"`; add a CI job that bumps to the latest s3util-rs and runs the test suite. If still passing, ratchet the pin; if broken, file an issue or patch the vendored code.
 3. **Dep-tree duplication.** s3sync, s3util-rs, and s7cmd transitively pull in `aws-sdk-s3`, `aws-config`, `tokio`, etc. Diverging *minor* versions cause Cargo to compile two copies, bloating the binary and risking type-incompatibility at API boundaries. Mitigation: keep s7cmd's pinned minors aligned with both libs at release time; document the alignment in a `MAINTAINERS.md` note.
-4. **Features-flag mismatch.** If either lib gates types s7cmd uses behind a feature flag, that feature must be enabled on our dep declaration. Today: nothing of ours is gated. Re-check at implementation time.
-5. **Lua passthrough means `mlua` is in the dep tree by default.** s3sync vendors Lua 5.4. Adds ~500 KB to release binary and a C build step. To opt out, depend on s3sync with `default-features = false` (must re-enable s3sync's `version` feature explicitly if wanted).
+4. **Features-flag mismatch.** If either lib gates types s7cmd uses behind a feature flag, that feature must be enabled on our dep declaration. Today: only s3sync's `lua_support` (default-on, see risk #6). Re-check at implementation time.
+5. **Tracing writers differ.** s3sync's tracing writes to stdout (default); s3util-rs's writes to stderr (`with_writer(std::io::stderr)`). After `s7cmd sync ...`, log lines land on stdout; after `s7cmd cp ...`, on stderr. This matches each lib's standalone behavior — explicit non-goal to unify in v1.
+6. **Lua passthrough means `mlua` is in the dep tree by default.** s3sync vendors Lua 5.4. Adds ~500 KB to release binary and a C build step. To opt out, depend on s3sync with `default-features = false` (must re-enable s3sync's `version` feature explicitly if wanted).
+7. **Global tracing subscriber.** `tracing_subscriber::*::init()` panics if called twice. Each subcommand only invokes one tracing init (sync uses s3sync's, others use s3util's), and each process invocation runs exactly one subcommand, so the constraint holds. Worth a comment in `main.rs` so a future "warm up tracing in `main`" refactor doesn't break it.
+8. **License compatibility.** Both libs are Apache-2.0; vendored files must keep the same notice. s7cmd's `LICENSE` already matches. Add an `ATTRIBUTIONS.md` listing the vendored sources.
 
 ## 9. Phasing (input to the implementation plan)
 
-- **Phase 1** — scaffold + sync subcommand only (Category A). Validates the architecture end-to-end with one lib.
-- **Phase 2** — cp / mv / rm + shared transfer pipeline (Category C). Validates the harder pattern.
-- **Phase 3** — bucket / object metadata commands (Category B). Mostly mechanical, can land in batches.
+- **Phase 1** — scaffold + sync subcommand. Vendor `sync_bin/` from s3sync; wire `Cmd::Sync` dispatch arm. Validates the vendoring contract end-to-end with one lib.
+- **Phase 2** — cp / mv / rm. Vendor `util_bin/cli/{mod,ctrl_c_handler,indicator,ui_config,cp,mv,rm}.rs` plus `tracing_init/`; wire three dispatch arms. Validates the larger surface and the shared transfer infra.
+- **Phase 3** — bucket / object metadata commands. Vendor remaining `util_bin/cli/*.rs` files (~17); wire dispatch arms. Mostly mechanical and parallelizable; can land in 2–3 batches.
+
+Each phase ends with: passing `cargo build` + `cargo test` + manual smoke `s7cmd <new-subcmd> --help` against a real bucket (MinIO local container suffices).
 
 ## 10. Out of scope for v1
 
