@@ -43,8 +43,8 @@ pub mod delete_bucket_tagging;
 pub mod get_bucket_policy;
 pub mod put_bucket_policy;
 pub mod delete_bucket_policy;
-// pub mod get_bucket_versioning;
-// pub mod put_bucket_versioning;
+pub mod get_bucket_versioning;
+pub mod put_bucket_versioning;
 
 pub use cp::run_cp;
 pub use create_bucket::run_create_bucket;
@@ -54,14 +54,14 @@ pub use delete_bucket_tagging::run_delete_bucket_tagging;
 pub use delete_object_tagging::run_delete_object_tagging;
 pub use get_bucket_policy::run_get_bucket_policy;
 pub use get_bucket_tagging::run_get_bucket_tagging;
-// pub use get_bucket_versioning::run_get_bucket_versioning;
+pub use get_bucket_versioning::run_get_bucket_versioning;
 pub use get_object_tagging::run_get_object_tagging;
 pub use head_bucket::run_head_bucket;
 pub use head_object::run_head_object;
 pub use mv::run_mv;
 pub use put_bucket_policy::run_put_bucket_policy;
 pub use put_bucket_tagging::run_put_bucket_tagging;
-// pub use put_bucket_versioning::run_put_bucket_versioning;
+pub use put_bucket_versioning::run_put_bucket_versioning;
 pub use put_object_tagging::run_put_object_tagging;
 pub use rm::run_rm;
 
