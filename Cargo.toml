@@ -38,6 +38,11 @@ log          = "0.4"
 # Used by the vendored sync runner (callback registration / report summary).
 chrono = "0.4"
 
+# Used by the vendored sync_bin indicator module.
+async-channel         = "2"
+indicatif             = "0.18"
+simple_moving_average = "1"
+
 [features]
 default = []
 
