@@ -31,3 +31,35 @@ fn sync_help_includes_lua_passthrough() {
         .success()
         .stdout(predicate::str::contains("--filter-callback-lua-script"));
 }
+
+#[test]
+fn cp_help_works() {
+    Command::cargo_bin("s7cmd").unwrap()
+        .args(["cp", "--help"])
+        .assert().success()
+        .stdout(predicate::str::contains("AWS Configuration"));
+}
+
+#[test]
+fn mv_help_works() {
+    Command::cargo_bin("s7cmd").unwrap()
+        .args(["mv", "--help"])
+        .assert().success();
+}
+
+#[test]
+fn rm_help_works() {
+    Command::cargo_bin("s7cmd").unwrap()
+        .args(["rm", "--help"])
+        .assert().success();
+}
+
+#[test]
+fn top_level_help_lists_cp_mv_rm() {
+    Command::cargo_bin("s7cmd").unwrap()
+        .arg("--help")
+        .assert().success()
+        .stdout(predicate::str::contains("cp"))
+        .stdout(predicate::str::contains("mv"))
+        .stdout(predicate::str::contains("rm"));
+}

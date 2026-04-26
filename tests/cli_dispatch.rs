@@ -25,5 +25,30 @@ fn parses_sync_with_two_paths() {
             // Just confirm the variant matched; deep assertions belong in s3sync.
             let _ = args;
         }
+        _ => panic!("expected Sync variant"),
     }
+}
+
+#[test]
+fn parses_cp_with_two_paths() {
+    let cli = Cli::try_parse_from([
+        "s7cmd", "cp", "/tmp/file", "s3://bucket/key",
+    ]).expect("cp should parse");
+    assert!(matches!(cli.command, Cmd::Cp(_)));
+}
+
+#[test]
+fn parses_mv_with_two_paths() {
+    let cli = Cli::try_parse_from([
+        "s7cmd", "mv", "s3://b1/k1", "s3://b2/k2",
+    ]).expect("mv should parse");
+    assert!(matches!(cli.command, Cmd::Mv(_)));
+}
+
+#[test]
+fn parses_rm_with_one_path() {
+    let cli = Cli::try_parse_from([
+        "s7cmd", "rm", "s3://bucket/key",
+    ]).expect("rm should parse");
+    assert!(matches!(cli.command, Cmd::Rm(_)));
 }
