@@ -63,3 +63,31 @@ fn top_level_help_lists_cp_mv_rm() {
         .stdout(predicate::str::contains("mv"))
         .stdout(predicate::str::contains("rm"));
 }
+
+#[test]
+fn create_bucket_help_works() {
+    Command::cargo_bin("s7cmd").unwrap()
+        .args(["create-bucket", "--help"])
+        .assert().success();
+}
+
+#[test]
+fn delete_bucket_help_works() {
+    Command::cargo_bin("s7cmd").unwrap()
+        .args(["delete-bucket", "--help"])
+        .assert().success();
+}
+
+#[test]
+fn head_bucket_help_works() {
+    Command::cargo_bin("s7cmd").unwrap()
+        .args(["head-bucket", "--help"])
+        .assert().success();
+}
+
+#[test]
+fn head_object_help_works() {
+    Command::cargo_bin("s7cmd").unwrap()
+        .args(["head-object", "--help"])
+        .assert().success();
+}

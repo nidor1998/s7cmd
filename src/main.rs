@@ -109,6 +109,86 @@ async fn main() -> Result<()> {
             };
             std::process::exit(exit_code);
         }
+        Cmd::CreateBucket(args) => {
+            if let Some(shell) = args.auto_complete_shell() {
+                generate(shell, &mut Cli::command(), "s7cmd",
+                    &mut std::io::stdout());
+                return Ok(());
+            }
+            let tracing_config = args.common.build_tracing_config();
+            if let Some(tc) = &tracing_config {
+                util_bin::tracing_init::init_tracing(tc);
+            }
+            let client_config = args.common.build_client_config();
+            let exit_code = match util_bin::cli::run_create_bucket(args, client_config).await {
+                Ok(status) => status.code(),
+                Err(e) => {
+                    tracing::error!(error = format!("{e:#}"));
+                    util_bin::cli::EXIT_CODE_ERROR
+                }
+            };
+            std::process::exit(exit_code);
+        }
+        Cmd::DeleteBucket(args) => {
+            if let Some(shell) = args.auto_complete_shell() {
+                generate(shell, &mut Cli::command(), "s7cmd",
+                    &mut std::io::stdout());
+                return Ok(());
+            }
+            let tracing_config = args.common.build_tracing_config();
+            if let Some(tc) = &tracing_config {
+                util_bin::tracing_init::init_tracing(tc);
+            }
+            let client_config = args.common.build_client_config();
+            let exit_code = match util_bin::cli::run_delete_bucket(args, client_config).await {
+                Ok(()) => util_bin::cli::EXIT_CODE_SUCCESS,
+                Err(e) => {
+                    tracing::error!(error = format!("{e:#}"));
+                    util_bin::cli::EXIT_CODE_ERROR
+                }
+            };
+            std::process::exit(exit_code);
+        }
+        Cmd::HeadBucket(args) => {
+            if let Some(shell) = args.auto_complete_shell() {
+                generate(shell, &mut Cli::command(), "s7cmd",
+                    &mut std::io::stdout());
+                return Ok(());
+            }
+            let tracing_config = args.common.build_tracing_config();
+            if let Some(tc) = &tracing_config {
+                util_bin::tracing_init::init_tracing(tc);
+            }
+            let client_config = args.common.build_client_config();
+            let exit_code = match util_bin::cli::run_head_bucket(args, client_config).await {
+                Ok(status) => status.code(),
+                Err(e) => {
+                    tracing::error!(error = format!("{e:#}"));
+                    util_bin::cli::EXIT_CODE_ERROR
+                }
+            };
+            std::process::exit(exit_code);
+        }
+        Cmd::HeadObject(args) => {
+            if let Some(shell) = args.auto_complete_shell() {
+                generate(shell, &mut Cli::command(), "s7cmd",
+                    &mut std::io::stdout());
+                return Ok(());
+            }
+            let tracing_config = args.common.build_tracing_config();
+            if let Some(tc) = &tracing_config {
+                util_bin::tracing_init::init_tracing(tc);
+            }
+            let client_config = args.common.build_client_config();
+            let exit_code = match util_bin::cli::run_head_object(args, client_config).await {
+                Ok(status) => status.code(),
+                Err(e) => {
+                    tracing::error!(error = format!("{e:#}"));
+                    util_bin::cli::EXIT_CODE_ERROR
+                }
+            };
+            std::process::exit(exit_code);
+        }
     }
 }
 

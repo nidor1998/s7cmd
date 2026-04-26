@@ -22,4 +22,12 @@ pub enum Cmd {
     Mv(s3util_rs::config::args::MvArgs),
     /// Delete a single S3 object
     Rm(s3util_rs::config::args::RmArgs),
+    /// Create an S3 bucket
+    CreateBucket(s3util_rs::config::args::CreateBucketArgs),
+    /// Delete an S3 bucket
+    DeleteBucket(s3util_rs::config::args::DeleteBucketArgs),
+    /// Head an S3 bucket
+    HeadBucket(s3util_rs::config::args::HeadBucketArgs),
+    /// Head an S3 object
+    HeadObject(s3util_rs::config::args::HeadObjectArgs),
 }
