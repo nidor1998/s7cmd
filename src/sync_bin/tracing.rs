@@ -4,12 +4,32 @@
 //              filter strings (vendored tracing events now emit from
 //              s7cmd::sync_bin::* targets, not s3sync)
 use std::env;
+use std::io::Write;
 
 use tracing_subscriber::fmt::format::FmtSpan;
 
 use s3sync::config::TracingConfig;
 
 const EVENT_FILTER_ENV_VAR: &str = "RUST_LOG";
+
+/// A writer that silently ignores BrokenPipe errors, so piping to
+/// head/tail does not produce noisy tracing-subscriber diagnostics.
+struct PipeSafeWriter;
+
+impl Write for PipeSafeWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        match std::io::stdout().write(buf) {
+            Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Ok(buf.len()),
+            other => other,
+        }
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        match std::io::stdout().flush() {
+            Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
+            other => other,
+        }
+    }
+}
 
 pub fn init_tracing(config: &TracingConfig) {
     let fmt_span = if config.span_events_tracing {
@@ -19,6 +39,7 @@ pub fn init_tracing(config: &TracingConfig) {
     };
 
     let subscriber_builder = tracing_subscriber::fmt()
+        .with_writer(|| PipeSafeWriter)
         .compact()
         .with_target(false)
         .with_ansi(!config.disable_color_tracing)

@@ -5,12 +5,32 @@
 //              s7cmd::util_bin::* targets, not s3util/s3util_rs)
 
 use std::env;
+use std::io::Write;
 
 use tracing_subscriber::fmt::format::FmtSpan;
 
 use s3util_rs::config::TracingConfig;
 
 const EVENT_FILTER_ENV_VAR: &str = "RUST_LOG";
+
+/// A writer that silently ignores BrokenPipe errors, so piping to
+/// head/tail does not produce noisy tracing-subscriber diagnostics.
+struct PipeSafeWriter;
+
+impl Write for PipeSafeWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        match std::io::stderr().write(buf) {
+            Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Ok(buf.len()),
+            other => other,
+        }
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        match std::io::stderr().flush() {
+            Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
+            other => other,
+        }
+    }
+}
 
 pub fn init_tracing(config: &TracingConfig) {
     let fmt_span = if config.span_events_tracing {
@@ -20,7 +40,7 @@ pub fn init_tracing(config: &TracingConfig) {
     };
 
     let subscriber_builder = tracing_subscriber::fmt()
-        .with_writer(std::io::stderr)
+        .with_writer(|| PipeSafeWriter)
         .compact()
         .with_target(false)
         .with_ansi(!config.disable_color_tracing)
