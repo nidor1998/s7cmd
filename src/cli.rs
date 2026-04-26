@@ -1,11 +1,27 @@
 use clap::{Parser, Subcommand};
 use clap_complete::shells::Shell;
 
+#[cfg(feature = "version")]
+use shadow_rs::shadow;
+
+#[cfg(feature = "version")]
+shadow!(build);
+
 #[derive(Parser, Clone, Debug)]
+#[cfg_attr(
+    feature = "version",
+    command(version = format!(
+        "{} ({} {}), {}",
+        build::PKG_VERSION,
+        build::SHORT_COMMIT,
+        build::BUILD_TARGET,
+        build::RUST_VERSION
+    ))
+)]
+#[cfg_attr(not(feature = "version"), command(version))]
 #[command(
     name = "s7cmd",
     about = "Unified S3 CLI: s3sync + s3util",
-    version,
     arg_required_else_help = true,
 )]
 pub struct Cli {

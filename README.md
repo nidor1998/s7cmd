@@ -28,6 +28,14 @@ Each subcommand accepts the same flags as its standalone equivalent
 cargo install s7cmd
 ```
 
+The `version` feature (in default features) enables a richer
+`s7cmd --version` output that includes the build commit, target triple,
+and rustc version. To opt out:
+
+```bash
+cargo install s7cmd --no-default-features
+```
+
 ## Lua scripting
 
 `s7cmd sync` includes s3sync's Lua scripting passthrough by default

@@ -193,3 +193,22 @@ fn top_level_help_lists_ls_and_clean() {
         .stdout(predicate::str::contains("ls"))
         .stdout(predicate::str::contains("clean"));
 }
+
+#[test]
+fn version_short_flag_prints_pkg_version() {
+    Command::cargo_bin("s7cmd").unwrap()
+        .arg("-V")
+        .assert().success()
+        // The version output should at least contain the crate name and the
+        // semver from Cargo.toml. Whether it includes commit/target/rustc
+        // depends on whether the `version` feature was compiled in.
+        .stdout(predicate::str::contains("s7cmd 0.1.0"));
+}
+
+#[test]
+fn version_long_flag_prints_pkg_version() {
+    Command::cargo_bin("s7cmd").unwrap()
+        .arg("--version")
+        .assert().success()
+        .stdout(predicate::str::contains("s7cmd 0.1.0"));
+}

@@ -3135,6 +3135,7 @@ dependencies = [
  "s3sync",
  "s3util-rs",
  "serde_json",
+ "shadow-rs 2.0.0",
  "simple_moving_average",
  "tokio",
  "tracing",
