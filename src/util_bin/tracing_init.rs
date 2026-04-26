@@ -1,6 +1,8 @@
 // Vendored from s3util-rs@0.2.0
 //   src/bin/s3util/tracing_init/mod.rs
-// Adjustments: stripped #[cfg(test)] mod tests
+// Adjustments: stripped #[cfg(test)] mod tests; added s7cmd=<level> to
+//              filter strings (vendored tracing events now emit from
+//              s7cmd::util_bin::* targets, not s3util/s3util_rs)
 
 use std::env;
 
@@ -28,13 +30,13 @@ pub fn init_tracing(config: &TracingConfig) {
     let tracing_level = config.tracing_level;
     let event_filter = if config.aws_sdk_tracing {
         format!(
-            "s3util={tracing_level},s3util_rs={tracing_level},aws_smithy_runtime={tracing_level},aws_config={tracing_level},aws_sigv4={tracing_level}"
+            "s7cmd={tracing_level},s3util={tracing_level},s3util_rs={tracing_level},aws_smithy_runtime={tracing_level},aws_config={tracing_level},aws_sigv4={tracing_level}"
         )
     } else if env::var(EVENT_FILTER_ENV_VAR).is_ok() {
         env::var(EVENT_FILTER_ENV_VAR).unwrap()
     } else {
         show_target = false;
-        format!("s3util={tracing_level},s3util_rs={tracing_level}")
+        format!("s7cmd={tracing_level},s3util={tracing_level},s3util_rs={tracing_level}")
     };
 
     let subscriber_builder = subscriber_builder
