@@ -11,6 +11,7 @@ use clap_complete::generate;
 
 mod cli;
 mod sync_bin;
+mod util_bin;
 
 use cli::{Cli, Cmd};
 
@@ -43,5 +44,7 @@ async fn main() -> Result<()> {
             // Errors propagate up; anyhow → main returns Err → exit 1.
             sync_bin::cli::run(config).await
         }
+        // Temporary: T2.4 will replace this catch-all with Cp/Mv/Rm arms.
+        _ => unimplemented!("subcommand not yet wired"),
     }
 }

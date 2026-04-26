@@ -2997,7 +2997,9 @@ dependencies = [
  "chrono",
  "clap",
  "clap_complete",
+ "dyn-clone",
  "indicatif",
+ "leaky-bucket",
  "log",
  "predicates",
  "s3sync",
@@ -3006,6 +3008,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "urlencoding",
 ]
 
 [[package]]

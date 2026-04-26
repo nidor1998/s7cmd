@@ -43,6 +43,11 @@ async-channel         = "2"
 indicatif             = "0.18"
 simple_moving_average = "1"
 
+# Used by the vendored util_bin cli module.
+leaky-bucket = "1.1"
+urlencoding  = "2.1"
+dyn-clone    = "1.0"
+
 [features]
 default = []
 
