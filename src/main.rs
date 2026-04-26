@@ -309,6 +309,66 @@ async fn main() -> Result<()> {
             };
             std::process::exit(exit_code);
         }
+        Cmd::GetBucketPolicy(args) => {
+            if let Some(shell) = args.auto_complete_shell() {
+                generate(shell, &mut Cli::command(), "s7cmd",
+                    &mut std::io::stdout());
+                return Ok(());
+            }
+            let tracing_config = args.common.build_tracing_config();
+            if let Some(tc) = &tracing_config {
+                util_bin::tracing_init::init_tracing(tc);
+            }
+            let client_config = args.common.build_client_config();
+            let exit_code = match util_bin::cli::run_get_bucket_policy(args, client_config).await {
+                Ok(status) => status.code(),
+                Err(e) => {
+                    tracing::error!(error = format!("{e:#}"));
+                    util_bin::cli::EXIT_CODE_ERROR
+                }
+            };
+            std::process::exit(exit_code);
+        }
+        Cmd::PutBucketPolicy(args) => {
+            if let Some(shell) = args.auto_complete_shell() {
+                generate(shell, &mut Cli::command(), "s7cmd",
+                    &mut std::io::stdout());
+                return Ok(());
+            }
+            let tracing_config = args.common.build_tracing_config();
+            if let Some(tc) = &tracing_config {
+                util_bin::tracing_init::init_tracing(tc);
+            }
+            let client_config = args.common.build_client_config();
+            let exit_code = match util_bin::cli::run_put_bucket_policy(args, client_config).await {
+                Ok(()) => util_bin::cli::EXIT_CODE_SUCCESS,
+                Err(e) => {
+                    tracing::error!(error = format!("{e:#}"));
+                    util_bin::cli::EXIT_CODE_ERROR
+                }
+            };
+            std::process::exit(exit_code);
+        }
+        Cmd::DeleteBucketPolicy(args) => {
+            if let Some(shell) = args.auto_complete_shell() {
+                generate(shell, &mut Cli::command(), "s7cmd",
+                    &mut std::io::stdout());
+                return Ok(());
+            }
+            let tracing_config = args.common.build_tracing_config();
+            if let Some(tc) = &tracing_config {
+                util_bin::tracing_init::init_tracing(tc);
+            }
+            let client_config = args.common.build_client_config();
+            let exit_code = match util_bin::cli::run_delete_bucket_policy(args, client_config).await {
+                Ok(()) => util_bin::cli::EXIT_CODE_SUCCESS,
+                Err(e) => {
+                    tracing::error!(error = format!("{e:#}"));
+                    util_bin::cli::EXIT_CODE_ERROR
+                }
+            };
+            std::process::exit(exit_code);
+        }
     }
 }
 

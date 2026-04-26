@@ -127,3 +127,18 @@ fn delete_bucket_tagging_help_works() {
     Command::cargo_bin("s7cmd").unwrap()
         .args(["delete-bucket-tagging", "--help"]).assert().success();
 }
+#[test]
+fn get_bucket_policy_help_works() {
+    Command::cargo_bin("s7cmd").unwrap()
+        .args(["get-bucket-policy", "--help"]).assert().success();
+}
+#[test]
+fn put_bucket_policy_help_works() {
+    Command::cargo_bin("s7cmd").unwrap()
+        .args(["put-bucket-policy", "--help"]).assert().success();
+}
+#[test]
+fn delete_bucket_policy_help_works() {
+    Command::cargo_bin("s7cmd").unwrap()
+        .args(["delete-bucket-policy", "--help"]).assert().success();
+}

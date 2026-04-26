@@ -42,4 +42,10 @@ pub enum Cmd {
     PutBucketTagging(s3util_rs::config::args::PutBucketTaggingArgs),
     /// Delete tagging from a bucket
     DeleteBucketTagging(s3util_rs::config::args::DeleteBucketTaggingArgs),
+    /// Get a bucket's policy
+    GetBucketPolicy(s3util_rs::config::args::GetBucketPolicyArgs),
+    /// Put a bucket policy
+    PutBucketPolicy(s3util_rs::config::args::PutBucketPolicyArgs),
+    /// Delete a bucket's policy
+    DeleteBucketPolicy(s3util_rs::config::args::DeleteBucketPolicyArgs),
 }
