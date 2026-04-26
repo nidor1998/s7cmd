@@ -40,9 +40,9 @@ pub enum Cmd {
     /// Synchronize files between local and S3 (or S3 to S3)
     Sync(Box<s3sync::CLIArgs>),
 
-    /// List S3 objects (powerful filtering / sorting / JSON output)
+    /// List S3 objects
     Ls(Box<s3ls_rs::CLIArgs>),
-    /// Bulk-delete S3 objects (parallel, filters, dry-run, max-delete)
+    /// Bulk-delete S3 objects
     Clean(Box<s3rm_rs::CLIArgs>),
 
     /// Copy objects from/to S3
