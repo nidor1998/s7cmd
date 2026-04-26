@@ -1,14 +1,22 @@
 use clap::{Parser, Subcommand};
+use clap_complete::shells::Shell;
 
 #[derive(Parser, Clone, Debug)]
 #[command(
     name = "s7cmd",
     about = "Unified S3 CLI: s3sync + s3util",
     version,
+    arg_required_else_help = true,
 )]
 pub struct Cli {
+    /// Generate shell completions for s7cmd (all subcommands) and exit.
+    /// Equivalent to passing `--auto-complete-shell <SHELL>` to any subcommand,
+    /// but works without picking one.
+    #[arg(long, value_enum, value_name = "SHELL", global = false)]
+    pub auto_complete_shell: Option<Shell>,
+
     #[command(subcommand)]
-    pub command: Cmd,
+    pub command: Option<Cmd>,
 }
 
 #[derive(Subcommand, Clone, Debug)]
@@ -22,6 +30,7 @@ pub enum Cmd {
     Mv(s3util_rs::config::args::MvArgs),
     /// Delete a single S3 object
     Rm(s3util_rs::config::args::RmArgs),
+
     /// Create an S3 bucket
     CreateBucket(s3util_rs::config::args::CreateBucketArgs),
     /// Delete an S3 bucket
@@ -30,24 +39,28 @@ pub enum Cmd {
     HeadBucket(s3util_rs::config::args::HeadBucketArgs),
     /// Head an S3 object
     HeadObject(s3util_rs::config::args::HeadObjectArgs),
+
     /// Get an S3 object's tagging
     GetObjectTagging(s3util_rs::config::args::GetObjectTaggingArgs),
     /// Put tagging on an S3 object
     PutObjectTagging(s3util_rs::config::args::PutObjectTaggingArgs),
     /// Delete tagging from an S3 object
     DeleteObjectTagging(s3util_rs::config::args::DeleteObjectTaggingArgs),
+
     /// Get a bucket's tagging
     GetBucketTagging(s3util_rs::config::args::GetBucketTaggingArgs),
     /// Put tagging on a bucket
     PutBucketTagging(s3util_rs::config::args::PutBucketTaggingArgs),
     /// Delete tagging from a bucket
     DeleteBucketTagging(s3util_rs::config::args::DeleteBucketTaggingArgs),
+
     /// Get a bucket's policy
     GetBucketPolicy(s3util_rs::config::args::GetBucketPolicyArgs),
     /// Put a bucket policy
     PutBucketPolicy(s3util_rs::config::args::PutBucketPolicyArgs),
     /// Delete a bucket's policy
     DeleteBucketPolicy(s3util_rs::config::args::DeleteBucketPolicyArgs),
+
     /// Get a bucket's versioning configuration
     GetBucketVersioning(s3util_rs::config::args::GetBucketVersioningArgs),
     /// Put a bucket versioning configuration

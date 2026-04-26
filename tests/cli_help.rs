@@ -152,3 +152,21 @@ fn put_bucket_versioning_help_works() {
     Command::cargo_bin("s7cmd").unwrap()
         .args(["put-bucket-versioning", "--help"]).assert().success();
 }
+
+#[test]
+fn top_level_help_lists_auto_complete_shell() {
+    Command::cargo_bin("s7cmd").unwrap()
+        .arg("--help")
+        .assert().success()
+        .stdout(predicate::str::contains("--auto-complete-shell"));
+}
+
+#[test]
+fn top_level_auto_complete_shell_runs() {
+    // Smoke: top-level --auto-complete-shell bash should exit 0 with
+    // non-empty stdout (the shell completion script).
+    Command::cargo_bin("s7cmd").unwrap()
+        .args(["--auto-complete-shell", "bash"])
+        .assert().success()
+        .stdout(predicate::str::contains("complete"));  // bash completion scripts contain `complete -F`
+}

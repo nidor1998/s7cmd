@@ -18,7 +18,24 @@ use cli::{Cli, Cmd};
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli_args = Cli::parse();
-    match cli_args.command {
+
+    // Top-level --auto-complete-shell: generate completions for the whole
+    // s7cmd CLI (all subcommands) and exit. This is the global form;
+    // per-subcommand --auto-complete-shell still works (handled below in
+    // each dispatch arm).
+    if let Some(shell) = cli_args.auto_complete_shell {
+        generate(shell, &mut Cli::command(), "s7cmd",
+            &mut std::io::stdout());
+        return Ok(());
+    }
+
+    // arg_required_else_help on the Cli ensures we always have a command
+    // by this point — but the type is Option<Cmd>, so unwrap explicitly.
+    let command = cli_args.command.expect(
+        "clap's arg_required_else_help should have prevented this"
+    );
+
+    match command {
         // ── port of s3sync's main.rs ───────────────────────────
         Cmd::Sync(boxed_args) => {
             let mut config = match s3sync::Config::try_from(*boxed_args) {
