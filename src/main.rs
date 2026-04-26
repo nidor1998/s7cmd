@@ -9,7 +9,9 @@ use anyhow::Result;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
 
+mod clean_bin;
 mod cli;
+mod ls_bin;
 mod sync_bin;
 mod util_bin;
 
@@ -60,6 +62,30 @@ async fn main() -> Result<()> {
             // exits the process with EXIT_CODE_WARNING (3) on warning.
             // Errors propagate up; anyhow → main returns Err → exit 1.
             sync_bin::cli::run(config).await
+        }
+        // ── port of s3ls-rs's main.rs ──────────────────────────
+        Cmd::Ls(boxed_args) => {
+            let config = ls_bin::load_config_exit_if_err(*boxed_args);
+            if let Some(shell) = config.auto_complete_shell {
+                generate(shell, &mut Cli::command(), "s7cmd",
+                    &mut std::io::stdout());
+                return Ok(());
+            }
+            ls_bin::start_tracing_if_necessary(&config);
+            tracing::trace!(target: "s3ls", "config = {:?}", config);
+            ls_bin::run(config).await
+        }
+        // ── port of s3rm-rs's main.rs ──────────────────────────
+        Cmd::Clean(boxed_args) => {
+            let config = clean_bin::load_config_exit_if_err(*boxed_args);
+            if let Some(shell) = config.auto_complete_shell {
+                generate(shell, &mut Cli::command(), "s7cmd",
+                    &mut std::io::stdout());
+                return Ok(());
+            }
+            clean_bin::start_tracing_if_necessary(&config);
+            tracing::trace!(target: "s3rm", "config = {:?}", config);
+            clean_bin::run(config).await
         }
         // ── ports of s3util-rs's main.rs match arms ─────────────
         Cmd::Cp(args) => {

@@ -15,6 +15,26 @@ and version.
   - `cli/ui_config.rs` (← src/bin/s3sync/cli/ui_config.rs)
   - `tracing.rs` (← src/bin/s3sync/tracing/mod.rs)
 
+## s3rm-rs (Apache-2.0)
+- Author: nidor1998
+- Repo: https://github.com/nidor1998/s3rm-rs
+- Version pinned: 1.3.3
+- Vendored files (under `src/clean_bin/`):
+  - `mod.rs` (← src/bin/s3rm/main.rs, with #[tokio::main] removed and helpers made pub)
+  - `tracing_init.rs` (← src/bin/s3rm/tracing_init.rs)
+  - `ctrl_c_handler.rs` (← src/bin/s3rm/ctrl_c_handler/mod.rs)
+  - `indicator.rs` (← src/bin/s3rm/indicator.rs)
+  - `ui_config.rs` (← src/bin/s3rm/ui_config.rs)
+
+## s3ls-rs (Apache-2.0)
+- Author: nidor1998
+- Repo: https://github.com/nidor1998/s3ls-rs
+- Version pinned: 0.4.1
+- Vendored files (under `src/ls_bin/`):
+  - `mod.rs` (← src/bin/s3ls/main.rs, with #[tokio::main] removed and helpers made pub)
+  - `tracing_init.rs` (← src/bin/s3ls/tracing_init.rs)
+  - `ctrl_c_handler.rs` (← src/bin/s3ls/ctrl_c_handler/mod.rs)
+
 ## s3util-rs (Apache-2.0)
 - Author: nidor1998
 - Repo: https://github.com/nidor1998/s3util-rs

@@ -8,6 +8,8 @@ Unified S3 CLI bundling [s3sync](https://github.com/nidor1998/s3sync) and
 | Subcommand | What it does | Source library |
 |---|---|---|
 | `sync` | Synchronize a directory tree between local and S3 | s3sync |
+| `ls` | List S3 objects (filters, sorting, JSON output) | s3ls-rs |
+| `clean` | Bulk-delete with filters, parallel workers, dry-run, max-delete safety | s3rm-rs |
 | `cp` / `mv` / `rm` | Copy / move / delete objects | s3util-rs |
 | `create-bucket` / `delete-bucket` / `head-bucket` | Bucket lifecycle | s3util-rs |
 | `head-object` | Object metadata (HEAD) | s3util-rs |

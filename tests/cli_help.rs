@@ -170,3 +170,26 @@ fn top_level_auto_complete_shell_runs() {
         .assert().success()
         .stdout(predicate::str::contains("complete"));  // bash completion scripts contain `complete -F`
 }
+
+#[test]
+fn ls_help_works() {
+    Command::cargo_bin("s7cmd").unwrap()
+        .args(["ls", "--help"])
+        .assert().success();
+}
+
+#[test]
+fn clean_help_works() {
+    Command::cargo_bin("s7cmd").unwrap()
+        .args(["clean", "--help"])
+        .assert().success();
+}
+
+#[test]
+fn top_level_help_lists_ls_and_clean() {
+    Command::cargo_bin("s7cmd").unwrap()
+        .arg("--help")
+        .assert().success()
+        .stdout(predicate::str::contains("ls"))
+        .stdout(predicate::str::contains("clean"));
+}

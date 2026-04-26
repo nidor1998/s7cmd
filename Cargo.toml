@@ -17,6 +17,9 @@ categories = ["command-line-utilities", "filesystem"]
 # `s7cmd sync --help`. Use default-features = false to opt out.
 s3sync     = "1.57"
 s3util-rs  = "0.2"
+# Vendored bin code is sourced from these versions; pin minor.
+s3rm-rs    = "1.3"
+s3ls-rs    = "0.4"
 
 # Re-export the same AWS SDK minor versions both libs use so Cargo unifies
 # the dep tree (otherwise you get two compiled copies and possible type
