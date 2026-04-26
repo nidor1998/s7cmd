@@ -21,7 +21,7 @@ shadow!(build);
 #[cfg_attr(not(feature = "version"), command(version))]
 #[command(
     name = "s7cmd",
-    about = "Fast and reliable command-line tool for Amazon S3",
+    about = "Reliable, flexible, and fast command-line tool for Amazon S3",
     arg_required_else_help = true
 )]
 pub struct Cli {
