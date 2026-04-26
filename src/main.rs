@@ -38,7 +38,7 @@ async fn main() -> Result<()> {
             if let Some(tc) = &config.tracing_config {
                 sync_bin::tracing::init_tracing(tc);
             }
-            tracing::trace!("config = {:?}", config);
+            tracing::trace!(target: "s3sync", "config = {:?}", config);
             // sync_bin::cli::run handles ctrl-c, pipeline, indicator, and
             // exits the process with EXIT_CODE_WARNING (3) on warning.
             // Errors propagate up; anyhow → main returns Err → exit 1.
@@ -426,6 +426,7 @@ fn start_tracing_if_necessary(config: &s3util_rs::Config) -> bool {
 // is added without a redacting Debug impl.
 fn trace_config_summary(config: &s3util_rs::Config) {
     tracing::trace!(
+        target: "s3util",
         "config = {{ source: {:?}, target: {:?}, transfer_config: {:?}, server_side_copy: {}, version_id: {:?} }}",
         config.source,
         config.target,

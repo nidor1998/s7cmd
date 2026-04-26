@@ -20,7 +20,7 @@ and version.
 - Repo: https://github.com/nidor1998/s3util-rs
 - Version pinned: 0.2.0
 - Vendored files (under `src/util_bin/`):
-  - `cli/*.rs` (← src/bin/s3util/cli/*.rs, all 25 files)
+  - `cli/*.rs` (← src/bin/s3util/cli/*.rs, 23 files)
   - `tracing_init.rs` (← src/bin/s3util/tracing_init/mod.rs)
 - Plus the helpers `start_tracing_if_necessary` and `trace_config_summary`
   vendored from `src/bin/s3util/main.rs` into `src/main.rs`.
