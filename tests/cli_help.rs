@@ -112,3 +112,18 @@ fn delete_object_tagging_help_works() {
         .args(["delete-object-tagging", "--help"])
         .assert().success();
 }
+#[test]
+fn get_bucket_tagging_help_works() {
+    Command::cargo_bin("s7cmd").unwrap()
+        .args(["get-bucket-tagging", "--help"]).assert().success();
+}
+#[test]
+fn put_bucket_tagging_help_works() {
+    Command::cargo_bin("s7cmd").unwrap()
+        .args(["put-bucket-tagging", "--help"]).assert().success();
+}
+#[test]
+fn delete_bucket_tagging_help_works() {
+    Command::cargo_bin("s7cmd").unwrap()
+        .args(["delete-bucket-tagging", "--help"]).assert().success();
+}

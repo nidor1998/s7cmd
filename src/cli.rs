@@ -36,4 +36,10 @@ pub enum Cmd {
     PutObjectTagging(s3util_rs::config::args::PutObjectTaggingArgs),
     /// Delete tagging from an S3 object
     DeleteObjectTagging(s3util_rs::config::args::DeleteObjectTaggingArgs),
+    /// Get a bucket's tagging
+    GetBucketTagging(s3util_rs::config::args::GetBucketTaggingArgs),
+    /// Put tagging on a bucket
+    PutBucketTagging(s3util_rs::config::args::PutBucketTaggingArgs),
+    /// Delete tagging from a bucket
+    DeleteBucketTagging(s3util_rs::config::args::DeleteBucketTaggingArgs),
 }
