@@ -3004,6 +3004,7 @@ dependencies = [
  "predicates",
  "s3sync",
  "s3util-rs",
+ "serde_json",
  "simple_moving_average",
  "tokio",
  "tracing",
