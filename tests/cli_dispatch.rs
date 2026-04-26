@@ -19,14 +19,7 @@ fn parses_sync_with_two_paths() {
         "--allow-both-local-storage",
         "/tmp/src", "/tmp/dst",
     ]).expect("sync should parse");
-    match cli.command {
-        Cmd::Sync(args) => {
-            // s3sync::CLIArgs exposes source/target as String fields after parsing.
-            // Just confirm the variant matched; deep assertions belong in s3sync.
-            let _ = args;
-        }
-        _ => panic!("expected Sync variant"),
-    }
+    assert!(matches!(cli.command, Cmd::Sync(_)));
 }
 
 #[test]
