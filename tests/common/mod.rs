@@ -74,7 +74,12 @@ pub fn create_sized_file(dir: &Path, name: &str, size: usize) -> PathBuf {
 
 // === e2e_test-gated SDK helpers ===
 
+// Re-exported for use by tests/e2e_*.rs files. Test crates that don't
+// consume them (e.g. cli_arg_validation.rs uses only s7cmd_cmd/run) make
+// these re-exports look unused inside that crate's compilation, so suppress
+// the false-positive locally.
 #[cfg(e2e_test)]
+#[allow(unused_imports)]
 pub use e2e::{REGION, TestHelper};
 
 #[cfg(e2e_test)]
