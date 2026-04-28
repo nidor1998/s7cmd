@@ -571,3 +571,325 @@ fn empty_s3_storage_path(original: &StoragePath) -> StoragePath {
         _ => unreachable!("expected S3 storage path"),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use s3util_rs::config::args::{Commands, parse_from_args};
+
+    use super::*;
+
+    fn build_config(args: Vec<&str>) -> Config {
+        let cli = parse_from_args(args).unwrap();
+        let Commands::Cp(cp_args) = cli.command else {
+            panic!("expected Cp variant");
+        };
+        Config::try_from(cp_args).unwrap()
+    }
+
+    /// Create a temp directory under the user's tmp dir using a UUID
+    /// suffix. Returned path is removed at end of test via the Drop helper.
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new() -> Self {
+            let path = std::env::temp_dir().join(format!("s7cmd_unit_{}", uuid::Uuid::new_v4()));
+            std::fs::create_dir_all(&path).expect("create temp dir");
+            Self(path)
+        }
+
+        fn path(&self) -> &std::path::Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// Create a temporary file with a unique path, returns its path.
+    /// The file persists until `remove_file` is called manually or test exits.
+    fn temp_file_path() -> PathBuf {
+        std::env::temp_dir().join(format!("s7cmd_unit_file_{}.dat", uuid::Uuid::new_v4()))
+    }
+
+    #[test]
+    fn exit_status_codes() {
+        assert_eq!(ExitStatus::Success.code(), EXIT_CODE_SUCCESS);
+        assert_eq!(ExitStatus::Warning.code(), EXIT_CODE_WARNING);
+        assert_eq!(ExitStatus::NotFound.code(), EXIT_CODE_NOT_FOUND);
+        assert_eq!(ExitStatus::Cancelled.code(), EXIT_CODE_CANCELLED);
+        assert_eq!(EXIT_CODE_SUCCESS, 0);
+        assert_eq!(EXIT_CODE_ERROR, 1);
+        assert_eq!(EXIT_CODE_WARNING, 3);
+        assert_eq!(EXIT_CODE_NOT_FOUND, 4);
+        assert_eq!(EXIT_CODE_CANCELLED, 130);
+    }
+
+    #[test]
+    fn get_path_strings_formats_each_storage_kind() {
+        let s3_with_prefix = StoragePath::S3 {
+            bucket: "b".to_string(),
+            prefix: "k/v".to_string(),
+        };
+        let s3_no_prefix = StoragePath::S3 {
+            bucket: "b".to_string(),
+            prefix: String::new(),
+        };
+        let local = StoragePath::Local(PathBuf::from("/tmp/x"));
+        let stdio = StoragePath::Stdio;
+
+        let (src, tgt) = get_path_strings(&s3_with_prefix, &local);
+        assert_eq!(src, "s3://b/k/v");
+        assert_eq!(tgt, "/tmp/x");
+
+        let (src, tgt) = get_path_strings(&s3_no_prefix, &stdio);
+        assert_eq!(src, "s3://b");
+        assert_eq!(tgt, "-");
+
+        let (src, tgt) = get_path_strings(&stdio, &s3_with_prefix);
+        assert_eq!(src, "-");
+        assert_eq!(tgt, "s3://b/k/v");
+
+        // Cover the empty-prefix arm of target_str.
+        let (src, tgt) = get_path_strings(&local, &s3_no_prefix);
+        assert_eq!(src, "/tmp/x");
+        assert_eq!(tgt, "s3://b");
+    }
+
+    #[test]
+    fn format_target_path_for_each_storage_kind() {
+        let s3 = StoragePath::S3 {
+            bucket: "mybucket".to_string(),
+            prefix: String::new(),
+        };
+        assert_eq!(format_target_path(&s3, "k/v.dat"), "s3://mybucket/k/v.dat");
+
+        let local = StoragePath::Local(PathBuf::from("/x"));
+        assert_eq!(format_target_path(&local, "ignored"), "ignored");
+
+        assert_eq!(format_target_path(&StoragePath::Stdio, "ignored"), "-");
+    }
+
+    #[test]
+    fn empty_local_storage_path_is_dot() {
+        let StoragePath::Local(p) = empty_local_storage_path() else {
+            panic!("expected Local");
+        };
+        assert_eq!(p, PathBuf::from("."));
+    }
+
+    #[test]
+    fn empty_s3_storage_path_clears_prefix_keeps_bucket() {
+        let original = StoragePath::S3 {
+            bucket: "mybucket".to_string(),
+            prefix: "some/key".to_string(),
+        };
+        let StoragePath::S3 { bucket, prefix } = empty_s3_storage_path(&original) else {
+            panic!("expected S3");
+        };
+        assert_eq!(bucket, "mybucket");
+        assert_eq!(prefix, "");
+    }
+
+    #[test]
+    fn build_rate_limiter_returns_none_when_unset() {
+        let config = build_config(vec!["s3util", "cp", "/tmp/a", "s3://b/k"]);
+        assert!(config.rate_limit_bandwidth.is_none());
+        assert!(build_rate_limiter(&config).is_none());
+    }
+
+    #[test]
+    fn build_rate_limiter_returns_some_when_set() {
+        let config = build_config(vec![
+            "s3util",
+            "cp",
+            "--rate-limit-bandwidth",
+            "10MiB",
+            "/tmp/a",
+            "s3://b/k",
+        ]);
+        assert!(config.rate_limit_bandwidth.is_some());
+        assert!(build_rate_limiter(&config).is_some());
+    }
+
+    #[test]
+    fn extract_keys_local_to_s3_object_target() {
+        let config = build_config(vec!["s3util", "cp", "/tmp/source.dat", "s3://b/key.dat"]);
+        let (src, tgt) = extract_keys(&config).unwrap();
+        assert_eq!(src, "/tmp/source.dat");
+        assert_eq!(tgt, "key.dat");
+    }
+
+    #[test]
+    fn extract_keys_local_to_s3_bucket_only_uses_basename() {
+        let config = build_config(vec!["s3util", "cp", "/tmp/source.dat", "s3://b"]);
+        let (_, tgt) = extract_keys(&config).unwrap();
+        assert_eq!(tgt, "source.dat");
+    }
+
+    #[test]
+    fn extract_keys_local_to_s3_prefix_with_slash_appends_basename() {
+        let config = build_config(vec!["s3util", "cp", "/tmp/source.dat", "s3://b/dir/"]);
+        let (_, tgt) = extract_keys(&config).unwrap();
+        assert_eq!(tgt, "dir/source.dat");
+    }
+
+    #[test]
+    fn extract_keys_s3_to_local_with_no_source_key_errors() {
+        let dir = TempDir::new();
+        let target = dir.path().join("dst").to_string_lossy().to_string();
+        let config = build_config(vec!["s3util", "cp", "s3://b", &target]);
+        let err = extract_keys(&config).unwrap_err();
+        assert!(err.to_string().contains("source S3 key is required"));
+    }
+
+    #[test]
+    fn extract_keys_stdio_target_yields_empty_target_key() {
+        let config = build_config(vec!["s3util", "cp", "s3://b/key", "-"]);
+        let (src, tgt) = extract_keys(&config).unwrap();
+        assert_eq!(src, "key");
+        assert_eq!(tgt, "");
+    }
+
+    #[test]
+    fn extract_keys_stdio_source_yields_empty_source_key() {
+        let config = build_config(vec!["s3util", "cp", "-", "s3://b/key"]);
+        let (src, tgt) = extract_keys(&config).unwrap();
+        assert_eq!(src, "");
+        assert_eq!(tgt, "key");
+    }
+
+    #[test]
+    fn extract_keys_stdio_to_s3_bucket_only_errors() {
+        let config = build_config(vec!["s3util", "cp", "-", "s3://b"]);
+        let err = extract_keys(&config).unwrap_err();
+        assert!(err.to_string().contains("target S3 key is required"));
+    }
+
+    #[test]
+    fn extract_keys_stdio_to_s3_prefix_with_slash_errors() {
+        let config = build_config(vec!["s3util", "cp", "-", "s3://b/dir/"]);
+        let err = extract_keys(&config).unwrap_err();
+        assert!(err.to_string().contains("target S3 key is required"));
+    }
+
+    #[test]
+    fn check_local_source_not_directory_rejects_directory() {
+        let tmp = TempDir::new();
+        let source = StoragePath::Local(tmp.path().to_path_buf());
+        let err =
+            check_local_source_not_directory(&source, &TransferDirection::LocalToS3).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("source is a directory"), "message: {msg}");
+    }
+
+    #[test]
+    fn check_local_source_not_directory_allows_file() {
+        let path = temp_file_path();
+        std::fs::write(&path, b"x").unwrap();
+        let source = StoragePath::Local(path.clone());
+        let result = check_local_source_not_directory(&source, &TransferDirection::LocalToS3);
+        let _ = std::fs::remove_file(&path);
+        result.unwrap();
+    }
+
+    #[test]
+    fn check_local_source_not_directory_allows_nonexistent_path() {
+        // head_object downstream turns this into a "file not found" error;
+        // the directory guard should not pre-empt that path.
+        let source = StoragePath::Local(PathBuf::from("/nonexistent/path/for/test"));
+        check_local_source_not_directory(&source, &TransferDirection::LocalToS3).unwrap();
+    }
+
+    #[test]
+    fn check_local_source_not_directory_skips_non_local_to_s3_direction() {
+        let tmp = TempDir::new();
+        let source = StoragePath::Local(tmp.path().to_path_buf());
+        for direction in [
+            TransferDirection::S3ToLocal,
+            TransferDirection::S3ToS3,
+            TransferDirection::StdioToS3,
+            TransferDirection::S3ToStdio,
+        ] {
+            check_local_source_not_directory(&source, &direction).unwrap();
+        }
+    }
+
+    #[test]
+    fn extract_keys_s3_to_existing_local_directory_appends_basename() {
+        let tmp = TempDir::new();
+        let target_arg = tmp.path().to_string_lossy().to_string();
+        let config = build_config(vec![
+            "s3util",
+            "cp",
+            "s3://b/remote/file.dat",
+            target_arg.as_str(),
+        ]);
+        let (_, tgt) = extract_keys(&config).unwrap();
+        let expected = tmp.path().join("file.dat").to_string_lossy().to_string();
+        assert_eq!(tgt, expected);
+    }
+
+    #[test]
+    fn resolve_target_display_local_dir_shows_resolved_path() {
+        let target = StoragePath::Local(PathBuf::from("../"));
+        let resolved = resolve_target_display(&target, "../", "../hosts");
+        assert_eq!(resolved.as_deref(), Some("../hosts"));
+    }
+
+    #[test]
+    fn resolve_target_display_local_file_shows_nothing() {
+        let target = StoragePath::Local(PathBuf::from("/tmp/out.txt"));
+        let resolved = resolve_target_display(&target, "/tmp/out.txt", "/tmp/out.txt");
+        assert_eq!(resolved, None);
+    }
+
+    #[test]
+    fn resolve_target_display_s3_bare_bucket_shows_resolved_path() {
+        let target = StoragePath::S3 {
+            bucket: "b".to_string(),
+            prefix: String::new(),
+        };
+        let resolved = resolve_target_display(&target, "s3://b", "key");
+        assert_eq!(resolved.as_deref(), Some("s3://b/key"));
+    }
+
+    #[test]
+    fn resolve_target_display_s3_prefix_ending_in_slash_shows_resolved_path() {
+        let target = StoragePath::S3 {
+            bucket: "b".to_string(),
+            prefix: "dir/".to_string(),
+        };
+        let resolved = resolve_target_display(&target, "s3://b/dir/", "dir/key");
+        assert_eq!(resolved.as_deref(), Some("s3://b/dir/key"));
+    }
+
+    #[test]
+    fn resolve_target_display_s3_direct_object_shows_nothing() {
+        let target = StoragePath::S3 {
+            bucket: "b".to_string(),
+            prefix: "key.txt".to_string(),
+        };
+        let resolved = resolve_target_display(&target, "s3://b/key.txt", "key.txt");
+        assert_eq!(resolved, None);
+    }
+
+    #[test]
+    fn extract_keys_s3_to_local_path_with_trailing_separator_appends_basename() {
+        let tmp = TempDir::new();
+        let sep = std::path::MAIN_SEPARATOR;
+        let target_arg = format!("{}{sep}", tmp.path().to_string_lossy());
+        let config = build_config(vec![
+            "s3util",
+            "cp",
+            "s3://b/remote/object.bin",
+            target_arg.as_str(),
+        ]);
+        let (_, tgt) = extract_keys(&config).unwrap();
+        assert!(tgt.ends_with("object.bin"), "target was: {tgt}");
+    }
+}

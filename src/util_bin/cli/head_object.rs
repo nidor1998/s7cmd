@@ -1,6 +1,10 @@
 // Vendored from s3util-rs@0.2.0
 //   src/bin/s3util/cli/head_object.rs
-// Adjustments: no tests stripped; rewrote crate::cli → super
+// Adjustments: no tests stripped; rewrote crate::cli → super;
+//              merged the unreachable `HeadError::BucketNotFound` arm into
+//              `HeadError::NotFound` (api::head_object only checks
+//              `is_not_found()`, so any 404 is `NotFound` regardless of
+//              whether the bucket or the key is missing).
 
 use anyhow::Result;
 
@@ -43,11 +47,7 @@ pub async fn run_head_object(
             println!("{pretty}");
             Ok(ExitStatus::Success)
         }
-        Err(HeadError::BucketNotFound) => {
-            tracing::error!("bucket s3://{bucket} not found");
-            Ok(ExitStatus::NotFound)
-        }
-        Err(HeadError::NotFound) => {
+        Err(HeadError::BucketNotFound | HeadError::NotFound) => {
             match args.source_version_id.as_deref() {
                 Some(v) => {
                     tracing::error!("s3://{bucket}/{key} (versionId={v}) not found");

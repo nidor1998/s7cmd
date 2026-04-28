@@ -1,4 +1,4 @@
-// Vendored from s3sync@1.57.1
+// Vendored from s3sync@1.58.6
 //   src/bin/s3sync/cli/indicator.rs
 // Adjustments: stripped #[cfg(test)] mod tests
 
@@ -22,6 +22,7 @@ pub fn show_indicator(
     show_result: bool,
     log_sync_summary: bool,
     dry_run: bool,
+    stderr_tracing: bool,
 ) -> JoinHandle<()> {
     let progress_style = ProgressStyle::with_template("{wide_msg}").unwrap();
     let progress_text = ProgressBar::new(0);
@@ -136,8 +137,17 @@ pub fn show_indicator(
                             HumanDuration(elapsed),
                         ));
 
-                        println!();
-                        io::stdout().flush().unwrap()
+                        // Send the trailing newline to whichever stream the
+                        // tracing output uses, and ignore BrokenPipe/other
+                        // write errors so a closed pipe (e.g. `s3sync ... |
+                        // wc -l` followed by Ctrl-C) does not panic.
+                        if stderr_tracing {
+                            let _ = writeln!(io::stderr());
+                            let _ = io::stderr().flush();
+                        } else {
+                            let _ = writeln!(io::stdout());
+                            let _ = io::stdout().flush();
+                        }
                     }
 
                     return;
@@ -168,4 +178,191 @@ pub fn show_indicator(
             }
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::*;
+
+    const WAIT_MS_FOR_INDICATOR_REFRESH: u64 = 1500;
+
+    #[tokio::test]
+    async fn indicator_test_show_result() {
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let join_handle = show_indicator(stats_receiver, true, true, false, false, false);
+
+        stats_sender
+            .send(SyncStatistics::SyncBytes(1))
+            .await
+            .unwrap();
+        stats_sender
+            .send(SyncStatistics::SyncComplete {
+                key: "test".to_string(),
+            })
+            .await
+            .unwrap();
+        stats_sender
+            .send(SyncStatistics::SyncSkip {
+                key: "test".to_string(),
+            })
+            .await
+            .unwrap();
+        stats_sender
+            .send(SyncStatistics::SyncWarning {
+                key: "test".to_string(),
+            })
+            .await
+            .unwrap();
+        stats_sender
+            .send(SyncStatistics::SyncError {
+                key: "test".to_string(),
+            })
+            .await
+            .unwrap();
+        stats_sender
+            .send(SyncStatistics::ETagVerified {
+                key: "test".to_string(),
+            })
+            .await
+            .unwrap();
+        stats_sender
+            .send(SyncStatistics::ChecksumVerified {
+                key: "test".to_string(),
+            })
+            .await
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(WAIT_MS_FOR_INDICATOR_REFRESH)).await;
+        stats_sender.close();
+
+        join_handle.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn indicator_test_show_no_result_with_log_summary() {
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let join_handle = show_indicator(stats_receiver, true, false, true, false, false);
+
+        stats_sender
+            .send(SyncStatistics::SyncBytes(1))
+            .await
+            .unwrap();
+        stats_sender
+            .send(SyncStatistics::SyncComplete {
+                key: "test".to_string(),
+            })
+            .await
+            .unwrap();
+        stats_sender
+            .send(SyncStatistics::SyncSkip {
+                key: "test".to_string(),
+            })
+            .await
+            .unwrap();
+        stats_sender
+            .send(SyncStatistics::SyncError {
+                key: "test".to_string(),
+            })
+            .await
+            .unwrap();
+        stats_sender
+            .send(SyncStatistics::SyncDelete {
+                key: "test".to_string(),
+            })
+            .await
+            .unwrap();
+        stats_sender
+            .send(SyncStatistics::ETagVerified {
+                key: "test".to_string(),
+            })
+            .await
+            .unwrap();
+        stats_sender
+            .send(SyncStatistics::ChecksumVerified {
+                key: "test".to_string(),
+            })
+            .await
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(WAIT_MS_FOR_INDICATOR_REFRESH)).await;
+        stats_sender.close();
+
+        join_handle.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn indicator_test_show_result_dry_run() {
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let join_handle = show_indicator(stats_receiver, true, true, true, true, false);
+
+        stats_sender
+            .send(SyncStatistics::SyncBytes(1))
+            .await
+            .unwrap();
+        stats_sender
+            .send(SyncStatistics::SyncComplete {
+                key: "test".to_string(),
+            })
+            .await
+            .unwrap();
+        stats_sender
+            .send(SyncStatistics::SyncSkip {
+                key: "test".to_string(),
+            })
+            .await
+            .unwrap();
+        stats_sender
+            .send(SyncStatistics::SyncWarning {
+                key: "test".to_string(),
+            })
+            .await
+            .unwrap();
+        stats_sender
+            .send(SyncStatistics::SyncError {
+                key: "test".to_string(),
+            })
+            .await
+            .unwrap();
+        stats_sender
+            .send(SyncStatistics::ETagVerified {
+                key: "test".to_string(),
+            })
+            .await
+            .unwrap();
+        stats_sender
+            .send(SyncStatistics::ChecksumVerified {
+                key: "test".to_string(),
+            })
+            .await
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(WAIT_MS_FOR_INDICATOR_REFRESH)).await;
+        stats_sender.close();
+
+        join_handle.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn indicator_test_show_result_stderr_tracing() {
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let join_handle = show_indicator(stats_receiver, true, true, false, false, true);
+
+        stats_sender
+            .send(SyncStatistics::SyncBytes(1))
+            .await
+            .unwrap();
+        stats_sender
+            .send(SyncStatistics::SyncComplete {
+                key: "test".to_string(),
+            })
+            .await
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(WAIT_MS_FOR_INDICATOR_REFRESH)).await;
+        stats_sender.close();
+
+        join_handle.await.unwrap();
+    }
 }

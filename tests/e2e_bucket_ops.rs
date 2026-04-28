@@ -33,6 +33,36 @@ async fn create_bucket_dispatch_success() {
     helper.delete_bucket_with_cascade(&bucket).await;
 }
 
+#[tokio::test]
+async fn create_bucket_dispatch_with_tagging() {
+    // Exercises the `Some(raw_tagging) =>` arm that parses the tag string,
+    // builds a Tagging payload, and issues PutBucketTagging after the bucket
+    // is created.
+    let helper = TestHelper::new().await;
+    let bucket = generate_bucket_name();
+    let target = format!("s3://{bucket}");
+
+    let (code, stdout, stderr) = run(s7cmd_cmd().args([
+        "create-bucket",
+        "--target-profile",
+        "s7cmd-e2e-test",
+        "--target-region",
+        REGION,
+        "--tagging",
+        "owner=team-a&env=test",
+        &target,
+    ]));
+
+    assert_eq!(
+        code,
+        Some(0),
+        "create-bucket --tagging must exit 0; stdout={stdout}\nstderr={stderr}"
+    );
+    assert!(helper.is_bucket_exist(&bucket).await);
+
+    helper.delete_bucket_with_cascade(&bucket).await;
+}
+
 // ---- head-bucket ----
 
 #[tokio::test]

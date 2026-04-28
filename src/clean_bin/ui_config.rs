@@ -47,3 +47,142 @@ pub fn is_show_result_needed(config: &Config) -> bool {
 
     !tracing_config.json_tracing
 }
+
+#[cfg(test)]
+mod tests {
+    use s3rm_rs::parse_from_args;
+
+    use super::*;
+
+    fn config_from_args(args: &[&str]) -> Config {
+        Config::try_from(parse_from_args(args).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn progress_indicator_needed_default() {
+        let config = config_from_args(&[
+            "s3rm",
+            "--target-profile",
+            "p",
+            "--force",
+            "s3://test-bucket",
+        ]);
+        assert!(is_progress_indicator_needed(&config));
+    }
+
+    #[test]
+    fn progress_indicator_suppressed_by_show_no_progress() {
+        let config = config_from_args(&[
+            "s3rm",
+            "--target-profile",
+            "p",
+            "--force",
+            "--show-no-progress",
+            "s3://test-bucket",
+        ]);
+        assert!(!is_progress_indicator_needed(&config));
+    }
+
+    #[test]
+    fn progress_indicator_suppressed_by_json_tracing() {
+        let config = config_from_args(&[
+            "s3rm",
+            "--target-profile",
+            "p",
+            "--force",
+            "--json-tracing",
+            "s3://test-bucket",
+        ]);
+        assert!(!is_progress_indicator_needed(&config));
+    }
+
+    #[test]
+    fn progress_indicator_suppressed_by_high_verbosity() {
+        let config = config_from_args(&[
+            "s3rm",
+            "-v",
+            "--target-profile",
+            "p",
+            "--force",
+            "s3://test-bucket",
+        ]);
+        assert!(!is_progress_indicator_needed(&config));
+    }
+
+    #[test]
+    fn progress_indicator_shown_when_no_tracing_config() {
+        let config = config_from_args(&[
+            "s3rm",
+            "-qqq",
+            "--target-profile",
+            "p",
+            "--force",
+            "s3://test-bucket",
+        ]);
+        assert!(is_progress_indicator_needed(&config));
+    }
+
+    #[test]
+    fn show_result_needed_default() {
+        let config = config_from_args(&[
+            "s3rm",
+            "--target-profile",
+            "p",
+            "--force",
+            "s3://test-bucket",
+        ]);
+        assert!(is_show_result_needed(&config));
+    }
+
+    #[test]
+    fn show_result_suppressed_by_show_no_progress() {
+        let config = config_from_args(&[
+            "s3rm",
+            "--target-profile",
+            "p",
+            "--force",
+            "--show-no-progress",
+            "s3://test-bucket",
+        ]);
+        assert!(!is_show_result_needed(&config));
+    }
+
+    #[test]
+    fn show_result_suppressed_by_json_tracing() {
+        let config = config_from_args(&[
+            "s3rm",
+            "--target-profile",
+            "p",
+            "--force",
+            "--json-tracing",
+            "s3://test-bucket",
+        ]);
+        assert!(!is_show_result_needed(&config));
+    }
+
+    #[test]
+    fn show_result_shown_at_verbose_level() {
+        let config = config_from_args(&[
+            "s3rm",
+            "-v",
+            "--target-profile",
+            "p",
+            "--force",
+            "s3://test-bucket",
+        ]);
+        assert!(is_show_result_needed(&config));
+    }
+
+    #[test]
+    fn show_result_shown_when_no_tracing_config() {
+        let config = config_from_args(&[
+            "s3rm",
+            "-qqq",
+            "--target-profile",
+            "p",
+            "--force",
+            "s3://test-bucket",
+        ]);
+        assert!(is_show_result_needed(&config));
+    }
+}

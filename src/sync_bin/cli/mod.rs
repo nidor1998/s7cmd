@@ -1,14 +1,10 @@
-// Vendored from s3sync@1.57.1
+// Vendored from s3sync@1.58.6
 //   src/bin/s3sync/cli/mod.rs
 // Adjustments: stripped #[cfg(test)] mod tests
 
 use anyhow::{Result, anyhow};
 use s3sync::Config;
-use s3sync::callback::user_defined_event_callback::UserDefinedEventCallback;
-use s3sync::callback::user_defined_filter_callback::UserDefinedFilterCallback;
-use s3sync::callback::user_defined_preprocess_callback::UserDefinedPreprocessCallback;
 use s3sync::pipeline::Pipeline;
-use s3sync::types::event_callback::EventType;
 use s3sync::types::token::create_pipeline_cancellation_token;
 use s3sync::types::{SYNC_REPORT_SUMMERY_NAME, SyncStatsReport};
 use std::sync::MutexGuard;
@@ -27,58 +23,12 @@ const EXIT_CODE_ERROR: i32 = 1;
 const EXIT_CODE_INVALID_ARGS: i32 = 2;
 const EXIT_CODE_WARNING: i32 = 3;
 
-pub async fn run(mut config: Config) -> Result<()> {
+pub async fn run(config: Config) -> Result<()> {
     #[allow(unused_assignments)]
     let mut has_warning = false;
 
     {
         let cancellation_token = create_pipeline_cancellation_token();
-
-        // Note: Each type of callback is registered only once.
-        // The user-defined event callback is disabled by default.
-        let mut user_defined_event_callback = UserDefinedEventCallback::new();
-        // This is for testing purpose only.
-        if config.test_user_defined_callback {
-            user_defined_event_callback.enable = true;
-        }
-        if user_defined_event_callback.is_enabled() {
-            // By default, the user-defined event callback notifies all events.
-            // You can modify EventType::ALL_EVENTS to filter specific events (e.g., EventType::SYNC_START | EventType::SYNC_COMPLETE)
-            config.event_manager.register_callback(
-                EventType::ALL_EVENTS,
-                user_defined_event_callback,
-                config.dry_run,
-            );
-        }
-
-        // The user-defined filter callback is disabled by default.
-        // But you can modify the `UserDefinedFilterCallback` to enable it.
-        // User-defined filter callback allows us to filter objects while listing them in the source.
-        let mut user_defined_filter_callback = UserDefinedFilterCallback::new();
-        // This is for testing purpose only.
-        if config.test_user_defined_callback {
-            user_defined_filter_callback.enable = true;
-        }
-        if user_defined_filter_callback.is_enabled() {
-            config
-                .filter_config
-                .filter_manager
-                .register_callback(user_defined_filter_callback);
-        }
-
-        // The user-defined preprocess callback is disabled by default.
-        // But you can modify the `UserDefinedPreprocessCallback` to enable it.
-        // User-defined preprocess callback allows us to modify the object attributes dynamically before uploading to S3.
-        let mut user_defined_preprocess_callback = UserDefinedPreprocessCallback::new();
-        // This is for testing purpose only.
-        if config.test_user_defined_callback {
-            user_defined_preprocess_callback.enable = true;
-        }
-        if user_defined_preprocess_callback.is_enabled() {
-            config
-                .preprocess_manager
-                .register_callback(user_defined_preprocess_callback);
-        }
 
         ctrl_c_handler::spawn_ctrl_c_handler(cancellation_token.clone());
 
@@ -88,6 +38,11 @@ pub async fn run(mut config: Config) -> Result<()> {
         // When reporting sync status, a sync summary log is not needed.
         let log_sync_summary = !config.report_sync_status;
 
+        let stderr_tracing = config
+            .tracing_config
+            .as_ref()
+            .is_some_and(|tracing_config| tracing_config.stderr_tracing);
+
         let mut pipeline = Pipeline::new(config.clone(), cancellation_token).await;
         let indicator_join_handle = indicator::show_indicator(
             pipeline.get_stats_receiver(),
@@ -95,6 +50,7 @@ pub async fn run(mut config: Config) -> Result<()> {
             ui_config::is_show_result_needed(&config),
             log_sync_summary,
             config.dry_run,
+            stderr_tracing,
         );
 
         pipeline.run().await;
@@ -102,9 +58,9 @@ pub async fn run(mut config: Config) -> Result<()> {
 
         let duration_sec = format!("{:.3}", start_time.elapsed().as_secs_f32());
         if pipeline.has_error() {
-            error!(duration_sec = duration_sec, "s3sync failed.");
+            error!(duration_sec = duration_sec, "s7cmd sync failed.");
 
-            return Err(anyhow!("s3sync failed."));
+            return Err(anyhow!("s7cmd sync failed."));
         }
 
         has_warning = pipeline.has_warning();
@@ -113,7 +69,10 @@ pub async fn run(mut config: Config) -> Result<()> {
             show_sync_report_summary(pipeline.get_sync_stats_report().lock().unwrap());
         }
 
-        debug!(duration_sec = duration_sec, "s3sync has been completed.");
+        debug!(
+            duration_sec = duration_sec,
+            "s7cmd sync has been completed."
+        );
     }
 
     if has_warning {
@@ -139,4 +98,109 @@ fn show_sync_report_summary(sync_stats_report: MutexGuard<'_, SyncStatsReport>) 
         etag_unknown = sync_stats_report.etag_unknown,
         checksum_unknown = sync_stats_report.checksum_unknown,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+    use std::sync::Mutex;
+
+    use s3sync::config::args::parse_from_args;
+
+    use super::*;
+
+    /// Create a temp directory under the user's tmp dir using a UUID
+    /// suffix. Removed at end of test via Drop.
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new() -> Self {
+            let path =
+                std::env::temp_dir().join(format!("s7cmd_sync_unit_{}", uuid::Uuid::new_v4()));
+            std::fs::create_dir_all(&path).expect("create temp dir");
+            Self(path)
+        }
+
+        fn path(&self) -> &std::path::Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn show_sync_report_summary_does_not_panic_with_default() {
+        let report = Mutex::new(SyncStatsReport::default());
+        show_sync_report_summary(report.lock().unwrap());
+    }
+
+    #[test]
+    fn show_sync_report_summary_does_not_panic_with_populated_data() {
+        let data = SyncStatsReport {
+            number_of_objects: 5,
+            etag_matches: 3,
+            etag_mismatch: 1,
+            etag_unknown: 1,
+            checksum_matches: 2,
+            checksum_mismatch: 1,
+            checksum_unknown: 2,
+            metadata_matches: 4,
+            metadata_mismatch: 1,
+            tagging_matches: 3,
+            tagging_mismatch: 2,
+            not_found: 1,
+        };
+        let report = Mutex::new(data);
+        show_sync_report_summary(report.lock().unwrap());
+    }
+
+    /// Drives `run()` end-to-end via local-to-local sync (no AWS) so the
+    /// callback registration, indicator wiring, pipeline run, and stats
+    /// accounting paths get exercised. Errors from run() are intentionally
+    /// ignored — the goal is coverage, not behavior verification.
+    #[tokio::test]
+    async fn run_pipeline_local_to_local() {
+        let src_dir = TempDir::new();
+        let tgt_dir = TempDir::new();
+        std::fs::write(src_dir.path().join("file1.txt"), b"hello").unwrap();
+        std::fs::write(src_dir.path().join("file2.txt"), b"world").unwrap();
+
+        let src = format!("{}/", src_dir.path().to_string_lossy());
+        let tgt = format!("{}/", tgt_dir.path().to_string_lossy());
+        let args = vec![
+            "s3sync",
+            "--allow-both-local-storage",
+            src.as_str(),
+            tgt.as_str(),
+        ];
+        let config = Config::try_from(parse_from_args(args).unwrap()).unwrap();
+
+        let _ = run(config).await;
+    }
+
+    /// Same as above but with `--dry-run` so the dry-run branches get
+    /// exercised in both the run loop and the indicator.
+    #[tokio::test]
+    async fn run_pipeline_local_to_local_dry_run() {
+        let src_dir = TempDir::new();
+        let tgt_dir = TempDir::new();
+        std::fs::write(src_dir.path().join("file.txt"), b"x").unwrap();
+
+        let src = format!("{}/", src_dir.path().to_string_lossy());
+        let tgt = format!("{}/", tgt_dir.path().to_string_lossy());
+        let args = vec![
+            "s3sync",
+            "--allow-both-local-storage",
+            "--dry-run",
+            src.as_str(),
+            tgt.as_str(),
+        ];
+        let config = Config::try_from(parse_from_args(args).unwrap()).unwrap();
+
+        let _ = run(config).await;
+    }
 }

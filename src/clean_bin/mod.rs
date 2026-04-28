@@ -10,10 +10,7 @@
 use anyhow::Result;
 use tracing::{debug, error};
 
-use s3rm_rs::callback::user_defined_event_callback::UserDefinedEventCallback;
-use s3rm_rs::callback::user_defined_filter_callback::UserDefinedFilterCallback;
 use s3rm_rs::config::Config;
-use s3rm_rs::types::event_callback::EventType;
 use s3rm_rs::{
     CLIArgs, DeletionPipeline, create_pipeline_cancellation_token, exit_code_from_error,
     is_cancelled_error,
@@ -47,42 +44,7 @@ pub fn start_tracing_if_necessary(config: &Config) -> bool {
     }
 }
 
-fn register_user_defined_callbacks(config: &mut Config) {
-    // Note: Each type of callback is registered only once.
-    // The user-defined event callback is disabled by default.
-    let mut user_defined_event_callback = UserDefinedEventCallback::new();
-    // This is for testing purpose only.
-    if config.test_user_defined_callback {
-        user_defined_event_callback.enable = true;
-    }
-    if user_defined_event_callback.is_enabled() {
-        // By default, the user-defined event callback notifies all events.
-        // You can modify EventType::ALL_EVENTS to filter specific events
-        config.event_manager.register_callback(
-            EventType::ALL_EVENTS,
-            user_defined_event_callback,
-            config.dry_run,
-        );
-    }
-
-    // The user-defined filter callback is disabled by default.
-    // But you can modify the `UserDefinedFilterCallback` to enable it.
-    // User-defined filter callback allows us to filter objects while listing them.
-    let mut user_defined_filter_callback = UserDefinedFilterCallback::new();
-    // This is for testing purpose only.
-    if config.test_user_defined_callback {
-        user_defined_filter_callback.enable = true;
-    }
-    if user_defined_filter_callback.is_enabled() {
-        config
-            .filter_manager
-            .register_callback(user_defined_filter_callback);
-    }
-}
-
-pub async fn run(mut config: Config) -> Result<()> {
-    register_user_defined_callbacks(&mut config);
-
+pub async fn run(config: Config) -> Result<()> {
     #[allow(unused_assignments)]
     let mut has_warning = false;
 
@@ -135,12 +97,15 @@ pub async fn run(mut config: Config) -> Result<()> {
 
         if pipeline.has_error() {
             if pipeline.has_panic() {
-                error!(duration_sec = duration_sec, "s3rm abnormal termination.");
+                error!(
+                    duration_sec = duration_sec,
+                    "s7cmd clean abnormal termination."
+                );
                 std::process::exit(EXIT_CODE_ABNORMAL_TERMINATION);
             }
             let Some(errors) = pipeline.get_errors_and_consume() else {
                 // has_error() was true but no errors found — should not happen.
-                error!(duration_sec = duration_sec, "s3rm failed.");
+                error!(duration_sec = duration_sec, "s7cmd clean failed.");
                 std::process::exit(1);
             };
             // Use the highest exit code across all errors so that a severe
@@ -155,13 +120,16 @@ pub async fn run(mut config: Config) -> Result<()> {
                 code = code.max(exit_code_from_error(err));
                 error!("{}", err);
             }
-            error!(duration_sec = duration_sec, "s3rm failed.");
+            error!(duration_sec = duration_sec, "s7cmd clean failed.");
             std::process::exit(code);
         }
 
         has_warning = pipeline.has_warning();
 
-        debug!(duration_sec = duration_sec, "s3rm has been completed.");
+        debug!(
+            duration_sec = duration_sec,
+            "s7cmd clean has been completed."
+        );
     }
 
     if has_warning {
@@ -169,4 +137,48 @@ pub async fn run(mut config: Config) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use s3rm_rs::parse_from_args;
+
+    use super::*;
+
+    fn config_from_args(args: &[&str]) -> Config {
+        Config::try_from(parse_from_args(args).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn load_config_exit_if_err_returns_config_for_valid_args() {
+        let args = vec![
+            "s3rm",
+            "--target-profile",
+            "p",
+            "--force",
+            "s3://test-bucket/prefix/",
+        ];
+        let cli_args = parse_from_args(args).unwrap();
+        // Happy path — error path calls clap's exit() which we cannot
+        // exercise from a unit test without forking.
+        let config = load_config_exit_if_err(cli_args);
+        let s3rm_rs::types::StoragePath::S3 { bucket, prefix } = config.target;
+        assert_eq!(bucket, "test-bucket");
+        assert_eq!(prefix, "prefix/");
+    }
+
+    #[test]
+    fn start_tracing_if_necessary_returns_false_when_no_tracing_config() {
+        // -qqq drops below all tracing levels → tracing_config is None.
+        let config = config_from_args(&[
+            "s3rm",
+            "-qqq",
+            "--target-profile",
+            "p",
+            "--force",
+            "s3://test-bucket",
+        ]);
+        assert!(config.tracing_config.is_none());
+        assert!(!start_tracing_if_necessary(&config));
+    }
 }

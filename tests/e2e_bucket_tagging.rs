@@ -93,6 +93,28 @@ async fn get_bucket_tagging_dispatch_not_found() {
 }
 
 #[tokio::test]
+async fn get_bucket_tagging_dispatch_bucket_not_found() {
+    // Hits the `BucketNotFound` arm logged as `bucket … not found`.
+    let bucket = generate_bucket_name();
+
+    let target = format!("s3://{bucket}");
+    let (code, _stdout, _stderr) = run(s7cmd_cmd().args([
+        "get-bucket-tagging",
+        "--target-profile",
+        "s7cmd-e2e-test",
+        "--target-region",
+        REGION,
+        &target,
+    ]));
+
+    assert_eq!(
+        code,
+        Some(4),
+        "get-bucket-tagging on missing bucket must exit 4"
+    );
+}
+
+#[tokio::test]
 async fn delete_bucket_tagging_dispatch_success() {
     let helper = TestHelper::new().await;
     let bucket = generate_bucket_name();

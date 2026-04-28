@@ -177,3 +177,235 @@ pub fn show_indicator(
         }
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::*;
+
+    const WAIT_MS_FOR_INDICATOR_REFRESH: u64 = 1500;
+
+    #[tokio::test]
+    async fn indicator_test_show_result() {
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let join_handle = show_indicator(
+            stats_receiver,
+            true,
+            true,
+            false,
+            None,
+            String::new(),
+            String::new(),
+        );
+
+        stats_sender
+            .send(SyncStatistics::SyncBytes(1))
+            .await
+            .unwrap();
+        stats_sender
+            .send(SyncStatistics::SyncComplete {
+                key: "test".to_string(),
+            })
+            .await
+            .unwrap();
+        stats_sender
+            .send(SyncStatistics::SyncWarning {
+                key: "test".to_string(),
+            })
+            .await
+            .unwrap();
+        stats_sender
+            .send(SyncStatistics::SyncError {
+                key: "test".to_string(),
+            })
+            .await
+            .unwrap();
+        stats_sender
+            .send(SyncStatistics::ETagVerified {
+                key: "test".to_string(),
+            })
+            .await
+            .unwrap();
+        stats_sender
+            .send(SyncStatistics::ChecksumVerified {
+                key: "test".to_string(),
+            })
+            .await
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(WAIT_MS_FOR_INDICATOR_REFRESH)).await;
+        stats_sender.close();
+
+        join_handle.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn indicator_test_show_no_result() {
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let join_handle = show_indicator(
+            stats_receiver,
+            true,
+            false,
+            true,
+            None,
+            "src".to_string(),
+            "dst".to_string(),
+        );
+
+        stats_sender
+            .send(SyncStatistics::SyncBytes(1))
+            .await
+            .unwrap();
+        stats_sender
+            .send(SyncStatistics::SyncComplete {
+                key: "test".to_string(),
+            })
+            .await
+            .unwrap();
+        stats_sender
+            .send(SyncStatistics::SyncError {
+                key: "test".to_string(),
+            })
+            .await
+            .unwrap();
+        stats_sender
+            .send(SyncStatistics::ETagVerified {
+                key: "test".to_string(),
+            })
+            .await
+            .unwrap();
+        stats_sender
+            .send(SyncStatistics::ChecksumVerified {
+                key: "test".to_string(),
+            })
+            .await
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(WAIT_MS_FOR_INDICATOR_REFRESH)).await;
+        stats_sender.close();
+
+        join_handle.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn indicator_fast_completion_falls_back_to_raw_total_for_rate() {
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let join_handle = show_indicator(
+            stats_receiver,
+            false,
+            true,
+            true,
+            None,
+            "src".to_string(),
+            "dst".to_string(),
+        );
+
+        stats_sender
+            .send(SyncStatistics::SyncBytes(10))
+            .await
+            .unwrap();
+        stats_sender.close();
+
+        join_handle.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn indicator_with_resolved_target_prints_destination_line() {
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let join_handle = show_indicator(
+            stats_receiver,
+            false,
+            true,
+            false,
+            Some("s3://bucket/resolved/key".to_string()),
+            String::new(),
+            String::new(),
+        );
+
+        stats_sender
+            .send(SyncStatistics::SyncBytes(1))
+            .await
+            .unwrap();
+        stats_sender.close();
+
+        join_handle.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn indicator_etag_mismatch_increments_warning_count() {
+        let (stats_sender, stats_receiver) = async_channel::unbounded();
+        let join_handle = show_indicator(
+            stats_receiver,
+            false,
+            true,
+            false,
+            None,
+            String::new(),
+            String::new(),
+        );
+
+        stats_sender
+            .send(SyncStatistics::SyncBytes(1))
+            .await
+            .unwrap();
+        stats_sender
+            .send(SyncStatistics::ETagMismatch {
+                key: "test".to_string(),
+            })
+            .await
+            .unwrap();
+        stats_sender
+            .send(SyncStatistics::ChecksumMismatch {
+                key: "test".to_string(),
+            })
+            .await
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        stats_sender.close();
+        join_handle.await.unwrap();
+    }
+
+    #[test]
+    fn verification_status_etag_skipped_and_checksum_failed() {
+        let (etag, checksum) = verification_status(0, 0, 0, 1);
+        assert_eq!(etag, "skipped");
+        assert_eq!(checksum, "failed");
+    }
+
+    #[test]
+    fn verification_status_etag_failed_and_checksum_skipped() {
+        let (etag, checksum) = verification_status(0, 1, 0, 0);
+        assert_eq!(etag, "failed");
+        assert_eq!(checksum, "skipped");
+    }
+
+    #[test]
+    fn verification_status_both_verified() {
+        let (etag, checksum) = verification_status(1, 0, 1, 0);
+        assert_eq!(etag, "ok");
+        assert_eq!(checksum, "ok");
+    }
+
+    #[test]
+    fn verification_status_etag_ok_and_checksum_failed() {
+        let (etag, checksum) = verification_status(1, 0, 0, 1);
+        assert_eq!(etag, "ok");
+        assert_eq!(checksum, "failed");
+    }
+
+    #[test]
+    fn verification_status_etag_failed_and_checksum_ok() {
+        let (etag, checksum) = verification_status(0, 1, 1, 0);
+        assert_eq!(etag, "failed");
+        assert_eq!(checksum, "ok");
+    }
+
+    #[test]
+    fn verification_status_both_skipped() {
+        let (etag, checksum) = verification_status(0, 0, 0, 0);
+        assert_eq!(etag, "skipped");
+        assert_eq!(checksum, "skipped");
+    }
+}

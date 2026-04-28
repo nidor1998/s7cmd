@@ -67,7 +67,7 @@ pub async fn run(config: Config) -> Result<()> {
     match pipeline.run().await {
         Ok(()) => {
             let duration_sec = format!("{:.3}", start_time.elapsed().as_secs_f32());
-            debug!(duration_sec = duration_sec, "s3ls has been completed.");
+            debug!(duration_sec = duration_sec, "s7cmd ls has been completed.");
             Ok(())
         }
         Err(e) => {
@@ -83,9 +83,45 @@ pub async fn run(config: Config) -> Result<()> {
                 return Ok(());
             }
             let code = exit_code_from_error(&e);
-            error!(duration_sec = duration_sec, "s3ls failed.");
+            error!(duration_sec = duration_sec, "s7cmd ls failed.");
             error!("{}", e);
             std::process::exit(code);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+
+    use super::*;
+
+    fn parse(args: &[&str]) -> CLIArgs {
+        CLIArgs::try_parse_from(args).unwrap()
+    }
+
+    #[test]
+    fn load_config_exit_if_err_returns_config_for_valid_args() {
+        let cli_args = parse(&["s3ls", "--target-profile", "p", "s3://test-bucket/prefix/"]);
+        let config = load_config_exit_if_err(cli_args);
+        assert_eq!(config.target.bucket, "test-bucket");
+        assert_eq!(config.target.prefix.as_deref(), Some("prefix/"));
+    }
+
+    #[test]
+    fn load_config_exit_if_err_returns_config_for_bucket_listing() {
+        let cli_args = parse(&["s3ls", "--target-profile", "p"]);
+        let config = load_config_exit_if_err(cli_args);
+        // Bucket listing mode — target.bucket is empty.
+        assert!(config.target.bucket.is_empty());
+    }
+
+    #[test]
+    fn start_tracing_if_necessary_returns_false_when_no_tracing_config() {
+        // -qqq drops below all tracing levels → tracing_config is None.
+        let cli_args = parse(&["s3ls", "-qqq", "--target-profile", "p", "s3://test-bucket"]);
+        let config = load_config_exit_if_err(cli_args);
+        assert!(config.tracing_config.is_none());
+        assert!(!start_tracing_if_necessary(&config));
     }
 }

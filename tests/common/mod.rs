@@ -185,6 +185,28 @@ mod e2e {
                 .expect("put_object");
         }
 
+        /// PutObject and return the assigned `VersionId`. The bucket must
+        /// have versioning enabled, otherwise S3 returns `null` or no value.
+        pub async fn put_object_returning_version_id(
+            &self,
+            bucket: &str,
+            key: &str,
+            body: Vec<u8>,
+        ) -> String {
+            let out = self
+                .client
+                .put_object()
+                .bucket(bucket)
+                .key(key)
+                .body(body.into())
+                .send()
+                .await
+                .expect("put_object");
+            out.version_id()
+                .expect("PutObject must return VersionId on a versioned bucket")
+                .to_string()
+        }
+
         pub async fn is_object_exist(
             &self,
             bucket: &str,
@@ -203,12 +225,7 @@ mod e2e {
             }
         }
 
-        pub async fn delete_object(
-            &self,
-            bucket: &str,
-            key: &str,
-            version_id: Option<String>,
-        ) {
+        pub async fn delete_object(&self, bucket: &str, key: &str, version_id: Option<String>) {
             self.client
                 .delete_object()
                 .bucket(bucket)
@@ -258,12 +275,7 @@ mod e2e {
 
         // ---- Seeding helpers (set state that get-*/delete-* tests read) ----
 
-        pub async fn put_object_tagging(
-            &self,
-            bucket: &str,
-            key: &str,
-            tags: &[(&str, &str)],
-        ) {
+        pub async fn put_object_tagging(&self, bucket: &str, key: &str, tags: &[(&str, &str)]) {
             let tag_set: Vec<Tag> = tags
                 .iter()
                 .map(|(k, v)| Tag::builder().key(*k).value(*v).build().unwrap())

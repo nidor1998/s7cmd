@@ -67,3 +67,46 @@ fn render_policy_only(policy: Option<&str>) -> Result<String> {
         Err(_) => Ok(policy.to_string()),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn render_policy_only_none_returns_empty_object() {
+        assert_eq!(render_policy_only(None).unwrap(), "{}");
+    }
+
+    #[test]
+    fn render_policy_only_valid_json_is_pretty_printed() {
+        let raw = r#"{"Version":"2012-10-17","Statement":[]}"#;
+        let pretty = render_policy_only(Some(raw)).unwrap();
+        // Pretty-printed JSON contains newlines and indentation.
+        assert!(pretty.contains('\n'));
+        assert!(pretty.contains("\"Version\""));
+        assert!(pretty.contains("2012-10-17"));
+    }
+
+    #[test]
+    fn render_policy_only_invalid_json_returns_raw_string() {
+        let raw = "not valid json {{";
+        let out = render_policy_only(Some(raw)).unwrap();
+        assert_eq!(out, raw);
+    }
+
+    #[test]
+    fn render_policy_only_empty_string_returns_raw_string() {
+        // Empty string is not valid JSON → fall through to raw return.
+        let out = render_policy_only(Some("")).unwrap();
+        assert_eq!(out, "");
+    }
+
+    #[test]
+    fn render_policy_only_complex_policy_round_trips() {
+        let raw = r#"{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::example/*"}]}"#;
+        let pretty = render_policy_only(Some(raw)).unwrap();
+        let reparsed: serde_json::Value = serde_json::from_str(&pretty).unwrap();
+        let original: serde_json::Value = serde_json::from_str(raw).unwrap();
+        assert_eq!(reparsed, original);
+    }
+}
