@@ -19,8 +19,7 @@ async fn put_bucket_versioning_dispatch_success() {
         "s7cmd-e2e-test",
         "--target-region",
         REGION,
-        "--status",
-        "Enabled",
+        "--enabled",
         &target,
     ]));
 
