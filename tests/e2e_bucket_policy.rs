@@ -4,23 +4,34 @@
 
 mod common;
 
-use common::{REGION, TestHelper, generate_bucket_name, run, s7cmd_cmd};
+use common::{
+    REGION, TestHelper, create_temp_dir, create_test_file, generate_bucket_name, run, s7cmd_cmd,
+};
 
-/// Minimal bucket policy that grants the test profile's principal a no-op
-/// permission. We don't care what the policy *does* — only that put / get /
-/// delete dispatch against it. The key inside is filled in at runtime
-/// because the bucket name is unique per test.
+/// Minimal bucket policy that does NOT grant public access — required because
+/// many AWS accounts have S3 Block Public Access enabled, which rejects any
+/// `Allow + Principal:"*"` policy with `BlockPublicPolicy`. A pure Deny
+/// statement with `Principal:"*"` is exempt: it restricts access rather than
+/// granting it. We don't care what the policy *does* — only that put / get /
+/// delete dispatch against it. The bucket name is interpolated at runtime
+/// because each test uses a unique bucket.
 fn sample_policy(bucket: &str) -> String {
     format!(
         r#"{{
             "Version": "2012-10-17",
             "Statement": [
                 {{
-                    "Sid": "AllowGetObject",
-                    "Effect": "Allow",
+                    "Sid": "DenyInsecureConnections",
+                    "Effect": "Deny",
                     "Principal": "*",
-                    "Action": "s3:GetObject",
-                    "Resource": "arn:aws:s3:::{bucket}/*"
+                    "Action": "s3:*",
+                    "Resource": [
+                        "arn:aws:s3:::{bucket}",
+                        "arn:aws:s3:::{bucket}/*"
+                    ],
+                    "Condition": {{
+                        "Bool": {{"aws:SecureTransport": "false"}}
+                    }}
                 }}
             ]
         }}"#
@@ -33,17 +44,19 @@ async fn put_bucket_policy_dispatch_success() {
     let bucket = generate_bucket_name();
     helper.create_bucket(&bucket, REGION).await;
 
+    // put-bucket-policy reads POLICY from a file path (or "-" for stdin).
+    let local_dir = create_temp_dir();
+    let policy_path = create_test_file(&local_dir, "policy.json", sample_policy(&bucket).as_bytes());
+
     let target = format!("s3://{bucket}");
-    let policy = sample_policy(&bucket);
     let (code, stdout, stderr) = run(s7cmd_cmd().args([
         "put-bucket-policy",
         "--target-profile",
         "s7cmd-e2e-test",
         "--target-region",
         REGION,
-        "--policy",
-        &policy,
         &target,
+        policy_path.to_str().unwrap(),
     ]));
 
     assert_eq!(
@@ -53,6 +66,7 @@ async fn put_bucket_policy_dispatch_success() {
     );
 
     helper.delete_bucket_with_cascade(&bucket).await;
+    let _ = std::fs::remove_dir_all(&local_dir);
 }
 
 #[tokio::test]
@@ -78,7 +92,7 @@ async fn get_bucket_policy_dispatch_success() {
         "get-bucket-policy must exit 0; stdout={stdout}\nstderr={stderr}"
     );
     assert!(
-        stdout.contains("AllowGetObject"),
+        stdout.contains("DenyInsecureConnections"),
         "stdout must contain seeded policy SID; stdout={stdout}"
     );
 
