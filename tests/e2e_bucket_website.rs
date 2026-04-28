@@ -262,3 +262,36 @@ async fn delete_bucket_website_dispatch_bucket_not_found() {
         "delete-bucket-website on missing bucket must exit 1; stderr={stderr}"
     );
 }
+
+#[tokio::test]
+async fn put_bucket_website_invalid_json_exits_1() {
+    // Covers the JSON-parse with_context branch. Parsing fails before any
+    // SDK call, so this test does not need a real bucket.
+    let bucket = generate_bucket_name();
+    let target = format!("s3://{bucket}");
+
+    let local_dir = create_temp_dir();
+    let config_path = create_test_file(&local_dir, "website.json", b"not valid json");
+
+    let (code, _stdout, stderr) = run(s7cmd_cmd().args([
+        "put-bucket-website",
+        "--target-profile",
+        "s7cmd-e2e-test",
+        "--target-region",
+        REGION,
+        &target,
+        config_path.to_str().unwrap(),
+    ]));
+
+    assert_eq!(
+        code,
+        Some(1),
+        "put-bucket-website with invalid JSON must exit 1"
+    );
+    assert!(
+        stderr.contains("parsing JSON from"),
+        "stderr must contain the JSON-parse context message; stderr={stderr}"
+    );
+
+    let _ = std::fs::remove_dir_all(&local_dir);
+}
