@@ -136,7 +136,17 @@ async fn cancel_ls_sigint_does_not_hang() {
 // ---- clean ----
 
 #[tokio::test]
-async fn cancel_clean_sigint_exits_130() {
+async fn cancel_clean_sigint_does_not_hang() {
+    // clean's bulk-delete is too fast to reliably catch with SIGINT at scale
+    // suitable for a dispatch test. --rate-limit-objects has hard floor 10
+    // and must be >= --batch-size (default 200), so the practical minimum
+    // throttle is 10/sec with --batch-size 10. With 200 seeded objects the
+    // theoretical duration is ~20s, but the leaky-bucket token allowance
+    // and concurrent batch deletion mean the first delete can drain the
+    // bucket fast enough that exit 0 races SIGINT — observed in practice.
+    // Per the spec's section-7 fallback, soften to "process exits, doesn't
+    // hang." Strict exit-130 coverage stays in cp/mv (per-byte bandwidth
+    // throttle on a 30 MiB transfer is reliable).
     let helper = TestHelper::new().await;
     let bucket = generate_bucket_name();
     helper.create_bucket(&bucket, REGION).await;
@@ -155,10 +165,6 @@ async fn cancel_clean_sigint_exits_130() {
         "--target-region",
         REGION,
         "--force",
-        // --rate-limit-objects has both a hard floor of 10 AND must be >=
-        // --batch-size (default 200). Lower batch-size to 10 so the floor
-        // becomes 10. With 200 seeded objects @ 10/sec that's ~20s of work,
-        // well beyond the 1500ms SIGINT delivery.
         "--batch-size",
         "10",
         "--rate-limit-objects",
@@ -166,8 +172,7 @@ async fn cancel_clean_sigint_exits_130() {
         &target,
     ]);
 
-    let code = run_with_sigint(&mut cmd).await;
-    assert_eq!(code, Some(130), "clean SIGINT must exit 130; got {code:?}");
+    let _code = run_with_sigint(&mut cmd).await;
 
     helper.delete_bucket_with_cascade(&bucket).await;
 }
