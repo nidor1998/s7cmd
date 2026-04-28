@@ -14,7 +14,9 @@
 
 mod common;
 
-use common::{REGION, TestHelper, create_temp_dir, generate_bucket_name, run, s7cmd_cmd};
+use common::{
+    REGION, TestHelper, create_temp_dir, create_test_file, generate_bucket_name, run, s7cmd_cmd,
+};
 use std::process::Command;
 
 const TRACING_ENV: &[&str] = &[
@@ -154,24 +156,30 @@ async fn clean_tracing_goes_to_stderr() {
 }
 
 #[tokio::test]
-async fn head_bucket_tracing_goes_to_stderr() {
-    // Representative util_bin command. head-bucket is the smallest possible
-    // AWS round-trip that still goes through start_tracing_if_necessary +
-    // trace_config_summary in main.rs.
+async fn cp_tracing_goes_to_stderr() {
+    // Representative util_bin command. Among the util_bin dispatch arms only
+    // Cp and Mv emit a startup TRACE event via trace_config_summary() in
+    // main.rs — the other util_bin arms (head-*, get/put/delete-* tagging/
+    // policy/versioning, rm, create-bucket, delete-bucket) only init the
+    // subscriber without producing any trace events on the success path,
+    // so there's nothing to assert on. Use cp local→s3 as the smoke test.
     let helper = TestHelper::new().await;
     let bucket = generate_bucket_name();
     helper.create_bucket(&bucket, REGION).await;
 
-    let target = format!("s3://{bucket}");
+    let local_dir = create_temp_dir();
+    let src = create_test_file(&local_dir, "trace.txt", b"trace body");
+    let target = format!("s3://{bucket}/trace.txt");
     let mut cmd = s7cmd_cmd();
     cmd.args([
-        "head-bucket",
+        "cp",
         "--target-profile",
         "s7cmd-e2e-test",
         "--target-region",
         REGION,
         "-vvv",
         "--disable-color-tracing",
+        src.to_str().unwrap(),
         &target,
     ]);
     scrub_env(&mut cmd);
@@ -179,14 +187,15 @@ async fn head_bucket_tracing_goes_to_stderr() {
 
     assert!(
         trace_marker_present(&stderr),
-        "head-bucket tracing must appear on stderr; stdout={stdout}\nstderr={stderr}"
+        "cp tracing must appear on stderr; stdout={stdout}\nstderr={stderr}"
     );
     assert!(
         !trace_marker_present(&stdout),
-        "head-bucket tracing must NOT leak to stdout; stdout={stdout}"
+        "cp tracing must NOT leak to stdout; stdout={stdout}"
     );
 
     helper.delete_bucket_with_cascade(&bucket).await;
+    let _ = std::fs::remove_dir_all(&local_dir);
 }
 
 // ---- --tracing-stderr flips sync ----
