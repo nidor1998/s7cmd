@@ -45,43 +45,14 @@ async fn sync_dispatch_success() {
     let _ = std::fs::remove_dir_all(&local_dir);
 }
 
-#[tokio::test]
-async fn sync_dispatch_warning_etag_mismatch() {
-    // Seed S3 with an object whose body differs from what we'll sync up.
-    // sync --check-etag detects the mismatch and exits 3 (warning).
-    let helper = TestHelper::new().await;
-    let bucket = generate_bucket_name();
-    helper.create_bucket(&bucket, REGION).await;
-    helper
-        .put_object(&bucket, "a.txt", b"old contents".to_vec())
-        .await;
-
-    let local_dir = create_temp_dir();
-    create_test_file(&local_dir, "a.txt", b"new contents");
-
-    let target = format!("s3://{bucket}/");
-    let (code, stdout, stderr) = run(s7cmd_cmd().args([
-        "sync",
-        "--target-profile",
-        "s7cmd-e2e-test",
-        "--target-region",
-        REGION,
-        "--check-etag",
-        "--head-each-target",
-        "--dry-run",
-        local_dir.to_str().unwrap(),
-        &target,
-    ]));
-
-    assert_eq!(
-        code,
-        Some(3),
-        "sync --check-etag with mismatch must exit 3; stdout={stdout}\nstderr={stderr}"
-    );
-
-    helper.delete_bucket_with_cascade(&bucket).await;
-    let _ = std::fs::remove_dir_all(&local_dir);
-}
+// Note: a sync exit-3 (warning) test is intentionally omitted.
+// `--check-etag` with a content mismatch treats the situation as "object
+// needs sync, transfer it" rather than emitting a warning, and `--dry-run`
+// reports `[dry-run] sync completed` with `warning=0` — both yield exit 0.
+// Reliable warning-path triggering would require `--report-sync-status`
+// or specific Glacier-class scenarios beyond a dispatch test's scope. The
+// spec's section-12 follow-up explicitly authorized dropping this case if
+// the configuration didn't surface exit 3 in the maintainer's environment.
 
 // ---- ls ----
 
