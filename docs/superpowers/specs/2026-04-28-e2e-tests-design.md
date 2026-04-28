@@ -60,29 +60,40 @@ Trimmed `TestHelper` — only what process-level tests need (no SSE-C / checksum
 
 ### 4.2 API surface
 
+Process helpers (always available, used by both `cli_arg_validation.rs` and the gated `e2e_*.rs` files):
+
 ```rust
+// Always-available helpers (no AWS, no cfg gate)
+pub fn s7cmd_cmd() -> std::process::Command;          // pre-built, stdin null, stdout/stderr piped
+pub fn run(cmd: &mut Command) -> (Option<i32>, String, String);  // (exit_code, stdout, stderr)
+pub fn create_temp_dir() -> PathBuf;                  // ./playground/tmp_{uuid}/
+pub fn create_test_file(dir: &Path, name: &str, body: &[u8]) -> PathBuf;
+pub fn generate_bucket_name() -> String;              // "s7cmd-e2e-{uuid}"
+```
+
+`TestHelper` (SDK-using; gated by `cfg(e2e_test)` so default `cargo test` doesn't try to load AWS credentials):
+
+```rust
+#[cfg(e2e_test)]
 pub struct TestHelper { client: aws_sdk_s3::Client }
 
+#[cfg(e2e_test)]
 impl TestHelper {
-    // Construction
     pub async fn new() -> Self;
-    pub fn generate_bucket_name() -> String;          // "s7cmd-e2e-{uuid}"
-    pub fn create_temp_dir() -> PathBuf;              // ./playground/tmp_{uuid}/
-    pub fn create_test_file(dir: &Path, name: &str, body: &[u8]) -> PathBuf;
 
-    // Bucket lifecycle (SDK)
+    // Bucket lifecycle
     pub async fn create_bucket(&self, bucket: &str, region: &str);
     pub async fn is_bucket_exist(&self, bucket: &str) -> bool;
     pub async fn delete_bucket_with_cascade(&self, bucket: &str);   // idempotent
 
-    // Object lifecycle (SDK)
+    // Object lifecycle
     pub async fn put_object(&self, bucket: &str, key: &str, body: Vec<u8>);
     pub async fn is_object_exist(&self, bucket: &str, key: &str, version_id: Option<String>) -> bool;
     pub async fn delete_object(&self, bucket: &str, key: &str, version_id: Option<String>);
     pub async fn delete_all_objects(&self, bucket: &str);
     pub async fn delete_all_object_versions(&self, bucket: &str);
 
-    // Seeding helpers (only used to set state that a `get-*` / `delete-*` test reads)
+    // Seeding helpers (set state that a `get-*` / `delete-*` test will read)
     pub async fn put_object_tagging(&self, bucket: &str, key: &str, tags: &[(&str, &str)]);
     pub async fn put_bucket_tagging(&self, bucket: &str, tags: &[(&str, &str)]);
     pub async fn put_bucket_policy(&self, bucket: &str, policy_json: &str);
@@ -91,11 +102,9 @@ impl TestHelper {
     // Multipart cleanup (Ctrl+C tests for cp/mv)
     pub async fn abort_all_multipart_uploads(&self, bucket: &str);
 }
-
-// Process helpers (free functions)
-pub fn s7cmd_cmd() -> std::process::Command;          // pre-built, stdin null, stdout/stderr piped
-pub fn run(cmd: &mut Command) -> (Option<i32>, String, String);  // (exit_code, stdout, stderr)
 ```
+
+`cli_arg_validation.rs` uses only the always-available helpers (`s7cmd_cmd`, `run`). `e2e_*.rs` files use both groups.
 
 `delete_bucket_with_cascade` is best-effort + idempotent (no-op on already-deleted). A panic mid-test will skip teardown; we accept this cost — orphan buckets are easy to clean up manually with the same profile.
 
@@ -107,7 +116,7 @@ pub fn run(cmd: &mut Command) -> (Option<i32>, String, String);  // (exit_code, 
 | **1** | Generic error | `e2e_*.rs` (selected) | runtime failures: `delete-bucket` on bucket-not-empty, `put-bucket-policy` with malformed JSON, etc. |
 | **2** | Clap arg error | `cli_arg_validation.rs` (no AWS gate) | per-subcommand: missing required args, invalid value, unknown flag. Plus top-level no-subcommand and unrecognized subcommand. |
 | **3** | Warning | `e2e_object_ops.rs` | `sync` produces a warning path (e.g. `--check-etag` detecting an ETag drift). |
-| **4** | Not found | `e2e_*.rs` (head/get groups) | `head-bucket` on missing bucket, `head-object` on missing key, `get-bucket-tagging`/`get-bucket-policy`/`get-bucket-versioning` on bucket without that config. |
+| **4** | Not found | `e2e_*.rs` (head/get groups) | `head-bucket` on missing bucket, `head-object` on missing key, `get-bucket-tagging`/`get-bucket-policy` on bucket without that config. (`get-bucket-versioning` returns 200 with empty status when unconfigured — no NotFound case.) |
 | **130** | SIGINT | `e2e_ctrl_c.rs` | sync, ls, clean, cp, mv each spawn a long-running invocation, send SIGINT, assert 130. |
 
 Every test asserts on `output.status.code()` against the specific expected value. The shared `run()` helper returns `(exit_code, stdout, stderr)` so failing assertions can include both streams.
