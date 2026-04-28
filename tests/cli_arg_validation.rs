@@ -236,3 +236,174 @@ fn put_bucket_versioning_no_args_exits_2() {
     assert_eq!(code, Some(2));
     assert!(!stderr.is_empty());
 }
+
+// ---- get-bucket-lifecycle-configuration ----
+
+#[test]
+fn get_bucket_lifecycle_configuration_no_args_exits_2() {
+    let (code, _stdout, stderr) = run(s7cmd_cmd().arg("get-bucket-lifecycle-configuration"));
+    assert_eq!(code, Some(2));
+    assert!(!stderr.is_empty());
+}
+
+// ---- put-bucket-lifecycle-configuration ----
+
+#[test]
+fn put_bucket_lifecycle_configuration_no_args_exits_2() {
+    let (code, _stdout, stderr) = run(s7cmd_cmd().arg("put-bucket-lifecycle-configuration"));
+    assert_eq!(code, Some(2));
+    assert!(!stderr.is_empty());
+}
+
+// ---- delete-bucket-lifecycle-configuration ----
+
+#[test]
+fn delete_bucket_lifecycle_configuration_no_args_exits_2() {
+    let (code, _stdout, stderr) = run(s7cmd_cmd().arg("delete-bucket-lifecycle-configuration"));
+    assert_eq!(code, Some(2));
+    assert!(!stderr.is_empty());
+}
+
+// ---- get-bucket-encryption ----
+
+#[test]
+fn get_bucket_encryption_no_args_exits_2() {
+    let (code, _stdout, stderr) = run(s7cmd_cmd().arg("get-bucket-encryption"));
+    assert_eq!(code, Some(2));
+    assert!(!stderr.is_empty());
+}
+
+// ---- put-bucket-encryption ----
+
+#[test]
+fn put_bucket_encryption_no_args_exits_2() {
+    let (code, _stdout, stderr) = run(s7cmd_cmd().arg("put-bucket-encryption"));
+    assert_eq!(code, Some(2));
+    assert!(!stderr.is_empty());
+}
+
+// ---- delete-bucket-encryption ----
+
+#[test]
+fn delete_bucket_encryption_no_args_exits_2() {
+    let (code, _stdout, stderr) = run(s7cmd_cmd().arg("delete-bucket-encryption"));
+    assert_eq!(code, Some(2));
+    assert!(!stderr.is_empty());
+}
+
+// ---- get-bucket-cors ----
+
+#[test]
+fn get_bucket_cors_no_args_exits_2() {
+    let (code, _stdout, stderr) = run(s7cmd_cmd().arg("get-bucket-cors"));
+    assert_eq!(code, Some(2));
+    assert!(!stderr.is_empty());
+}
+
+// ---- put-bucket-cors ----
+
+#[test]
+fn put_bucket_cors_no_args_exits_2() {
+    let (code, _stdout, stderr) = run(s7cmd_cmd().arg("put-bucket-cors"));
+    assert_eq!(code, Some(2));
+    assert!(!stderr.is_empty());
+}
+
+// ---- delete-bucket-cors ----
+
+#[test]
+fn delete_bucket_cors_no_args_exits_2() {
+    let (code, _stdout, stderr) = run(s7cmd_cmd().arg("delete-bucket-cors"));
+    assert_eq!(code, Some(2));
+    assert!(!stderr.is_empty());
+}
+
+// ---- get-public-access-block ----
+
+#[test]
+fn get_public_access_block_no_args_exits_2() {
+    let (code, _stdout, stderr) = run(s7cmd_cmd().arg("get-public-access-block"));
+    assert_eq!(code, Some(2));
+    assert!(!stderr.is_empty());
+}
+
+// ---- put-public-access-block ----
+
+#[test]
+fn put_public_access_block_no_args_exits_2() {
+    let (code, _stdout, stderr) = run(s7cmd_cmd().arg("put-public-access-block"));
+    assert_eq!(code, Some(2));
+    assert!(!stderr.is_empty());
+}
+
+// ---- delete-public-access-block ----
+
+#[test]
+fn delete_public_access_block_no_args_exits_2() {
+    let (code, _stdout, stderr) = run(s7cmd_cmd().arg("delete-public-access-block"));
+    assert_eq!(code, Some(2));
+    assert!(!stderr.is_empty());
+}
+
+// ---- get-bucket-website ----
+
+#[test]
+fn get_bucket_website_no_args_exits_2() {
+    let (code, _stdout, stderr) = run(s7cmd_cmd().arg("get-bucket-website"));
+    assert_eq!(code, Some(2));
+    assert!(!stderr.is_empty());
+}
+
+// ---- put-bucket-website ----
+
+#[test]
+fn put_bucket_website_no_args_exits_2() {
+    let (code, _stdout, stderr) = run(s7cmd_cmd().arg("put-bucket-website"));
+    assert_eq!(code, Some(2));
+    assert!(!stderr.is_empty());
+}
+
+// ---- delete-bucket-website ----
+
+#[test]
+fn delete_bucket_website_no_args_exits_2() {
+    let (code, _stdout, stderr) = run(s7cmd_cmd().arg("delete-bucket-website"));
+    assert_eq!(code, Some(2));
+    assert!(!stderr.is_empty());
+}
+
+// ---- get-bucket-logging ----
+
+#[test]
+fn get_bucket_logging_no_args_exits_2() {
+    let (code, _stdout, stderr) = run(s7cmd_cmd().arg("get-bucket-logging"));
+    assert_eq!(code, Some(2));
+    assert!(!stderr.is_empty());
+}
+
+// ---- put-bucket-logging ----
+
+#[test]
+fn put_bucket_logging_no_args_exits_2() {
+    let (code, _stdout, stderr) = run(s7cmd_cmd().arg("put-bucket-logging"));
+    assert_eq!(code, Some(2));
+    assert!(!stderr.is_empty());
+}
+
+// ---- get-bucket-notification-configuration ----
+
+#[test]
+fn get_bucket_notification_configuration_no_args_exits_2() {
+    let (code, _stdout, stderr) = run(s7cmd_cmd().arg("get-bucket-notification-configuration"));
+    assert_eq!(code, Some(2));
+    assert!(!stderr.is_empty());
+}
+
+// ---- put-bucket-notification-configuration ----
+
+#[test]
+fn put_bucket_notification_configuration_no_args_exits_2() {
+    let (code, _stdout, stderr) = run(s7cmd_cmd().arg("put-bucket-notification-configuration"));
+    assert_eq!(code, Some(2));
+    assert!(!stderr.is_empty());
+}

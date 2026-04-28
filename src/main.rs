@@ -352,6 +352,313 @@ async fn main() -> Result<()> {
                 };
             std::process::exit(exit_code);
         }
+        Cmd::GetBucketLifecycleConfiguration(args) => {
+            let tracing_config = args.common.build_tracing_config();
+            if let Some(tc) = &tracing_config {
+                util_bin::tracing_init::init_tracing(tc);
+            }
+            let client_config = args.common.build_client_config();
+            let exit_code =
+                match util_bin::cli::run_get_bucket_lifecycle_configuration(args, client_config)
+                    .await
+                {
+                    Ok(status) => status.code(),
+                    Err(e) => {
+                        tracing::error!(error = format!("{e:#}"));
+                        util_bin::cli::EXIT_CODE_ERROR
+                    }
+                };
+            std::process::exit(exit_code);
+        }
+        Cmd::PutBucketLifecycleConfiguration(args) => {
+            let tracing_config = args.common.build_tracing_config();
+            if let Some(tc) = &tracing_config {
+                util_bin::tracing_init::init_tracing(tc);
+            }
+            let client_config = args.common.build_client_config();
+            let exit_code =
+                match util_bin::cli::run_put_bucket_lifecycle_configuration(args, client_config)
+                    .await
+                {
+                    Ok(()) => util_bin::cli::EXIT_CODE_SUCCESS,
+                    Err(e) => {
+                        tracing::error!(error = format!("{e:#}"));
+                        util_bin::cli::EXIT_CODE_ERROR
+                    }
+                };
+            std::process::exit(exit_code);
+        }
+        Cmd::DeleteBucketLifecycleConfiguration(args) => {
+            let tracing_config = args.common.build_tracing_config();
+            if let Some(tc) = &tracing_config {
+                util_bin::tracing_init::init_tracing(tc);
+            }
+            let client_config = args.common.build_client_config();
+            let exit_code =
+                match util_bin::cli::run_delete_bucket_lifecycle_configuration(args, client_config)
+                    .await
+                {
+                    Ok(()) => util_bin::cli::EXIT_CODE_SUCCESS,
+                    Err(e) => {
+                        tracing::error!(error = format!("{e:#}"));
+                        util_bin::cli::EXIT_CODE_ERROR
+                    }
+                };
+            std::process::exit(exit_code);
+        }
+        Cmd::GetBucketEncryption(args) => {
+            let tracing_config = args.common.build_tracing_config();
+            if let Some(tc) = &tracing_config {
+                util_bin::tracing_init::init_tracing(tc);
+            }
+            let client_config = args.common.build_client_config();
+            let exit_code =
+                match util_bin::cli::run_get_bucket_encryption(args, client_config).await {
+                    Ok(status) => status.code(),
+                    Err(e) => {
+                        tracing::error!(error = format!("{e:#}"));
+                        util_bin::cli::EXIT_CODE_ERROR
+                    }
+                };
+            std::process::exit(exit_code);
+        }
+        Cmd::PutBucketEncryption(args) => {
+            let tracing_config = args.common.build_tracing_config();
+            if let Some(tc) = &tracing_config {
+                util_bin::tracing_init::init_tracing(tc);
+            }
+            let client_config = args.common.build_client_config();
+            let exit_code =
+                match util_bin::cli::run_put_bucket_encryption(args, client_config).await {
+                    Ok(()) => util_bin::cli::EXIT_CODE_SUCCESS,
+                    Err(e) => {
+                        tracing::error!(error = format!("{e:#}"));
+                        util_bin::cli::EXIT_CODE_ERROR
+                    }
+                };
+            std::process::exit(exit_code);
+        }
+        Cmd::DeleteBucketEncryption(args) => {
+            let tracing_config = args.common.build_tracing_config();
+            if let Some(tc) = &tracing_config {
+                util_bin::tracing_init::init_tracing(tc);
+            }
+            let client_config = args.common.build_client_config();
+            let exit_code =
+                match util_bin::cli::run_delete_bucket_encryption(args, client_config).await {
+                    Ok(()) => util_bin::cli::EXIT_CODE_SUCCESS,
+                    Err(e) => {
+                        tracing::error!(error = format!("{e:#}"));
+                        util_bin::cli::EXIT_CODE_ERROR
+                    }
+                };
+            std::process::exit(exit_code);
+        }
+        Cmd::GetBucketCors(args) => {
+            let tracing_config = args.common.build_tracing_config();
+            if let Some(tc) = &tracing_config {
+                util_bin::tracing_init::init_tracing(tc);
+            }
+            let client_config = args.common.build_client_config();
+            let exit_code = match util_bin::cli::run_get_bucket_cors(args, client_config).await {
+                Ok(status) => status.code(),
+                Err(e) => {
+                    tracing::error!(error = format!("{e:#}"));
+                    util_bin::cli::EXIT_CODE_ERROR
+                }
+            };
+            std::process::exit(exit_code);
+        }
+        Cmd::PutBucketCors(args) => {
+            let tracing_config = args.common.build_tracing_config();
+            if let Some(tc) = &tracing_config {
+                util_bin::tracing_init::init_tracing(tc);
+            }
+            let client_config = args.common.build_client_config();
+            let exit_code = match util_bin::cli::run_put_bucket_cors(args, client_config).await {
+                Ok(()) => util_bin::cli::EXIT_CODE_SUCCESS,
+                Err(e) => {
+                    tracing::error!(error = format!("{e:#}"));
+                    util_bin::cli::EXIT_CODE_ERROR
+                }
+            };
+            std::process::exit(exit_code);
+        }
+        Cmd::DeleteBucketCors(args) => {
+            let tracing_config = args.common.build_tracing_config();
+            if let Some(tc) = &tracing_config {
+                util_bin::tracing_init::init_tracing(tc);
+            }
+            let client_config = args.common.build_client_config();
+            let exit_code = match util_bin::cli::run_delete_bucket_cors(args, client_config).await {
+                Ok(()) => util_bin::cli::EXIT_CODE_SUCCESS,
+                Err(e) => {
+                    tracing::error!(error = format!("{e:#}"));
+                    util_bin::cli::EXIT_CODE_ERROR
+                }
+            };
+            std::process::exit(exit_code);
+        }
+        Cmd::GetPublicAccessBlock(args) => {
+            let tracing_config = args.common.build_tracing_config();
+            if let Some(tc) = &tracing_config {
+                util_bin::tracing_init::init_tracing(tc);
+            }
+            let client_config = args.common.build_client_config();
+            let exit_code =
+                match util_bin::cli::run_get_public_access_block(args, client_config).await {
+                    Ok(status) => status.code(),
+                    Err(e) => {
+                        tracing::error!(error = format!("{e:#}"));
+                        util_bin::cli::EXIT_CODE_ERROR
+                    }
+                };
+            std::process::exit(exit_code);
+        }
+        Cmd::PutPublicAccessBlock(args) => {
+            let tracing_config = args.common.build_tracing_config();
+            if let Some(tc) = &tracing_config {
+                util_bin::tracing_init::init_tracing(tc);
+            }
+            let client_config = args.common.build_client_config();
+            let exit_code =
+                match util_bin::cli::run_put_public_access_block(args, client_config).await {
+                    Ok(()) => util_bin::cli::EXIT_CODE_SUCCESS,
+                    Err(e) => {
+                        tracing::error!(error = format!("{e:#}"));
+                        util_bin::cli::EXIT_CODE_ERROR
+                    }
+                };
+            std::process::exit(exit_code);
+        }
+        Cmd::DeletePublicAccessBlock(args) => {
+            let tracing_config = args.common.build_tracing_config();
+            if let Some(tc) = &tracing_config {
+                util_bin::tracing_init::init_tracing(tc);
+            }
+            let client_config = args.common.build_client_config();
+            let exit_code =
+                match util_bin::cli::run_delete_public_access_block(args, client_config).await {
+                    Ok(()) => util_bin::cli::EXIT_CODE_SUCCESS,
+                    Err(e) => {
+                        tracing::error!(error = format!("{e:#}"));
+                        util_bin::cli::EXIT_CODE_ERROR
+                    }
+                };
+            std::process::exit(exit_code);
+        }
+        Cmd::GetBucketWebsite(args) => {
+            let tracing_config = args.common.build_tracing_config();
+            if let Some(tc) = &tracing_config {
+                util_bin::tracing_init::init_tracing(tc);
+            }
+            let client_config = args.common.build_client_config();
+            let exit_code = match util_bin::cli::run_get_bucket_website(args, client_config).await {
+                Ok(status) => status.code(),
+                Err(e) => {
+                    tracing::error!(error = format!("{e:#}"));
+                    util_bin::cli::EXIT_CODE_ERROR
+                }
+            };
+            std::process::exit(exit_code);
+        }
+        Cmd::PutBucketWebsite(args) => {
+            let tracing_config = args.common.build_tracing_config();
+            if let Some(tc) = &tracing_config {
+                util_bin::tracing_init::init_tracing(tc);
+            }
+            let client_config = args.common.build_client_config();
+            let exit_code = match util_bin::cli::run_put_bucket_website(args, client_config).await {
+                Ok(()) => util_bin::cli::EXIT_CODE_SUCCESS,
+                Err(e) => {
+                    tracing::error!(error = format!("{e:#}"));
+                    util_bin::cli::EXIT_CODE_ERROR
+                }
+            };
+            std::process::exit(exit_code);
+        }
+        Cmd::DeleteBucketWebsite(args) => {
+            let tracing_config = args.common.build_tracing_config();
+            if let Some(tc) = &tracing_config {
+                util_bin::tracing_init::init_tracing(tc);
+            }
+            let client_config = args.common.build_client_config();
+            let exit_code =
+                match util_bin::cli::run_delete_bucket_website(args, client_config).await {
+                    Ok(()) => util_bin::cli::EXIT_CODE_SUCCESS,
+                    Err(e) => {
+                        tracing::error!(error = format!("{e:#}"));
+                        util_bin::cli::EXIT_CODE_ERROR
+                    }
+                };
+            std::process::exit(exit_code);
+        }
+        Cmd::GetBucketLogging(args) => {
+            let tracing_config = args.common.build_tracing_config();
+            if let Some(tc) = &tracing_config {
+                util_bin::tracing_init::init_tracing(tc);
+            }
+            let client_config = args.common.build_client_config();
+            let exit_code = match util_bin::cli::run_get_bucket_logging(args, client_config).await {
+                Ok(status) => status.code(),
+                Err(e) => {
+                    tracing::error!(error = format!("{e:#}"));
+                    util_bin::cli::EXIT_CODE_ERROR
+                }
+            };
+            std::process::exit(exit_code);
+        }
+        Cmd::PutBucketLogging(args) => {
+            let tracing_config = args.common.build_tracing_config();
+            if let Some(tc) = &tracing_config {
+                util_bin::tracing_init::init_tracing(tc);
+            }
+            let client_config = args.common.build_client_config();
+            let exit_code = match util_bin::cli::run_put_bucket_logging(args, client_config).await {
+                Ok(()) => util_bin::cli::EXIT_CODE_SUCCESS,
+                Err(e) => {
+                    tracing::error!(error = format!("{e:#}"));
+                    util_bin::cli::EXIT_CODE_ERROR
+                }
+            };
+            std::process::exit(exit_code);
+        }
+        Cmd::GetBucketNotificationConfiguration(args) => {
+            let tracing_config = args.common.build_tracing_config();
+            if let Some(tc) = &tracing_config {
+                util_bin::tracing_init::init_tracing(tc);
+            }
+            let client_config = args.common.build_client_config();
+            let exit_code =
+                match util_bin::cli::run_get_bucket_notification_configuration(args, client_config)
+                    .await
+                {
+                    Ok(status) => status.code(),
+                    Err(e) => {
+                        tracing::error!(error = format!("{e:#}"));
+                        util_bin::cli::EXIT_CODE_ERROR
+                    }
+                };
+            std::process::exit(exit_code);
+        }
+        Cmd::PutBucketNotificationConfiguration(args) => {
+            let tracing_config = args.common.build_tracing_config();
+            if let Some(tc) = &tracing_config {
+                util_bin::tracing_init::init_tracing(tc);
+            }
+            let client_config = args.common.build_client_config();
+            let exit_code =
+                match util_bin::cli::run_put_bucket_notification_configuration(args, client_config)
+                    .await
+                {
+                    Ok(()) => util_bin::cli::EXIT_CODE_SUCCESS,
+                    Err(e) => {
+                        tracing::error!(error = format!("{e:#}"));
+                        util_bin::cli::EXIT_CODE_ERROR
+                    }
+                };
+            std::process::exit(exit_code);
+        }
     }
 }
 

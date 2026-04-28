@@ -2963,9 +2963,9 @@ dependencies = [
 
 [[package]]
 name = "s3util-rs"
-version = "0.2.0"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a859c08f4939cae945df775fdfed91f219e083b098cd434b16fa41d6658c031"
+checksum = "d577755f9789e7f407f5d6e85a518a27e6a7cfc69f9a57d74da029a073ab6aee"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -3003,6 +3003,7 @@ dependencies = [
  "percent-encoding",
  "pin-project",
  "regex",
+ "serde",
  "serde_json",
  "sha1 0.11.0",
  "sha2 0.11.0",

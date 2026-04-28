@@ -200,6 +200,179 @@ fn put_bucket_versioning_help_works() {
 }
 
 #[test]
+fn get_bucket_lifecycle_configuration_help_works() {
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["get-bucket-lifecycle-configuration", "--help"])
+        .assert()
+        .success();
+}
+#[test]
+fn put_bucket_lifecycle_configuration_help_works() {
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["put-bucket-lifecycle-configuration", "--help"])
+        .assert()
+        .success();
+}
+#[test]
+fn delete_bucket_lifecycle_configuration_help_works() {
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["delete-bucket-lifecycle-configuration", "--help"])
+        .assert()
+        .success();
+}
+#[test]
+fn get_bucket_encryption_help_works() {
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["get-bucket-encryption", "--help"])
+        .assert()
+        .success();
+}
+#[test]
+fn put_bucket_encryption_help_works() {
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["put-bucket-encryption", "--help"])
+        .assert()
+        .success();
+}
+#[test]
+fn delete_bucket_encryption_help_works() {
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["delete-bucket-encryption", "--help"])
+        .assert()
+        .success();
+}
+#[test]
+fn get_bucket_cors_help_works() {
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["get-bucket-cors", "--help"])
+        .assert()
+        .success();
+}
+#[test]
+fn put_bucket_cors_help_works() {
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["put-bucket-cors", "--help"])
+        .assert()
+        .success();
+}
+#[test]
+fn delete_bucket_cors_help_works() {
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["delete-bucket-cors", "--help"])
+        .assert()
+        .success();
+}
+#[test]
+fn get_public_access_block_help_works() {
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["get-public-access-block", "--help"])
+        .assert()
+        .success();
+}
+#[test]
+fn put_public_access_block_help_works() {
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["put-public-access-block", "--help"])
+        .assert()
+        .success();
+}
+#[test]
+fn delete_public_access_block_help_works() {
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["delete-public-access-block", "--help"])
+        .assert()
+        .success();
+}
+#[test]
+fn get_bucket_website_help_works() {
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["get-bucket-website", "--help"])
+        .assert()
+        .success();
+}
+#[test]
+fn put_bucket_website_help_works() {
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["put-bucket-website", "--help"])
+        .assert()
+        .success();
+}
+#[test]
+fn delete_bucket_website_help_works() {
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["delete-bucket-website", "--help"])
+        .assert()
+        .success();
+}
+#[test]
+fn get_bucket_logging_help_works() {
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["get-bucket-logging", "--help"])
+        .assert()
+        .success();
+}
+#[test]
+fn put_bucket_logging_help_works() {
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["put-bucket-logging", "--help"])
+        .assert()
+        .success();
+}
+#[test]
+fn get_bucket_notification_configuration_help_works() {
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["get-bucket-notification-configuration", "--help"])
+        .assert()
+        .success();
+}
+#[test]
+fn put_bucket_notification_configuration_help_works() {
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["put-bucket-notification-configuration", "--help"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn top_level_help_lists_new_bucket_subcommands() {
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "get-bucket-lifecycle-configuration",
+        ))
+        .stdout(predicate::str::contains("get-bucket-encryption"))
+        .stdout(predicate::str::contains("get-bucket-cors"))
+        .stdout(predicate::str::contains("get-public-access-block"))
+        .stdout(predicate::str::contains("get-bucket-website"))
+        .stdout(predicate::str::contains("get-bucket-logging"))
+        .stdout(predicate::str::contains(
+            "get-bucket-notification-configuration",
+        ));
+}
+
+#[test]
 fn top_level_help_lists_auto_complete_shell() {
     Command::cargo_bin("s7cmd")
         .unwrap()

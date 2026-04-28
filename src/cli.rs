@@ -32,48 +32,82 @@ shadow!(build);
 {usage-heading} {usage}
 
 Object Operations:
-  ls                     List S3 objects
-  cp                     Copy objects from/to S3
-  mv                     Move objects from/to S3 (copy then delete source)
-  rm                     Delete a single S3 object
-  sync                   Synchronize files between local and S3 (or S3 to S3)
-  clean                  Bulk-delete S3 objects
+  ls                                    List S3 objects
+  cp                                    Copy objects from/to S3
+  mv                                    Move objects from/to S3 (copy then delete source)
+  rm                                    Delete a single S3 object
+  sync                                  Synchronize files between local and S3 (or S3 to S3)
+  clean                                 Bulk-delete S3 objects
 
 Object Metadata:
-  head-object            Head an S3 object
-  get-object-tagging     Get an S3 object's tagging
-  put-object-tagging     Put tagging on an S3 object
-  delete-object-tagging  Delete tagging from an S3 object
+  head-object                           Head an S3 object
+  get-object-tagging                    Get an S3 object's tagging
+  put-object-tagging                    Put tagging on an S3 object
+  delete-object-tagging                 Delete tagging from an S3 object
 
 Bucket Operations:
-  create-bucket          Create an S3 bucket
-  delete-bucket          Delete an S3 bucket
-  head-bucket            Head an S3 bucket
+  create-bucket                         Create an S3 bucket
+  delete-bucket                         Delete an S3 bucket
+  head-bucket                           Head an S3 bucket
 
 Bucket Tagging:
-  get-bucket-tagging     Get a bucket's tagging
-  put-bucket-tagging     Put tagging on a bucket
-  delete-bucket-tagging  Delete tagging from a bucket
+  get-bucket-tagging                    Get a bucket's tagging
+  put-bucket-tagging                    Put tagging on a bucket
+  delete-bucket-tagging                 Delete tagging from a bucket
 
 Bucket Policy:
-  get-bucket-policy      Get a bucket's policy
-  put-bucket-policy      Put a bucket policy
-  delete-bucket-policy   Delete a bucket's policy
+  get-bucket-policy                     Get a bucket's policy
+  put-bucket-policy                     Put a bucket policy
+  delete-bucket-policy                  Delete a bucket's policy
 
 Bucket Versioning:
-  get-bucket-versioning  Get a bucket's versioning configuration
-  put-bucket-versioning  Put a bucket versioning configuration
+  get-bucket-versioning                 Get a bucket's versioning configuration
+  put-bucket-versioning                 Put a bucket versioning configuration
+
+Bucket Lifecycle:
+  get-bucket-lifecycle-configuration    Get a bucket's lifecycle configuration
+  put-bucket-lifecycle-configuration    Put a bucket lifecycle configuration
+  delete-bucket-lifecycle-configuration Delete a bucket's lifecycle configuration
+
+Bucket Encryption:
+  get-bucket-encryption                 Get a bucket's encryption configuration
+  put-bucket-encryption                 Put a bucket encryption configuration
+  delete-bucket-encryption              Delete a bucket's encryption configuration
+
+Bucket CORS:
+  get-bucket-cors                       Get a bucket's CORS configuration
+  put-bucket-cors                       Put a bucket CORS configuration
+  delete-bucket-cors                    Delete a bucket's CORS configuration
+
+Bucket Public Access Block:
+  get-public-access-block               Get a bucket's public access block configuration
+  put-public-access-block               Put a bucket public access block configuration
+  delete-public-access-block            Delete a bucket's public access block configuration
+
+Bucket Website:
+  get-bucket-website                    Get a bucket's website configuration
+  put-bucket-website                    Put a bucket website configuration
+  delete-bucket-website                 Delete a bucket's website configuration
+
+Bucket Logging:
+  get-bucket-logging                    Get a bucket's logging configuration
+  put-bucket-logging                    Put a bucket logging configuration
+
+Bucket Notification:
+  get-bucket-notification-configuration Get a bucket's notification configuration
+  put-bucket-notification-configuration Put a bucket notification configuration
 
 Other:
-  help                   Print this message or the help of the given subcommand(s)
+  help                                  Print this message or the help of the given subcommand(s)
 
 Options:
 {options}{after-help}",
 )]
 pub struct Cli {
     /// Generate shell completions for s7cmd (all subcommands) and exit.
-    /// Equivalent to passing `--auto-complete-shell <SHELL>` to any subcommand,
-    /// but works without picking one.
+    ///
+    /// Equivalent to `<subcommand> --auto-complete-shell <SHELL>`,
+    /// but does not require picking a subcommand.
     #[arg(long, value_enum, value_name = "SHELL", global = false)]
     pub auto_complete_shell: Option<Shell>,
 
@@ -136,6 +170,64 @@ pub enum Cmd {
     GetBucketVersioning(s3util_rs::config::args::GetBucketVersioningArgs),
     /// Put a bucket versioning configuration
     PutBucketVersioning(s3util_rs::config::args::PutBucketVersioningArgs),
+
+    // Bucket Lifecycle
+    /// Get a bucket's lifecycle configuration
+    GetBucketLifecycleConfiguration(s3util_rs::config::args::GetBucketLifecycleConfigurationArgs),
+    /// Put a bucket lifecycle configuration
+    PutBucketLifecycleConfiguration(s3util_rs::config::args::PutBucketLifecycleConfigurationArgs),
+    /// Delete a bucket's lifecycle configuration
+    DeleteBucketLifecycleConfiguration(
+        s3util_rs::config::args::DeleteBucketLifecycleConfigurationArgs,
+    ),
+
+    // Bucket Encryption
+    /// Get a bucket's encryption configuration
+    GetBucketEncryption(s3util_rs::config::args::GetBucketEncryptionArgs),
+    /// Put a bucket encryption configuration
+    PutBucketEncryption(s3util_rs::config::args::PutBucketEncryptionArgs),
+    /// Delete a bucket's encryption configuration
+    DeleteBucketEncryption(s3util_rs::config::args::DeleteBucketEncryptionArgs),
+
+    // Bucket CORS
+    /// Get a bucket's CORS configuration
+    GetBucketCors(s3util_rs::config::args::GetBucketCorsArgs),
+    /// Put a bucket CORS configuration
+    PutBucketCors(s3util_rs::config::args::PutBucketCorsArgs),
+    /// Delete a bucket's CORS configuration
+    DeleteBucketCors(s3util_rs::config::args::DeleteBucketCorsArgs),
+
+    // Bucket Public Access Block
+    /// Get a bucket's public access block configuration
+    GetPublicAccessBlock(s3util_rs::config::args::GetPublicAccessBlockArgs),
+    /// Put a bucket public access block configuration
+    PutPublicAccessBlock(s3util_rs::config::args::PutPublicAccessBlockArgs),
+    /// Delete a bucket's public access block configuration
+    DeletePublicAccessBlock(s3util_rs::config::args::DeletePublicAccessBlockArgs),
+
+    // Bucket Website
+    /// Get a bucket's website configuration
+    GetBucketWebsite(s3util_rs::config::args::GetBucketWebsiteArgs),
+    /// Put a bucket website configuration
+    PutBucketWebsite(s3util_rs::config::args::PutBucketWebsiteArgs),
+    /// Delete a bucket's website configuration
+    DeleteBucketWebsite(s3util_rs::config::args::DeleteBucketWebsiteArgs),
+
+    // Bucket Logging
+    /// Get a bucket's logging configuration
+    GetBucketLogging(s3util_rs::config::args::GetBucketLoggingArgs),
+    /// Put a bucket logging configuration
+    PutBucketLogging(s3util_rs::config::args::PutBucketLoggingArgs),
+
+    // Bucket Notification
+    /// Get a bucket's notification configuration
+    GetBucketNotificationConfiguration(
+        s3util_rs::config::args::GetBucketNotificationConfigurationArgs,
+    ),
+    /// Put a bucket notification configuration
+    PutBucketNotificationConfiguration(
+        s3util_rs::config::args::PutBucketNotificationConfigurationArgs,
+    ),
 }
 
 /// Build the s7cmd `Command` with `--auto-complete-shell` hidden on every
