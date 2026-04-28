@@ -14,7 +14,7 @@
 
 mod common;
 
-use common::{REGION, TestHelper, generate_bucket_name, run, s7cmd_cmd};
+use common::{REGION, TestHelper, create_temp_dir, generate_bucket_name, run, s7cmd_cmd};
 use std::process::Command;
 
 const TRACING_ENV: &[&str] = &[
@@ -54,6 +54,7 @@ async fn sync_tracing_goes_to_stdout_by_default() {
     let bucket = generate_bucket_name();
     helper.create_bucket(&bucket, REGION).await;
 
+    let local_dir = create_temp_dir();
     let target = format!("s3://{bucket}/");
     let mut cmd = s7cmd_cmd();
     cmd.args([
@@ -64,9 +65,9 @@ async fn sync_tracing_goes_to_stdout_by_default() {
         REGION,
         "-vvv",
         "--disable-color-tracing",
-        // Empty source dir keeps the upload trivially small — we only want
-        // the trace to fire.
-        ".",
+        // Empty temp dir — we only want the trace to fire, not actually
+        // sync any files.
+        local_dir.to_str().unwrap(),
         &target,
     ]);
     scrub_env(&mut cmd);
@@ -82,6 +83,7 @@ async fn sync_tracing_goes_to_stdout_by_default() {
     );
 
     helper.delete_bucket_with_cascade(&bucket).await;
+    let _ = std::fs::remove_dir_all(&local_dir);
 }
 
 #[tokio::test]
@@ -195,6 +197,7 @@ async fn sync_tracing_stderr_flag_flips_to_stderr() {
     let bucket = generate_bucket_name();
     helper.create_bucket(&bucket, REGION).await;
 
+    let local_dir = create_temp_dir();
     let target = format!("s3://{bucket}/");
     let mut cmd = s7cmd_cmd();
     cmd.args([
@@ -206,7 +209,9 @@ async fn sync_tracing_stderr_flag_flips_to_stderr() {
         "--tracing-stderr",
         "-vvv",
         "--disable-color-tracing",
-        ".",
+        // Empty temp dir — we only want the trace to fire, not actually
+        // sync any files.
+        local_dir.to_str().unwrap(),
         &target,
     ]);
     scrub_env(&mut cmd);
@@ -222,6 +227,7 @@ async fn sync_tracing_stderr_flag_flips_to_stderr() {
     );
 
     helper.delete_bucket_with_cascade(&bucket).await;
+    let _ = std::fs::remove_dir_all(&local_dir);
 }
 
 // ---- --json-tracing produces JSON ----
@@ -258,4 +264,42 @@ async fn ls_json_tracing_emits_json() {
     );
 
     helper.delete_bucket_with_cascade(&bucket).await;
+}
+
+#[tokio::test]
+async fn sync_json_tracing_emits_json() {
+    let helper = TestHelper::new().await;
+    let bucket = generate_bucket_name();
+    helper.create_bucket(&bucket, REGION).await;
+
+    let local_dir = create_temp_dir();
+    let target = format!("s3://{bucket}/");
+    let mut cmd = s7cmd_cmd();
+    cmd.args([
+        "sync",
+        "--target-profile",
+        "s7cmd-e2e-test",
+        "--target-region",
+        REGION,
+        "--json-tracing",
+        "-vvv",
+        "--disable-color-tracing",
+        local_dir.to_str().unwrap(),
+        &target,
+    ]);
+    scrub_env(&mut cmd);
+    let (_code, stdout, _stderr) = run(&mut cmd);
+
+    // sync writes tracing to stdout by default, so the JSON shows up there.
+    assert!(
+        stdout.contains(r#""level":"#),
+        "expected JSON-tracing 'level' field on sync stdout; stdout={stdout}"
+    );
+    assert!(
+        stdout.contains(r#""timestamp":"#),
+        "expected JSON-tracing 'timestamp' field on sync stdout; stdout={stdout}"
+    );
+
+    helper.delete_bucket_with_cascade(&bucket).await;
+    let _ = std::fs::remove_dir_all(&local_dir);
 }
