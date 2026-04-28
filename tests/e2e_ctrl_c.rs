@@ -155,8 +155,12 @@ async fn cancel_clean_sigint_exits_130() {
         "--target-region",
         REGION,
         "--force",
-        // --rate-limit-objects has a minimum of 10. With 200 seeded objects
-        // that's ~20s of work, well beyond the 1500ms SIGINT delivery.
+        // --rate-limit-objects has both a hard floor of 10 AND must be >=
+        // --batch-size (default 200). Lower batch-size to 10 so the floor
+        // becomes 10. With 200 seeded objects @ 10/sec that's ~20s of work,
+        // well beyond the 1500ms SIGINT delivery.
+        "--batch-size",
+        "10",
         "--rate-limit-objects",
         "10",
         &target,
