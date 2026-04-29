@@ -1,0 +1,381 @@
+use clap::Parser;
+
+// Re-import the binary crate's modules into the integration test.
+// Integration tests can't access the binary's private modules normally,
+// so we rebuild Cli here from the public lib types — equivalent shape.
+//
+// (If/when we expose Cli as part of a thin lib, replace this with
+// `use s7cmd::cli::{Cli, Cmd};`.)
+
+#[path = "../src/cli.rs"]
+mod cli;
+
+use cli::{Cli, Cmd};
+
+#[test]
+fn parses_ls_with_target() {
+    let cli = Cli::try_parse_from(["s7cmd", "ls", "s3://bucket"]).expect("ls should parse");
+    assert!(matches!(cli.command, Some(Cmd::Ls(_))));
+}
+
+#[test]
+fn parses_cp_with_two_paths() {
+    let cli = Cli::try_parse_from(["s7cmd", "cp", "/tmp/file", "s3://bucket/key"])
+        .expect("cp should parse");
+    assert!(matches!(cli.command, Some(Cmd::Cp(_))));
+}
+
+#[test]
+fn parses_mv_with_two_paths() {
+    let cli =
+        Cli::try_parse_from(["s7cmd", "mv", "s3://b1/k1", "s3://b2/k2"]).expect("mv should parse");
+    assert!(matches!(cli.command, Some(Cmd::Mv(_))));
+}
+
+#[test]
+fn parses_rm_with_one_path() {
+    let cli = Cli::try_parse_from(["s7cmd", "rm", "s3://bucket/key"]).expect("rm should parse");
+    assert!(matches!(cli.command, Some(Cmd::Rm(_))));
+}
+
+#[test]
+fn parses_sync_with_two_paths() {
+    let cli = Cli::try_parse_from([
+        "s7cmd",
+        "sync",
+        "--allow-both-local-storage",
+        "/tmp/src",
+        "/tmp/dst",
+    ])
+    .expect("sync should parse");
+    assert!(matches!(cli.command, Some(Cmd::Sync(_))));
+}
+
+#[test]
+fn parses_clean_with_target() {
+    let cli = Cli::try_parse_from(["s7cmd", "clean", "s3://bucket"]).expect("clean should parse");
+    assert!(matches!(cli.command, Some(Cmd::Clean(_))));
+}
+
+#[test]
+fn parses_head_object() {
+    let cli = Cli::try_parse_from(["s7cmd", "head-object", "s3://bucket/key"])
+        .expect("head-object should parse");
+    assert!(matches!(cli.command, Some(Cmd::HeadObject(_))));
+}
+
+#[test]
+fn parses_get_object_tagging() {
+    let cli = Cli::try_parse_from(["s7cmd", "get-object-tagging", "s3://bucket/key"])
+        .expect("get-object-tagging should parse");
+    assert!(matches!(cli.command, Some(Cmd::GetObjectTagging(_))));
+}
+
+#[test]
+fn parses_put_object_tagging() {
+    let cli = Cli::try_parse_from([
+        "s7cmd",
+        "put-object-tagging",
+        "s3://bucket/key",
+        "--tagging",
+        "k=v",
+    ])
+    .expect("put-object-tagging should parse");
+    assert!(matches!(cli.command, Some(Cmd::PutObjectTagging(_))));
+}
+
+#[test]
+fn parses_delete_object_tagging() {
+    let cli = Cli::try_parse_from(["s7cmd", "delete-object-tagging", "s3://bucket/key"])
+        .expect("delete-object-tagging should parse");
+    assert!(matches!(cli.command, Some(Cmd::DeleteObjectTagging(_))));
+}
+
+#[test]
+fn parses_create_bucket() {
+    let cli = Cli::try_parse_from(["s7cmd", "create-bucket", "s3://bucket"])
+        .expect("create-bucket should parse");
+    assert!(matches!(cli.command, Some(Cmd::CreateBucket(_))));
+}
+
+#[test]
+fn parses_delete_bucket() {
+    let cli = Cli::try_parse_from(["s7cmd", "delete-bucket", "s3://bucket"])
+        .expect("delete-bucket should parse");
+    assert!(matches!(cli.command, Some(Cmd::DeleteBucket(_))));
+}
+
+#[test]
+fn parses_head_bucket() {
+    let cli = Cli::try_parse_from(["s7cmd", "head-bucket", "s3://bucket"])
+        .expect("head-bucket should parse");
+    assert!(matches!(cli.command, Some(Cmd::HeadBucket(_))));
+}
+
+#[test]
+fn parses_get_bucket_tagging() {
+    let cli = Cli::try_parse_from(["s7cmd", "get-bucket-tagging", "s3://bucket"])
+        .expect("get-bucket-tagging should parse");
+    assert!(matches!(cli.command, Some(Cmd::GetBucketTagging(_))));
+}
+
+#[test]
+fn parses_put_bucket_tagging() {
+    let cli = Cli::try_parse_from([
+        "s7cmd",
+        "put-bucket-tagging",
+        "s3://bucket",
+        "--tagging",
+        "k=v",
+    ])
+    .expect("put-bucket-tagging should parse");
+    assert!(matches!(cli.command, Some(Cmd::PutBucketTagging(_))));
+}
+
+#[test]
+fn parses_delete_bucket_tagging() {
+    let cli = Cli::try_parse_from(["s7cmd", "delete-bucket-tagging", "s3://bucket"])
+        .expect("delete-bucket-tagging should parse");
+    assert!(matches!(cli.command, Some(Cmd::DeleteBucketTagging(_))));
+}
+
+#[test]
+fn parses_get_bucket_policy() {
+    let cli = Cli::try_parse_from(["s7cmd", "get-bucket-policy", "s3://bucket"])
+        .expect("get-bucket-policy should parse");
+    assert!(matches!(cli.command, Some(Cmd::GetBucketPolicy(_))));
+}
+
+#[test]
+fn parses_put_bucket_policy() {
+    let cli = Cli::try_parse_from([
+        "s7cmd",
+        "put-bucket-policy",
+        "s3://bucket",
+        "/tmp/policy.json",
+    ])
+    .expect("put-bucket-policy should parse");
+    assert!(matches!(cli.command, Some(Cmd::PutBucketPolicy(_))));
+}
+
+#[test]
+fn parses_delete_bucket_policy() {
+    let cli = Cli::try_parse_from(["s7cmd", "delete-bucket-policy", "s3://bucket"])
+        .expect("delete-bucket-policy should parse");
+    assert!(matches!(cli.command, Some(Cmd::DeleteBucketPolicy(_))));
+}
+
+#[test]
+fn parses_get_bucket_versioning() {
+    let cli = Cli::try_parse_from(["s7cmd", "get-bucket-versioning", "s3://bucket"])
+        .expect("get-bucket-versioning should parse");
+    assert!(matches!(cli.command, Some(Cmd::GetBucketVersioning(_))));
+}
+
+#[test]
+fn parses_put_bucket_versioning() {
+    let cli = Cli::try_parse_from(["s7cmd", "put-bucket-versioning", "s3://bucket", "--enabled"])
+        .expect("put-bucket-versioning should parse");
+    assert!(matches!(cli.command, Some(Cmd::PutBucketVersioning(_))));
+}
+
+#[test]
+fn parses_top_level_auto_complete_shell() {
+    let cli = Cli::try_parse_from(["s7cmd", "--auto-complete-shell", "bash"])
+        .expect("top-level --auto-complete-shell should parse");
+    assert!(cli.auto_complete_shell.is_some());
+    assert!(cli.command.is_none());
+}
+
+#[test]
+fn parses_top_level_auto_complete_shell_zsh() {
+    let cli = Cli::try_parse_from(["s7cmd", "--auto-complete-shell", "zsh"])
+        .expect("top-level --auto-complete-shell zsh should parse");
+    assert!(cli.auto_complete_shell.is_some());
+}
+
+#[test]
+fn parses_get_bucket_lifecycle_configuration() {
+    let cli = Cli::try_parse_from(["s7cmd", "get-bucket-lifecycle-configuration", "s3://bucket"])
+        .expect("get-bucket-lifecycle-configuration should parse");
+    assert!(matches!(
+        cli.command,
+        Some(Cmd::GetBucketLifecycleConfiguration(_))
+    ));
+}
+
+#[test]
+fn parses_put_bucket_lifecycle_configuration() {
+    let cli = Cli::try_parse_from([
+        "s7cmd",
+        "put-bucket-lifecycle-configuration",
+        "s3://bucket",
+        "/tmp/lifecycle.json",
+    ])
+    .expect("put-bucket-lifecycle-configuration should parse");
+    assert!(matches!(
+        cli.command,
+        Some(Cmd::PutBucketLifecycleConfiguration(_))
+    ));
+}
+
+#[test]
+fn parses_delete_bucket_lifecycle_configuration() {
+    let cli = Cli::try_parse_from([
+        "s7cmd",
+        "delete-bucket-lifecycle-configuration",
+        "s3://bucket",
+    ])
+    .expect("delete-bucket-lifecycle-configuration should parse");
+    assert!(matches!(
+        cli.command,
+        Some(Cmd::DeleteBucketLifecycleConfiguration(_))
+    ));
+}
+
+#[test]
+fn parses_get_bucket_encryption() {
+    let cli = Cli::try_parse_from(["s7cmd", "get-bucket-encryption", "s3://bucket"])
+        .expect("get-bucket-encryption should parse");
+    assert!(matches!(cli.command, Some(Cmd::GetBucketEncryption(_))));
+}
+
+#[test]
+fn parses_put_bucket_encryption() {
+    let cli = Cli::try_parse_from([
+        "s7cmd",
+        "put-bucket-encryption",
+        "s3://bucket",
+        "/tmp/enc.json",
+    ])
+    .expect("put-bucket-encryption should parse");
+    assert!(matches!(cli.command, Some(Cmd::PutBucketEncryption(_))));
+}
+
+#[test]
+fn parses_delete_bucket_encryption() {
+    let cli = Cli::try_parse_from(["s7cmd", "delete-bucket-encryption", "s3://bucket"])
+        .expect("delete-bucket-encryption should parse");
+    assert!(matches!(cli.command, Some(Cmd::DeleteBucketEncryption(_))));
+}
+
+#[test]
+fn parses_get_bucket_cors() {
+    let cli = Cli::try_parse_from(["s7cmd", "get-bucket-cors", "s3://bucket"])
+        .expect("get-bucket-cors should parse");
+    assert!(matches!(cli.command, Some(Cmd::GetBucketCors(_))));
+}
+
+#[test]
+fn parses_put_bucket_cors() {
+    let cli = Cli::try_parse_from(["s7cmd", "put-bucket-cors", "s3://bucket", "/tmp/cors.json"])
+        .expect("put-bucket-cors should parse");
+    assert!(matches!(cli.command, Some(Cmd::PutBucketCors(_))));
+}
+
+#[test]
+fn parses_delete_bucket_cors() {
+    let cli = Cli::try_parse_from(["s7cmd", "delete-bucket-cors", "s3://bucket"])
+        .expect("delete-bucket-cors should parse");
+    assert!(matches!(cli.command, Some(Cmd::DeleteBucketCors(_))));
+}
+
+#[test]
+fn parses_get_public_access_block() {
+    let cli = Cli::try_parse_from(["s7cmd", "get-public-access-block", "s3://bucket"])
+        .expect("get-public-access-block should parse");
+    assert!(matches!(cli.command, Some(Cmd::GetPublicAccessBlock(_))));
+}
+
+#[test]
+fn parses_put_public_access_block() {
+    let cli = Cli::try_parse_from([
+        "s7cmd",
+        "put-public-access-block",
+        "s3://bucket",
+        "/tmp/pab.json",
+    ])
+    .expect("put-public-access-block should parse");
+    assert!(matches!(cli.command, Some(Cmd::PutPublicAccessBlock(_))));
+}
+
+#[test]
+fn parses_delete_public_access_block() {
+    let cli = Cli::try_parse_from(["s7cmd", "delete-public-access-block", "s3://bucket"])
+        .expect("delete-public-access-block should parse");
+    assert!(matches!(cli.command, Some(Cmd::DeletePublicAccessBlock(_))));
+}
+
+#[test]
+fn parses_get_bucket_website() {
+    let cli = Cli::try_parse_from(["s7cmd", "get-bucket-website", "s3://bucket"])
+        .expect("get-bucket-website should parse");
+    assert!(matches!(cli.command, Some(Cmd::GetBucketWebsite(_))));
+}
+
+#[test]
+fn parses_put_bucket_website() {
+    let cli = Cli::try_parse_from([
+        "s7cmd",
+        "put-bucket-website",
+        "s3://bucket",
+        "/tmp/web.json",
+    ])
+    .expect("put-bucket-website should parse");
+    assert!(matches!(cli.command, Some(Cmd::PutBucketWebsite(_))));
+}
+
+#[test]
+fn parses_delete_bucket_website() {
+    let cli = Cli::try_parse_from(["s7cmd", "delete-bucket-website", "s3://bucket"])
+        .expect("delete-bucket-website should parse");
+    assert!(matches!(cli.command, Some(Cmd::DeleteBucketWebsite(_))));
+}
+
+#[test]
+fn parses_get_bucket_logging() {
+    let cli = Cli::try_parse_from(["s7cmd", "get-bucket-logging", "s3://bucket"])
+        .expect("get-bucket-logging should parse");
+    assert!(matches!(cli.command, Some(Cmd::GetBucketLogging(_))));
+}
+
+#[test]
+fn parses_put_bucket_logging() {
+    let cli = Cli::try_parse_from([
+        "s7cmd",
+        "put-bucket-logging",
+        "s3://bucket",
+        "/tmp/log.json",
+    ])
+    .expect("put-bucket-logging should parse");
+    assert!(matches!(cli.command, Some(Cmd::PutBucketLogging(_))));
+}
+
+#[test]
+fn parses_get_bucket_notification_configuration() {
+    let cli = Cli::try_parse_from([
+        "s7cmd",
+        "get-bucket-notification-configuration",
+        "s3://bucket",
+    ])
+    .expect("get-bucket-notification-configuration should parse");
+    assert!(matches!(
+        cli.command,
+        Some(Cmd::GetBucketNotificationConfiguration(_))
+    ));
+}
+
+#[test]
+fn parses_put_bucket_notification_configuration() {
+    let cli = Cli::try_parse_from([
+        "s7cmd",
+        "put-bucket-notification-configuration",
+        "s3://bucket",
+        "/tmp/notif.json",
+    ])
+    .expect("put-bucket-notification-configuration should parse");
+    assert!(matches!(
+        cli.command,
+        Some(Cmd::PutBucketNotificationConfiguration(_))
+    ));
+}

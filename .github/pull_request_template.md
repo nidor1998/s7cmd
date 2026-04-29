@@ -1,0 +1,1 @@
+> **Important:** All code, tests, and documentation in this repository are created and maintained exclusively by AI. We do not accept pull requests. If you find a bug or have a feature request, please [open an issue](https://github.com/nidor1998/s7cmd/issues) instead — describe your request in the ticket, and we'll consider having AI handle it.

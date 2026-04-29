@@ -1,0 +1,364 @@
+//! Shared test helpers.
+//!
+//! Two layers:
+//!
+//! 1. **Always-available** — `s7cmd_cmd`, `run`, `create_temp_dir`,
+//!    `create_test_file`, `generate_bucket_name`, `PROFILE_NAME`. Used by
+//!    every test file (including the non-AWS `cli_arg_validation.rs`).
+//!
+//! 2. **`cfg(e2e_test)`-gated** — `TestHelper` plus `REGION`. Used only by
+//!    the `e2e_*.rs` files. Default `cargo test` does not compile or load
+//!    these, so it never tries to construct an AWS SDK client.
+
+#![allow(dead_code)] // helpers are pulled in à la carte by each test file
+
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+
+// === Always-available constants and helpers ===
+
+/// AWS profile prepared by the maintainer. All e2e tests authenticate
+/// through this profile.
+pub const PROFILE_NAME: &str = "s7cmd-e2e-test";
+
+/// Build a `Command` pointing at the freshly-built `s7cmd` binary with
+/// stdin closed and stdout/stderr piped — the standard shape for assertion
+/// capture. Tests can chain `.args(...)` / `.env_remove(...)` as needed.
+pub fn s7cmd_cmd() -> Command {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_s7cmd"));
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    cmd
+}
+
+/// Run a prepared command and return `(exit_code, stdout, stderr)`.
+/// Both stdout and stderr are surfaced so failing assertions can include
+/// the full child output.
+pub fn run(cmd: &mut Command) -> (Option<i32>, String, String) {
+    let output = cmd.output().expect("failed to spawn s7cmd binary");
+    (
+        output.status.code(),
+        String::from_utf8_lossy(&output.stdout).to_string(),
+        String::from_utf8_lossy(&output.stderr).to_string(),
+    )
+}
+
+/// UUID-suffixed bucket name. Globally unique so parallel test runs do not
+/// collide and so leftover buckets from prior runs are easy to identify.
+pub fn generate_bucket_name() -> String {
+    format!("s7cmd-e2e-{}", uuid::Uuid::new_v4())
+}
+
+/// Per-test temp directory under `./playground/`. The parent is gitignored.
+pub fn create_temp_dir() -> PathBuf {
+    let dir = PathBuf::from(format!("./playground/tmp_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).expect("create_temp_dir");
+    dir
+}
+
+/// Write `body` to `dir/name` and return the full path.
+pub fn create_test_file(dir: &Path, name: &str, body: &[u8]) -> PathBuf {
+    let path = dir.join(name);
+    std::fs::write(&path, body).expect("create_test_file");
+    path
+}
+
+/// Create a zero-filled file of `size` bytes — used by the Ctrl+C tests
+/// to make a transfer last long enough for SIGINT to land mid-stream.
+pub fn create_sized_file(dir: &Path, name: &str, size: usize) -> PathBuf {
+    let path = dir.join(name);
+    std::fs::write(&path, vec![0u8; size]).expect("create_sized_file");
+    path
+}
+
+// === e2e_test-gated SDK helpers ===
+
+// Re-exported for use by tests/e2e_*.rs files. Test crates that don't
+// consume them (e.g. cli_arg_validation.rs uses only s7cmd_cmd/run) make
+// these re-exports look unused inside that crate's compilation, so suppress
+// the false-positive locally.
+#[cfg(e2e_test)]
+#[allow(unused_imports)]
+pub use e2e::{REGION, TestHelper};
+
+#[cfg(e2e_test)]
+mod e2e {
+    use super::PROFILE_NAME;
+
+    use aws_config::BehaviorVersion;
+    use aws_config::meta::region::{ProvideRegion, RegionProviderChain};
+    use aws_sdk_s3::Client;
+    use aws_sdk_s3::config::Region;
+    use aws_sdk_s3::types::{
+        BucketLocationConstraint, BucketVersioningStatus, CreateBucketConfiguration, Tag, Tagging,
+        VersioningConfiguration,
+    };
+
+    /// Default region. Overridable at runtime (not compile time) via the
+    /// `S7CMD_E2E_REGION` environment variable, so a single binary can be
+    /// pointed at different accounts/regions without recompiling.
+    pub const REGION: &str = "ap-northeast-1";
+
+    pub struct TestHelper {
+        pub client: Client,
+    }
+
+    impl TestHelper {
+        pub async fn new() -> Self {
+            Self {
+                client: Self::create_client().await,
+            }
+        }
+
+        async fn create_client() -> Client {
+            let cfg = aws_config::defaults(BehaviorVersion::latest())
+                .credentials_provider(
+                    aws_config::profile::ProfileFileCredentialsProvider::builder()
+                        .profile_name(PROFILE_NAME)
+                        .build(),
+                )
+                .region(Self::region_provider())
+                .load()
+                .await;
+            Client::new(&cfg)
+        }
+
+        fn region_provider() -> Box<dyn ProvideRegion> {
+            // Order: $S7CMD_E2E_REGION > profile region > REGION constant.
+            let env_region = std::env::var("S7CMD_E2E_REGION").ok().map(Region::new);
+            let profile_region = aws_config::profile::ProfileFileRegionProvider::builder()
+                .profile_name(PROFILE_NAME)
+                .build();
+            let chain = RegionProviderChain::first_try(env_region)
+                .or_else(profile_region)
+                .or_else(REGION);
+            Box::new(chain)
+        }
+
+        // ---- Bucket lifecycle ----
+
+        pub async fn create_bucket(&self, bucket: &str, region: &str) {
+            let constraint = BucketLocationConstraint::from(region);
+            let cfg = CreateBucketConfiguration::builder()
+                .location_constraint(constraint)
+                .build();
+            self.client
+                .create_bucket()
+                .create_bucket_configuration(cfg)
+                .bucket(bucket)
+                .send()
+                .await
+                .expect("create_bucket");
+        }
+
+        pub async fn is_bucket_exist(&self, bucket: &str) -> bool {
+            let head = self.client.head_bucket().bucket(bucket).send().await;
+            match head {
+                Ok(_) => true,
+                Err(e) => !e.into_service_error().is_not_found(),
+            }
+        }
+
+        /// Empty the bucket (objects + versions + delete-markers) and then
+        /// delete it. Idempotent on already-gone buckets so cleanup is
+        /// safe to call multiple times.
+        pub async fn delete_bucket_with_cascade(&self, bucket: &str) {
+            if !self.is_bucket_exist(bucket).await {
+                return;
+            }
+            self.delete_all_objects(bucket).await;
+            self.delete_all_object_versions(bucket).await;
+            let _ = self.client.delete_bucket().bucket(bucket).send().await;
+        }
+
+        // ---- Object lifecycle ----
+
+        pub async fn put_object(&self, bucket: &str, key: &str, body: Vec<u8>) {
+            self.client
+                .put_object()
+                .bucket(bucket)
+                .key(key)
+                .body(body.into())
+                .send()
+                .await
+                .expect("put_object");
+        }
+
+        /// PutObject and return the assigned `VersionId`. The bucket must
+        /// have versioning enabled, otherwise S3 returns `null` or no value.
+        pub async fn put_object_returning_version_id(
+            &self,
+            bucket: &str,
+            key: &str,
+            body: Vec<u8>,
+        ) -> String {
+            let out = self
+                .client
+                .put_object()
+                .bucket(bucket)
+                .key(key)
+                .body(body.into())
+                .send()
+                .await
+                .expect("put_object");
+            out.version_id()
+                .expect("PutObject must return VersionId on a versioned bucket")
+                .to_string()
+        }
+
+        pub async fn is_object_exist(
+            &self,
+            bucket: &str,
+            key: &str,
+            version_id: Option<String>,
+        ) -> bool {
+            let req = self
+                .client
+                .head_object()
+                .bucket(bucket)
+                .key(key)
+                .set_version_id(version_id);
+            match req.send().await {
+                Ok(_) => true,
+                Err(e) => !e.into_service_error().is_not_found(),
+            }
+        }
+
+        pub async fn delete_object(&self, bucket: &str, key: &str, version_id: Option<String>) {
+            self.client
+                .delete_object()
+                .bucket(bucket)
+                .key(key)
+                .set_version_id(version_id)
+                .send()
+                .await
+                .expect("delete_object");
+        }
+
+        pub async fn delete_all_objects(&self, bucket: &str) {
+            let Ok(list) = self.client.list_objects_v2().bucket(bucket).send().await else {
+                return;
+            };
+            for obj in list.contents() {
+                if let Some(key) = obj.key() {
+                    self.delete_object(bucket, key, None).await;
+                }
+            }
+        }
+
+        /// Delete every non-current version and delete-marker. Versioning
+        /// not enabled / list unsupported (e.g. directory bucket) → no-op.
+        pub async fn delete_all_object_versions(&self, bucket: &str) {
+            let Ok(out) = self
+                .client
+                .list_object_versions()
+                .bucket(bucket)
+                .send()
+                .await
+            else {
+                return;
+            };
+            for v in out.versions() {
+                if let Some(key) = v.key() {
+                    self.delete_object(bucket, key, v.version_id().map(str::to_string))
+                        .await;
+                }
+            }
+            for m in out.delete_markers() {
+                if let Some(key) = m.key() {
+                    self.delete_object(bucket, key, m.version_id().map(str::to_string))
+                        .await;
+                }
+            }
+        }
+
+        // ---- Seeding helpers (set state that get-*/delete-* tests read) ----
+
+        pub async fn put_object_tagging(&self, bucket: &str, key: &str, tags: &[(&str, &str)]) {
+            let tag_set: Vec<Tag> = tags
+                .iter()
+                .map(|(k, v)| Tag::builder().key(*k).value(*v).build().unwrap())
+                .collect();
+            let tagging = Tagging::builder()
+                .set_tag_set(Some(tag_set))
+                .build()
+                .unwrap();
+            self.client
+                .put_object_tagging()
+                .bucket(bucket)
+                .key(key)
+                .tagging(tagging)
+                .send()
+                .await
+                .expect("put_object_tagging");
+        }
+
+        pub async fn put_bucket_tagging(&self, bucket: &str, tags: &[(&str, &str)]) {
+            let tag_set: Vec<Tag> = tags
+                .iter()
+                .map(|(k, v)| Tag::builder().key(*k).value(*v).build().unwrap())
+                .collect();
+            let tagging = Tagging::builder()
+                .set_tag_set(Some(tag_set))
+                .build()
+                .unwrap();
+            self.client
+                .put_bucket_tagging()
+                .bucket(bucket)
+                .tagging(tagging)
+                .send()
+                .await
+                .expect("put_bucket_tagging");
+        }
+
+        pub async fn put_bucket_policy(&self, bucket: &str, policy_json: &str) {
+            self.client
+                .put_bucket_policy()
+                .bucket(bucket)
+                .policy(policy_json)
+                .send()
+                .await
+                .expect("put_bucket_policy");
+        }
+
+        pub async fn enable_bucket_versioning(&self, bucket: &str) {
+            let cfg = VersioningConfiguration::builder()
+                .status(BucketVersioningStatus::Enabled)
+                .build();
+            self.client
+                .put_bucket_versioning()
+                .bucket(bucket)
+                .versioning_configuration(cfg)
+                .send()
+                .await
+                .expect("enable_bucket_versioning");
+        }
+
+        // ---- Multipart cleanup (Ctrl+C tests for cp/mv) ----
+
+        pub async fn abort_all_multipart_uploads(&self, bucket: &str) {
+            let Ok(list) = self
+                .client
+                .list_multipart_uploads()
+                .bucket(bucket)
+                .send()
+                .await
+            else {
+                return;
+            };
+            for upload in list.uploads() {
+                if let (Some(key), Some(upload_id)) = (upload.key(), upload.upload_id()) {
+                    let _ = self
+                        .client
+                        .abort_multipart_upload()
+                        .bucket(bucket)
+                        .key(key)
+                        .upload_id(upload_id)
+                        .send()
+                        .await;
+                }
+            }
+        }
+    }
+}
