@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > **Preview.** s7cmd is in an early/preview phase (0.x). The CLI surface, flag names, output formats, and exit codes may change between minor versions until 1.0.0.
 
+## [0.1.3] - 2026-04-29
+
+### Changed
+
+- Documentation updates.
+
 ## [0.1.2] - 2026-04-29
 
 ### Added

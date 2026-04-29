@@ -33,7 +33,7 @@ shadow!(build);
 
 Object Operations:
   ls                                    List S3 objects
-  cp                                    Copy objects from/to S3
+  cp                                    Copy objects from/to S3 (or S3 to S3)
   mv                                    Move objects from/to S3 (copy then delete source)
   rm                                    Delete a single S3 object
   sync                                  Synchronize files between local and S3 (or S3 to S3)
@@ -120,7 +120,7 @@ pub enum Cmd {
     // Object Operations
     /// List S3 objects
     Ls(Box<s3ls_rs::CLIArgs>),
-    /// Copy objects from/to S3
+    /// Copy objects from/to S3 (or S3 to S3)
     Cp(s3util_rs::config::args::CpArgs),
     /// Move objects from/to S3 (copy then delete source)
     Mv(s3util_rs::config::args::MvArgs),
