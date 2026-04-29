@@ -2977,9 +2977,9 @@ dependencies = [
 
 [[package]]
 name = "s3util-rs"
-version = "0.2.3"
+version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d577755f9789e7f407f5d6e85a518a27e6a7cfc69f9a57d74da029a073ab6aee"
+checksum = "20ca5b2d06420c06f448e450055d8b90d721bf4d9c57f7d9274820e8eb0fe0c5"
 dependencies = [
  "anyhow",
  "async-channel",

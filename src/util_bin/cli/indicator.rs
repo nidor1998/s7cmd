@@ -1,4 +1,4 @@
-// Vendored from s3util-rs@0.2.0
+// Vendored from s3util-rs@1.0.0 (commit 4edffac51939d78b33aae9476ed61be9df1b35c0)
 //   src/bin/s3util/cli/indicator.rs
 // Adjustments: stripped #[cfg(test)] mod tests
 
@@ -41,7 +41,7 @@ pub fn show_indicator(
     show_progress: bool,
     show_result: bool,
     log_sync_summary: bool,
-    resolved_target: Option<String>,
+    resolved_target: String,
     source_key: String,
     target_key: String,
 ) -> JoinHandle<()> {
@@ -131,15 +131,9 @@ pub fn show_indicator(
                     // Clear live progress before printing final output
                     progress_text.finish_and_clear();
 
-                    // Show resolved destination path first
-                    if show_result
-                        && total_error_count == 0
-                        && let Some(ref resolved) = resolved_target
-                    {
-                        eprintln!("-> {resolved}");
-                    }
-
                     if show_result && total_error_count == 0 {
+                        eprintln!("-> {resolved_target}");
+
                         let mut parts = vec![format!(
                             "Transferred: {} | {}/sec",
                             HumanBytes(total_sync_bytes),
@@ -194,7 +188,7 @@ mod tests {
             true,
             true,
             false,
-            None,
+            String::new(),
             String::new(),
             String::new(),
         );
@@ -248,7 +242,7 @@ mod tests {
             true,
             false,
             true,
-            None,
+            String::new(),
             "src".to_string(),
             "dst".to_string(),
         );
@@ -296,7 +290,7 @@ mod tests {
             false,
             true,
             true,
-            None,
+            String::new(),
             "src".to_string(),
             "dst".to_string(),
         );
@@ -318,7 +312,7 @@ mod tests {
             false,
             true,
             false,
-            Some("s3://bucket/resolved/key".to_string()),
+            "s3://bucket/resolved/key".to_string(),
             String::new(),
             String::new(),
         );
@@ -340,7 +334,7 @@ mod tests {
             false,
             true,
             false,
-            None,
+            String::new(),
             String::new(),
             String::new(),
         );
