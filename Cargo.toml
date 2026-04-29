@@ -1,6 +1,6 @@
 [package]
 name = "s7cmd"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 license = "Apache-2.0"
 description = "Reliable, flexible, and fast command-line tool for Amazon S3"
@@ -16,7 +16,7 @@ categories = ["command-line-utilities", "filesystem"]
 # (--filter-callback-lua-script, etc.) automatically appear under
 # `s7cmd sync --help`. Use default-features = false to opt out.
 s3sync     = "=1.58"
-s3util-rs  = "=0.2.3"
+s3util-rs  = "=1.0"
 # Vendored bin code is sourced from these versions; pin minor.
 s3rm-rs    = "=1.3.4"
 s3ls-rs    = "=1.0"
@@ -61,10 +61,6 @@ version = ["dep:shadow-rs"]
 
 [build-dependencies]
 shadow-rs = { version = "2", default-features = false }
-# Embeds an asInvoker UAC manifest into all binaries (main + tests).
-# Without it, Windows installer-detection forces elevation prompts on
-# large clap-derive test binaries. No-op on non-Windows targets.
-embed-resource = "3"
 
 [dev-dependencies]
 assert_cmd = "2"
