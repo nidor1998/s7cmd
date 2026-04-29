@@ -73,7 +73,7 @@ uuid = { version = "1", features = ["v4"] }
 # Used only by the Unix-gated e2e_ctrl_c.rs tests (SIGINT delivery).
 # Pulled in unconditionally as a dev-dep so cfg(e2e_test) compiles cleanly
 # everywhere; the test file itself gates on cfg(unix).
-nix = { version = "0.30", default-features = false, features = ["signal"] }
+nix = { version = "0.31", default-features = false, features = ["signal"] }
 
 [profile.release]
 debug      = 1
