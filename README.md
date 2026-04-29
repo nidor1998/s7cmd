@@ -1,6 +1,132 @@
 # s7cmd
 
-Reliable, flexible, and fast command-line tool for Amazon S3
+A reliable, flexible, and fast command-line tool for Amazon S3.
+
+s7cmd combines the speed of a Rust async runtime with the breadth of
+the AWS S3 API surface, providing high-throughput object operations
+(`ls`, `cp`, `mv`, `rm`, `sync`, `clean`) alongside comprehensive
+bucket administration (lifecycle, policy, encryption, CORS, public
+access block, website, logging, notification, and more) — all from a
+single static binary.
+
+s7cmd is a thin command-line wrapper over four Rust libraries by the
+same author: [s3sync](https://github.com/nidor1998/s3sync),
+[s3ls-rs](https://github.com/nidor1998/s3ls-rs),
+[s3util-rs](https://github.com/nidor1998/s3util-rs), and
+[s3rm-rs](https://github.com/nidor1998/s3rm-rs). Originally, only
+s3sync and s3rm-rs existed and were not intended to be merged, but
+in response to user requests for a unified interface, the
+functionality was split into focused libraries and bundled together
+into a single binary as s7cmd. Built on `aws-sdk-rust` and `tokio`,
+s7cmd targets workloads that demand both performance and operational
+completeness: data engineering pipelines, ML training data
+preparation, multi-account bucket governance, and integrity-critical
+migrations.
+
+## Why s7cmd?
+
+- **Single binary, full coverage.** Object transfer, bulk delete, and
+  every common bucket-level configuration in one tool.
+- **Strong integrity verification.** Native support for SHA256, SHA1,
+  CRC32, CRC32C, and CRC64NVME — aligned with S3's 2025 default
+  checksum policy.
+- **Predictable performance.** Configurable workers, multipart
+  thresholds, and chunk sizes; bounded memory footprint suitable for
+  small instances and large CI runners alike.
+- **Apache-2.0 licensed.** No copyleft concerns for enterprise
+  deployment or container distribution.
+
+### Scope
+
+s7cmd is designed to cover **Amazon S3 object operations and bucket
+management** — listing (`ls`), single- and bulk-object transfers
+(`cp` / `mv` / `rm`), recursive synchronization (`sync`), bulk delete
+(`clean`), and the common bucket-level configurations (tagging,
+versioning, policy, lifecycle, encryption, CORS,
+public-access-block, website, logging, notification). For any S3 use
+case outside that scope, use a more comprehensive tool such as the
+[AWS CLI](https://aws.amazon.com/cli/) (`aws s3` / `aws s3api`).
+
+s7cmd targets **Amazon S3** as its primary supported platform.
+S3-compatible storage (MinIO, Cloudflare R2, Backblaze B2, Wasabi,
+Ceph RGW, DigitalOcean Spaces, IBM COS, and similar) is supported
+on a **best-effort basis only** — such services may work via
+`--endpoint-url`, but they are not part of the official test matrix
+and behavior may change between releases. This is a structural
+consequence of building on `aws-sdk-rust`, which is generated from
+AWS service models and assumes Amazon S3 semantics (checksum
+headers, endpoint resolution, signing variants, response schemas);
+features that depend on AWS-specific semantics, such as CRC64NVME
+checksums or newer S3 API additions, may not work against
+non-AWS endpoints. Bug reports against S3-compatible storage will
+be triaged but not prioritized, and fixes are not guaranteed.
+
+s7cmd is **not** intended to be a drop-in replacement for, or
+behaviorally compatible with, any other S3 client — including the
+AWS CLI (`aws s3`, `aws s3api`) and tools such as `s3cmd`, `s4cmd`,
+`s5cmd`, and `s6cmd`. Its command-line flags, transfer semantics,
+verification rules, and exit codes are designed around the
+underlying libraries' own scope and design principles — not
+interoperability with another tool's interface. Output formats and
+flag names will not be adjusted to match any external tool, and
+scripts written against another S3 client should not be expected to
+work with `s7cmd` unmodified. The numeric progression in the name
+(`s3cmd` → `s4cmd` → `s5cmd` → `s6cmd` → `s7cmd`) does **not** imply
+succession or compatibility.
+
+### Non-Goals
+
+The following are explicitly out of scope and will not be added,
+regardless of demand:
+
+- Official support, testing, or guaranteed compatibility for any
+  storage service other than Amazon S3. S3-compatible storage may
+  work on a best-effort basis as described in the Scope section
+  above, but adding dedicated code paths, provider-specific
+  workarounds, or backends for services such as MinIO, Cloudflare
+  R2, Backblaze B2, Wasabi, Ceph RGW, DigitalOcean Spaces, IBM COS,
+  Tencent COS, Alibaba OSS, Azure Blob Storage, or Google Cloud
+  Storage is out of scope.
+- Feature parity with, or porting features from, other S3 clients.
+  Feature requests of the form "tool X has feature Y, please add
+  it to s7cmd" — including variants such as "feature Y would also
+  be useful in s7cmd," "many users expect Y because tool X has it,"
+  or "Y is missing compared to tool X" — will be closed without
+  further discussion. The existence of a feature, flag, command,
+  output format, or behavior in `aws s3`, `aws s3api`, `s3cmd`,
+  `s4cmd`, `s5cmd`, `s6cmd`, or any other S3 tool carries no weight
+  in s7cmd's design decisions, regardless of how the request is
+  framed. Each feature is evaluated solely against s7cmd's own
+  scope and the design principles of its underlying libraries. If
+  the feature you need exists in another tool, use that tool.
+- FUSE filesystem mounting, daemon mode, or any persistent
+  background process. s7cmd is a one-shot CLI; it runs, transfers,
+  and exits.
+- Workflow orchestration features — scheduling, cross-run state
+  databases, retry queues that survive process restart, or DAG
+  execution. Use a workflow engine such as Airflow, Argo Workflows,
+  or AWS Step Functions for orchestration.
+- A graphical user interface, a TUI, or an interactive shell mode.
+- A plugin or extension mechanism.
+- AWS service coverage beyond S3. s7cmd will not add subcommands for
+  IAM, KMS, CloudFront, or any other AWS service, even when they
+  interact closely with S3.
+
+Issues and pull requests requesting any of the above will be closed.
+
+### Maintenance Model
+
+s7cmd is maintained as a personal project. Dependency updates and
+critical bug fixes are applied on a best-effort basis. New features
+are not actively solicited. If you need guaranteed enterprise
+support, this is not the tool for you.
+
+### About the name
+
+The name follows the `s3cmd` / `s4cmd` / `s5cmd` / `s6cmd` lineage,
+but s7cmd is not affiliated with, derived from, or compatible with
+any of them. The number 7 was chosen simply because it was the
+next available one. There is no deeper meaning.
 
 ## Usage
 
@@ -84,18 +210,33 @@ Options:
 
 ## Documentation
 
-For details on how to use these tools, please refer to the respective
-pages—`ls` on [s3ls-rs](https://github.com/nidor1998/s3ls-rs), `sync` on
-[s3sync](https://github.com/nidor1998/s3sync), `clean` on
-[s3rm-rs](https://github.com/nidor1998/s3rm-rs), and others on
-[s3util-rs](https://github.com/nidor1998/s3util-rs)—via the links
-provided.
+Each subcommand is documented in the README of its underlying
+library. For details on flags, semantics, and exit codes, refer to:
 
-## Install
+| Subcommand                         | Documentation                                          |
+| ---------------------------------- | ------------------------------------------------------ |
+| `ls`                               | [s3ls-rs](https://github.com/nidor1998/s3ls-rs)        |
+| `sync`                             | [s3sync](https://github.com/nidor1998/s3sync)          |
+| `clean`                            | [s3rm-rs](https://github.com/nidor1998/s3rm-rs)        |
+| `cp`, `mv`, `rm`, and all others   | [s3util-rs](https://github.com/nidor1998/s3util-rs)    |
 
-```bash
-cargo install s7cmd
-```
+Each of these projects also ships its own standalone binary, which
+can be used independently of s7cmd.
+
+## Requirements
+
+- x86_64 Linux (kernel 3.2 or later)
+- ARM64 Linux (kernel 4.1 or later)
+- Windows 11 (x86_64, aarch64)
+- macOS 11.0 or later (aarch64, x86_64)
+
+All features are tested on the above platforms.
+
+## Installation
+
+Download the latest binary from [GitHub Releases](https://github.com/nidor1998/s7cmd/releases)
+
+You should build Intel Mac and ARM64 Windows binaries yourself.
 
 ## License
 
