@@ -433,7 +433,7 @@ fn version_short_flag_prints_pkg_version() {
         // The version output should at least contain the crate name and the
         // semver from Cargo.toml. Whether it includes commit/target/rustc
         // depends on whether the `version` feature was compiled in.
-        .stdout(predicate::str::contains("s7cmd 0.1.0"));
+        .stdout(predicate::str::contains("s7cmd 0.1.1"));
 }
 
 #[test]
@@ -443,5 +443,5 @@ fn version_long_flag_prints_pkg_version() {
         .arg("--version")
         .assert()
         .success()
-        .stdout(predicate::str::contains("s7cmd 0.1.0"));
+        .stdout(predicate::str::contains("s7cmd 0.1.1"));
 }
