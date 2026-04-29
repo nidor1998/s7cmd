@@ -240,7 +240,7 @@ pub enum Cmd {
 /// name to keep it out of generated completion scripts. The arg id stays
 /// so `FromArgMatches` still derives `auto_complete_shell: None` cleanly;
 /// users who want completions use the top-level `--auto-complete-shell`.
-#[allow(dead_code)] // used from main.rs; cli_dispatch integration test includes this file directly
+#[allow(dead_code)] // used from main.rs; cli_routing integration test includes this file directly
 pub fn cli_command() -> clap::Command {
     let mut cmd = Cli::command();
     let names: Vec<String> = cmd

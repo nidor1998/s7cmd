@@ -61,6 +61,10 @@ version = ["dep:shadow-rs"]
 
 [build-dependencies]
 shadow-rs = { version = "2", default-features = false }
+# Embeds an asInvoker UAC manifest into all binaries (main + tests).
+# Without it, Windows installer-detection forces elevation prompts on
+# large clap-derive test binaries. No-op on non-Windows targets.
+embed-resource = "3"
 
 [dev-dependencies]
 assert_cmd = "2"
