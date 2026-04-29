@@ -425,6 +425,7 @@ fn top_level_help_lists_ls_and_clean() {
 
 #[test]
 fn version_short_flag_prints_pkg_version() {
+    let expected = format!("s7cmd {}", env!("CARGO_PKG_VERSION"));
     Command::cargo_bin("s7cmd")
         .unwrap()
         .arg("-V")
@@ -433,15 +434,16 @@ fn version_short_flag_prints_pkg_version() {
         // The version output should at least contain the crate name and the
         // semver from Cargo.toml. Whether it includes commit/target/rustc
         // depends on whether the `version` feature was compiled in.
-        .stdout(predicate::str::contains("s7cmd 0.1.2"));
+        .stdout(predicate::str::contains(expected));
 }
 
 #[test]
 fn version_long_flag_prints_pkg_version() {
+    let expected = format!("s7cmd {}", env!("CARGO_PKG_VERSION"));
     Command::cargo_bin("s7cmd")
         .unwrap()
         .arg("--version")
         .assert()
         .success()
-        .stdout(predicate::str::contains("s7cmd 0.1.2"));
+        .stdout(predicate::str::contains(expected));
 }
