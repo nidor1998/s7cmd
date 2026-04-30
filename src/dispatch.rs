@@ -13,6 +13,13 @@ use crate::ls_bin;
 use crate::sync_bin;
 use crate::util_bin;
 
+// `dispatch` matches over ~50 `Cmd` variants. The compiled future is the
+// max-size variant of every arm's inline state machine — for Cp / Mv / Sync
+// the inner pipelines (`run_cp` → `run_copy_phase`, `run_mv`, s3sync `run`)
+// add multi-megabyte futures of their own. On runners with ~2 MB test-thread
+// stacks (GitHub Actions Linux / Windows in debug builds) that overflows.
+// `Box::pin` moves those inner futures to the heap so dispatch's per-arm
+// frame stays small.
 pub async fn dispatch(cmd: Cmd) -> i32 {
     match cmd {
         Cmd::BatchRun(args) => batch_run::run(args).await,
@@ -34,7 +41,7 @@ pub async fn dispatch(cmd: Cmd) -> i32 {
                 sync_bin::tracing::init_tracing(tc);
             }
             tracing::trace!(target: "s3sync", "config = {:?}", config);
-            match sync_bin::cli::run(config).await {
+            match Box::pin(sync_bin::cli::run(config)).await {
                 Ok(code) => code,
                 Err(e) => {
                     tracing::error!(error = format!("{e:#}"));
@@ -104,7 +111,7 @@ pub async fn dispatch(cmd: Cmd) -> i32 {
             };
             start_tracing_if_necessary(&config);
             trace_config_summary(&config);
-            match util_bin::cli::run_cp(config).await {
+            match Box::pin(util_bin::cli::run_cp(config)).await {
                 Ok(status) => status.code(),
                 Err(e) => {
                     tracing::error!(error = format!("{e:#}"));
@@ -123,7 +130,7 @@ pub async fn dispatch(cmd: Cmd) -> i32 {
             };
             start_tracing_if_necessary(&config);
             trace_config_summary(&config);
-            match util_bin::cli::run_mv(config).await {
+            match Box::pin(util_bin::cli::run_mv(config)).await {
                 Ok(status) => status.code(),
                 Err(e) => {
                     tracing::error!(error = format!("{e:#}"));
