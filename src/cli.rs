@@ -99,7 +99,7 @@ Bucket Notification:
   put-bucket-notification-configuration Put a bucket notification configuration
 
 Batch:
-  batch-run                             Read s7cmd commands from stdin and run them in-process
+  batch-run                             Run s7cmd commands from a file (or - for stdin)
 
 Other:
   help                                  Print this message or the help of the given subcommand(s)
@@ -121,6 +121,10 @@ pub struct Cli {
 
 #[derive(clap::Args, Clone, Debug)]
 pub struct BatchRunArgs {
+    /// Path to a script file with s7cmd commands, or `-` to read from stdin.
+    #[arg(value_name = "FILE")]
+    pub script: String,
+
     /// Number of commands to run concurrently. 1 = sequential (default).
     /// 0 = use all logical CPUs.
     #[arg(long, default_value_t = 1, value_name = "N")]
@@ -275,7 +279,7 @@ pub enum Cmd {
     ),
 
     // Batch
-    /// Read s7cmd commands from stdin and run them in-process
+    /// Run s7cmd commands from a file (or - for stdin)
     BatchRun(BatchRunArgs),
 }
 

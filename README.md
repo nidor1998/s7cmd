@@ -214,7 +214,7 @@ Bucket Notification:
   put-bucket-notification-configuration Put a bucket notification configuration
 
 Batch:
-  batch-run                             Read s7cmd commands from stdin and run them in-process
+  batch-run                             Run s7cmd commands from a file (or - for stdin)
 
 Other:
   help                                  Print this message or the help of the given subcommand(s)
@@ -224,6 +224,85 @@ Options:
   -h, --help                         Print help (see more with '--help')
   -V, --version                      Print version
 ```
+
+### `batch-run`
+
+Reads s7cmd commands from a file (or stdin via `-`), one per line,
+and executes them in the same process — avoiding the per-command
+fork/exec, dynamic linker work, and Rust/tokio runtime startup you
+would pay if you invoked `s7cmd` once per line from a shell loop.
+(AWS SDK clients and TLS connections are still built per dispatched
+command, so network-side overhead is not eliminated; the win is
+process startup.) It is the recommended way to drive thousands of
+small operations (per-object tagging, mixed bucket-config edits,
+etc.) without spawning a process per command.
+
+```text
+Usage: s7cmd batch-run [OPTIONS] <FILE>
+```
+
+`<FILE>` is a path to a script file, or `-` to read from stdin
+(mirrors `put-bucket-policy`).
+
+**Input format.** One command per line. Each line is tokenized with
+shell-style quoting (POSIX `shlex`), so quoted arguments with
+spaces work as expected. Blank lines are ignored. Lines whose first
+non-whitespace character is `#` are treated as comments and skipped.
+Each line is parsed as if it were a top-level s7cmd invocation
+*without* the leading `s7cmd` — i.e. start with the subcommand name:
+
+```text
+# create two buckets, then tag one of them
+create-bucket s3://example-bucket-1
+create-bucket s3://example-bucket-2
+put-bucket-tagging --tagging "team=data&env=prod" s3://example-bucket-1
+
+# upload a file with a key that contains spaces
+cp ./report.csv "s3://example-bucket-1/reports/Q1 2026.csv"
+```
+
+Pass the script as a file argument, or pipe it in via `-`:
+
+```sh
+s7cmd batch-run commands.txt
+s7cmd batch-run - < commands.txt
+```
+
+**Execution modes.** Two read modes and two parallelism modes,
+freely combined:
+
+| Flag | Effect |
+|------|--------|
+| (default) | Read the whole script first, validate every line, then execute. Catches bad lines before any line runs. Shows a progress bar when stderr is a TTY. |
+| `--streaming` | Execute commands as they are read. No progress bar. Use for unbounded or pipelined input where buffering the whole script is undesirable. |
+| `--parallel 1` (default) | Sequential execution. |
+| `--parallel N` | Run up to *N* commands concurrently. |
+| `--parallel 0` | Use all logical CPUs. |
+
+**Failure handling.** By default, the first failing command stops
+sequential execution and prevents new spawns in parallel
+mode. Pass `--continue-on-error` to run every line regardless. The
+process exit code is the worst (highest) seen across all executed
+commands.
+
+**Tracing flags belong to `batch-run`, not per-line.** Pass
+`--json-tracing`, `--aws-sdk-tracing`, `--span-events-tracing`,
+`--disable-color-tracing`, and `-v`/`-q` to `batch-run` itself —
+e.g. `s7cmd batch-run --aws-sdk-tracing commands.txt`. Lines that
+set `--json-tracing`, `--aws-sdk-tracing`, `--span-events-tracing`,
+or `--disable-color-tracing` are rejected at validation time;
+per-line `-v`/`-q` is silently ignored (the tracing subscriber is
+installed once, at the top of the run).
+
+**Restrictions.**
+
+- Nested `batch-run` is rejected.
+- `cp`/`mv` lines may not use `-` (stdin/stdout) as source or target.
+- Per-line input is capped at 16 KiB.
+
+**Summary.** When the run completes (or aborts), an
+`N ok, N failed, N skipped, elapsed Ts` line is written to stderr.
+Suppress it with `--no-summary`.
 
 ## Documentation
 
@@ -236,9 +315,10 @@ library. For details on flags, semantics, and exit codes, refer to:
 | `sync`                             | [s3sync](https://github.com/nidor1998/s3sync)          |
 | `clean`                            | [s3rm-rs](https://github.com/nidor1998/s3rm-rs)        |
 | `cp`, `mv`, `rm`, and all others   | [s3util-rs](https://github.com/nidor1998/s3util-rs)    |
+| `batch-run`                        | s7cmd-only — see the section above                     |
 
-Each of these projects also ships its own standalone binary, which
-can be used independently of s7cmd.
+Each of these projects (except `batch-run`) also ships its own
+standalone binary, which can be used independently of s7cmd.
 
 ## Requirements
 

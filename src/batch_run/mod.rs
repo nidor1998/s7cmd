@@ -23,19 +23,36 @@ pub async fn run(args: BatchRunArgs) -> i32 {
     }
 }
 
-/// Read-all (default) mode. Read all stdin first, parse and validate every
-/// line, then install the SIGINT listener and execute. Original behavior
-/// preserved.
+/// Read-all (default) mode. Read the whole script first (file or stdin),
+/// parse and validate every line, then install the SIGINT listener and
+/// execute. Original behavior preserved when the script is `-`.
 async fn run_read_all(args: BatchRunArgs) -> i32 {
-    // Phase 1 - read stdin. Default SIGINT behavior applies here, so
+    // Phase 1 - read the script. Default SIGINT behavior applies here, so
     // Ctrl-C immediately kills the process (matching user intuition for
     // "I haven't started anything yet").
-    let stdin = std::io::stdin();
-    let parsed = match parser::read_all(stdin.lock()) {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("batch-run: {e}");
-            return 1;
+    let parsed = if args.script == "-" {
+        let stdin = std::io::stdin();
+        match parser::read_all(stdin.lock()) {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("batch-run: {e}");
+                return 1;
+            }
+        }
+    } else {
+        let file = match std::fs::File::open(&args.script) {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("batch-run: {}: {e}", args.script);
+                return 1;
+            }
+        };
+        match parser::read_all(std::io::BufReader::new(file)) {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("batch-run: {e}");
+                return 1;
+            }
         }
     };
 
@@ -87,7 +104,7 @@ async fn run_read_all(args: BatchRunArgs) -> i32 {
 }
 
 /// Streaming mode. Read and execute lines concurrently. The SIGINT
-/// listener is installed BEFORE stdin reading because read and execute
+/// listener is installed BEFORE script reading because read and execute
 /// are interleaved — Ctrl-C must abort both halves of the pipeline.
 async fn run_streaming(args: BatchRunArgs) -> i32 {
     // Install SIGINT listener early — it sets the shared flag the reader
@@ -114,13 +131,29 @@ async fn run_streaming(args: BatchRunArgs) -> i32 {
 
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<PreparedLine>();
 
-    // Spawn reader task. It reads stdin line-by-line, tokenizes/parses/
-    // validates each, and forwards a `PreparedLine` on the channel. On
-    // EOF, parse error, validate error, ctrl-c, or receiver-dropped, the
-    // task returns.
+    // Spawn reader task. It reads the script line-by-line, tokenizes/
+    // parses/validates each, and forwards a `PreparedLine` on the
+    // channel. On EOF, parse error, validate error, ctrl-c, or receiver-
+    // dropped, the task returns. File-open failure is reported here
+    // before any executor work and short-circuits the run.
     let interrupt_for_reader = Arc::clone(&interrupt);
-    let reader_handle =
-        tokio::spawn(async move { streaming_reader(tx, interrupt_for_reader).await });
+    let reader_handle: tokio::task::JoinHandle<Result<()>> = if args.script == "-" {
+        let reader = tokio::io::BufReader::new(tokio::io::stdin());
+        tokio::spawn(async move { streaming_reader(reader, tx, interrupt_for_reader).await })
+    } else {
+        match tokio::fs::File::open(&args.script).await {
+            Ok(f) => {
+                let reader = tokio::io::BufReader::new(f);
+                tokio::spawn(
+                    async move { streaming_reader(reader, tx, interrupt_for_reader).await },
+                )
+            }
+            Err(e) => {
+                eprintln!("batch-run: {}: {e}", args.script);
+                return 1;
+            }
+        }
+    };
 
     // Drive the executor concurrently with the reader. The executor
     // pulls from `rx`; when the reader drops `tx` the channel closes,
@@ -153,19 +186,21 @@ async fn run_streaming(args: BatchRunArgs) -> i32 {
     final_code
 }
 
-/// Async reader loop for streaming mode. Reads stdin line by line,
+/// Async reader loop for streaming mode. Reads the script line by line,
 /// tokenizes / parses / validates each line, and pushes a `PreparedLine`
 /// onto the channel. Returns:
 ///   - `Ok(())` on EOF, on Ctrl-C (interrupt set), or when the receiver
 ///     has been dropped.
 ///   - `Err(_)` on parse / validate / I/O error (the caller prints it
 ///     and bumps the exit code to >= 1).
-async fn streaming_reader(
+async fn streaming_reader<R>(
+    mut reader: R,
     tx: tokio::sync::mpsc::UnboundedSender<PreparedLine>,
     interrupt: Interrupt,
-) -> Result<()> {
-    let stdin = tokio::io::stdin();
-    let mut reader = tokio::io::BufReader::new(stdin);
+) -> Result<()>
+where
+    R: tokio::io::AsyncBufRead + Unpin,
+{
     let mut line_no: usize = 0;
 
     loop {
@@ -391,8 +426,10 @@ mod tests {
 
     #[test]
     fn parse_and_validate_validate_error_propagates() {
-        // Nested batch-run is rejected by validate::validate.
-        let parsed = vec![pl(5, "batch-run", &["s7cmd", "batch-run"])];
+        // Nested batch-run is rejected by validate::validate. The script
+        // positional is required at parse time, so include `-` to reach
+        // the validate step.
+        let parsed = vec![pl(5, "batch-run -", &["s7cmd", "batch-run", "-"])];
         let e = err(parse_and_validate(parsed));
         let msg = e.to_string();
         assert!(msg.contains("line 5"), "msg: {msg}");
@@ -409,7 +446,7 @@ mod tests {
                 "head-bucket s3://b1",
                 &["s7cmd", "head-bucket", "s3://b1"],
             ),
-            pl(2, "batch-run", &["s7cmd", "batch-run"]),
+            pl(2, "batch-run -", &["s7cmd", "batch-run", "-"]),
         ];
         let e = err(parse_and_validate(parsed));
         assert!(e.to_string().contains("line 2"));

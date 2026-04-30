@@ -182,8 +182,8 @@ mod tests {
 
     #[test]
     fn rejects_nested_batch_run() {
-        let cmd = parse_cmd(&["s7cmd", "batch-run"]);
-        let err = validate(7, "batch-run", &cmd).unwrap_err();
+        let cmd = parse_cmd(&["s7cmd", "batch-run", "-"]);
+        let err = validate(7, "batch-run -", &cmd).unwrap_err();
         assert!(err.to_string().contains("nested batch-run"));
         assert!(err.to_string().contains("line 7"));
     }

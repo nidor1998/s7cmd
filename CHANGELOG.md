@@ -10,7 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.2.0] - 2026-05-01
 
 ### Added
-- `batch-run` subcommand: read s7cmd commands from stdin and execute them
+- `batch-run <FILE>` subcommand: read s7cmd commands from a script file
+  (or stdin via `-`, mirroring `put-bucket-policy`) and execute them
   in-process. Supports sequential or parallel (`--parallel N`, `0` =
   num_cpus), fail-fast or `--continue-on-error`, read-all (default with
   progress bar) or `--streaming`. Tracing flags must be passed to
