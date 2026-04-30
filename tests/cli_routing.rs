@@ -379,3 +379,30 @@ fn parses_put_bucket_notification_configuration() {
         Some(Cmd::PutBucketNotificationConfiguration(_))
     ));
 }
+
+#[test]
+fn parses_batch_run_with_no_flags() {
+    let cli = Cli::try_parse_from(["s7cmd", "batch-run"]).expect("batch-run should parse");
+    assert!(matches!(cli.command, Some(Cmd::BatchRun(_))));
+}
+
+#[test]
+fn parses_batch_run_with_parallel_streaming_continue() {
+    let cli = Cli::try_parse_from([
+        "s7cmd",
+        "batch-run",
+        "--parallel",
+        "8",
+        "--streaming",
+        "--continue-on-error",
+        "--no-summary",
+    ])
+    .expect("batch-run with all flags should parse");
+    let Some(Cmd::BatchRun(args)) = cli.command else {
+        panic!("expected BatchRun");
+    };
+    assert_eq!(args.parallel, 8);
+    assert!(args.streaming);
+    assert!(args.continue_on_error);
+    assert!(args.no_summary);
+}

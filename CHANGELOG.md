@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > **Preview.** s7cmd is in an early/preview phase (0.x). The CLI surface, flag names, output formats, and exit codes may change between minor versions until 1.0.0.
 
+## [0.2.0] - 2026-05-01
+
+### Added
+- `batch-run` subcommand: read s7cmd commands from stdin and execute them
+  in-process. Supports sequential or parallel (`--parallel N`, `0` =
+  num_cpus), fail-fast or `--continue-on-error`, read-all (default with
+  progress bar) or `--streaming`. Tracing flags must be passed to
+  `batch-run` itself; per-line tracing flags are rejected. Final exit
+  code is the worst (highest) seen across all executed commands.
+- `--dry-run` flag on every state-mutating subcommand (`cp`, `mv`, `rm`,
+  `create-bucket`, all `put-*`, all `delete-*`). Argument validation,
+  JSON parsing, and SDK setup run as normal; an info-level `[dry-run]`
+  log line describes what would have happened, and the binary exits 0
+  without making any AWS-side change. Read-only commands (`get-*`,
+  `head-*`) deliberately do not accept this flag. Verbosity is forced to
+  at least info while `--dry-run` is set so the message is visible at
+  default verbosity.
+
+### Changed
+- `sync_bin::cli::run`, `clean_bin::run`, `ls_bin::run` now return
+  `Result<i32>` instead of calling `std::process::exit` internally, so
+  they can be invoked from `batch-run` without killing the process
+  mid-batch. Single-subcommand invocations are behaviorally unchanged.
+- Bumped `s3util-rs` from 1.0 to 1.1 and re-synced the vendored bin
+  modules (`util_bin/cli/*.rs`) accordingly.
+
 ## [0.1.3] - 2026-04-29
 
 ### Changed

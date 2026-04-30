@@ -10,7 +10,7 @@ use std::sync::atomic::AtomicBool;
 use anyhow::{Result, anyhow};
 use aws_sdk_s3::types::RequestPayer;
 use leaky_bucket::RateLimiter;
-use tracing::trace;
+use tracing::{info, trace};
 
 use s3util_rs::Config;
 use s3util_rs::storage::Storage;
@@ -168,9 +168,6 @@ pub struct CopyPhase {
 /// what exit code to produce.
 pub async fn run_copy_phase(config: Config) -> Result<CopyPhase> {
     let cancellation_token = create_pipeline_cancellation_token();
-    ctrl_c_handler::spawn_ctrl_c_handler(cancellation_token.clone());
-
-    let (stats_sender, stats_receiver) = async_channel::unbounded();
 
     // Determine transfer direction
     let (source_str, target_str) = get_path_strings(&config.source, &config.target);
@@ -185,6 +182,43 @@ pub async fn run_copy_phase(config: Config) -> Result<CopyPhase> {
     let (source_key, target_key) = extract_keys(&config)?;
 
     let resolved_target_display = format_target_path(&config.target, &target_key);
+
+    // Dry-run short-circuit: log the would-do action and skip every
+    // remote/local I/O (transfer, indicator, ctrl-c handler, rate limiter).
+    // run_mv has its own dry-run guard around the source delete, so the
+    // placeholder source_storage built here is never invoked.
+    if config.dry_run {
+        info!(
+            source = %source_str,
+            target = %resolved_target_display,
+            "[dry-run] would copy."
+        );
+        let (stats_sender, _stats_receiver) = async_channel::unbounded();
+        let placeholder_source = LocalStorageFactory::create(
+            config.clone(),
+            empty_local_storage_path(),
+            cancellation_token.clone(),
+            stats_sender,
+            None,
+            None,
+            None,
+            Arc::new(AtomicBool::new(false)),
+            None,
+        )
+        .await;
+        return Ok(CopyPhase {
+            transfer_result: Ok(TransferOutcome::default()),
+            source_storage: placeholder_source,
+            source_key,
+            cancellation_token,
+            cancelled: false,
+            has_warning: false,
+        });
+    }
+
+    ctrl_c_handler::spawn_ctrl_c_handler(cancellation_token.clone());
+
+    let (stats_sender, stats_receiver) = async_channel::unbounded();
 
     let show_progress = ui_config::is_progress_indicator_needed(&config);
     let show_result = ui_config::is_show_result_needed(&config);

@@ -106,6 +106,13 @@ regardless of demand:
   framed. Each feature is evaluated solely against s7cmd's own
   scope and the design principles of its underlying libraries. If
   the feature you need exists in another tool, use that tool.
+- Outperforming other S3 tools on raw speed or memory usage.
+  Performance and resource consumption are addressed only when they
+  compromise practical workflows — not for edge cases or benchmark
+  wins. Issues of the form "tool X transfers Y MB/s faster" or
+  "tool X uses less RAM than s7cmd in benchmark Z" will be closed.
+  If raw throughput is your top criterion, use a tool optimized
+  for it.
 - FUSE filesystem mounting, daemon mode, or any persistent
   background process. s7cmd is a one-shot CLI; it runs, transfers,
   and exits.
@@ -205,6 +212,9 @@ Bucket Logging:
 Bucket Notification:
   get-bucket-notification-configuration Get a bucket's notification configuration
   put-bucket-notification-configuration Put a bucket notification configuration
+
+Batch:
+  batch-run                             Read s7cmd commands from stdin and run them in-process
 
 Other:
   help                                  Print this message or the help of the given subcommand(s)

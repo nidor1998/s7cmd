@@ -1,4 +1,4 @@
-// Vendored from s3util-rs@0.2.2
+// Vendored from s3util-rs@1.1.0
 //   src/bin/s3util/cli/put_bucket_cors.rs
 // Adjustments: no tests stripped; rewrote crate::cli → super
 use anyhow::{Context, Result};
@@ -43,6 +43,10 @@ pub async fn run_put_bucket_cors(
     let cfg = parsed.into_sdk()?;
 
     let client = client_config.create_client().await;
+    if args.dry_run {
+        info!(bucket = %bucket, "[dry-run] would put bucket CORS configuration.");
+        return Ok(());
+    }
     api::put_bucket_cors(&client, &bucket, cfg).await?;
     info!(bucket = %bucket, "Bucket CORS configuration set.");
     Ok(())

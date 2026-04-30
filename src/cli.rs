@@ -1,5 +1,6 @@
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::shells::Shell;
+use clap_verbosity_flag::{Verbosity, WarnLevel};
 
 #[cfg(feature = "version")]
 use shadow_rs::shadow;
@@ -97,6 +98,9 @@ Bucket Notification:
   get-bucket-notification-configuration Get a bucket's notification configuration
   put-bucket-notification-configuration Put a bucket notification configuration
 
+Batch:
+  batch-run                             Read s7cmd commands from stdin and run them in-process
+
 Other:
   help                                  Print this message or the help of the given subcommand(s)
 
@@ -113,6 +117,47 @@ pub struct Cli {
 
     #[command(subcommand)]
     pub command: Option<Cmd>,
+}
+
+#[derive(clap::Args, Clone, Debug)]
+pub struct BatchRunArgs {
+    /// Number of commands to run concurrently. 1 = sequential (default).
+    /// 0 = use all logical CPUs.
+    #[arg(long, default_value_t = 1, value_name = "N")]
+    pub parallel: usize,
+
+    /// Execute commands as they are read from stdin (no progress bar).
+    /// By default, all commands are read first, then executed.
+    #[arg(long)]
+    pub streaming: bool,
+
+    /// Continue executing remaining commands after a failure.
+    /// By default, the first failing command stops execution
+    /// (sequential) or prevents new commands from starting (parallel).
+    #[arg(long)]
+    pub continue_on_error: bool,
+
+    /// Suppress the end-of-run summary line on stderr.
+    #[arg(long)]
+    pub no_summary: bool,
+
+    // Tracing flags — same names as every other subcommand's tracing
+    // block. AWS auth/endpoint flags are intentionally NOT included
+    // (each per-line subcommand brings its own).
+    #[arg(long, default_value_t = false, help_heading = "Tracing/Logging")]
+    pub json_tracing: bool,
+
+    #[arg(long, default_value_t = false, help_heading = "Tracing/Logging")]
+    pub aws_sdk_tracing: bool,
+
+    #[arg(long, default_value_t = false, help_heading = "Tracing/Logging")]
+    pub span_events_tracing: bool,
+
+    #[arg(long, default_value_t = false, help_heading = "Tracing/Logging")]
+    pub disable_color_tracing: bool,
+
+    #[command(flatten)]
+    pub verbosity: Verbosity<WarnLevel>,
 }
 
 #[derive(Subcommand, Clone, Debug)]
@@ -228,6 +273,10 @@ pub enum Cmd {
     PutBucketNotificationConfiguration(
         s3util_rs::config::args::PutBucketNotificationConfigurationArgs,
     ),
+
+    // Batch
+    /// Read s7cmd commands from stdin and run them in-process
+    BatchRun(BatchRunArgs),
 }
 
 /// Build the s7cmd `Command` with `--auto-complete-shell` hidden on every

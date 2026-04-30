@@ -1,4 +1,4 @@
-// Vendored from s3util-rs@0.2.0
+// Vendored from s3util-rs@1.1.0
 //   src/bin/s3util/cli/cp.rs
 // Adjustments: stripped #[cfg(test)] mod tests; rewrote crate::cli → super
 

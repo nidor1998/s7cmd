@@ -1,4 +1,4 @@
-// Vendored from s3util-rs@0.2.2
+// Vendored from s3util-rs@1.1.0
 //   src/bin/s3util/cli/delete_bucket_encryption.rs
 // Adjustments: no tests stripped; rewrote crate::cli → super
 use anyhow::Result;
@@ -20,6 +20,10 @@ pub async fn run_delete_bucket_encryption(
         .bucket_name()
         .map_err(|e| anyhow::anyhow!("{}", e.trim_end()))?;
     let client = client_config.create_client().await;
+    if args.dry_run {
+        info!(bucket = %bucket, "[dry-run] would delete bucket encryption.");
+        return Ok(());
+    }
     api::delete_bucket_encryption(&client, &bucket).await?;
     info!(bucket = %bucket, "Bucket encryption deleted.");
     Ok(())

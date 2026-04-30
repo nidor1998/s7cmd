@@ -1,4 +1,4 @@
-// Vendored from s3util-rs@0.2.0
+// Vendored from s3util-rs@1.1.0
 //   src/bin/s3util/cli/delete_object_tagging.rs
 // Adjustments: no tests stripped; rewrote crate::cli → super
 
@@ -22,6 +22,16 @@ pub async fn run_delete_object_tagging(
         .map_err(|e| anyhow::anyhow!("{}", e.trim_end()))?;
 
     let client = client_config.create_client().await;
+
+    if args.dry_run {
+        info!(
+            bucket = %bucket,
+            key = %key,
+            version_id = %args.source_version_id.as_deref().unwrap_or_default(),
+            "[dry-run] would delete object tagging."
+        );
+        return Ok(());
+    }
 
     api::delete_object_tagging(&client, &bucket, &key, args.source_version_id.as_deref()).await?;
     info!(
