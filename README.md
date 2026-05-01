@@ -281,9 +281,13 @@ freely combined:
 
 **Failure handling.** By default, the first failing command stops
 sequential execution and prevents new spawns in parallel
-mode. Pass `--continue-on-error` to run every line regardless. The
-process exit code is the worst (highest) seen across all executed
-commands.
+mode. Pass `--continue-on-error` to run every line regardless, or
+`--max-errors N` (`N` ≥ 1) to keep running up to `N` failures and
+then stop gracefully (sequential: stops after the N-th failure;
+parallel: stops spawning new commands once N failures have been
+recorded — in-flight commands complete). `--continue-on-error` and
+`--max-errors` are mutually exclusive. The process exit code is
+the worst (highest) seen across all executed commands.
 
 **Format check.** Pass `--check-format` to validate the script
 without executing anything. The walk stops at the first
@@ -293,6 +297,12 @@ clean pass an info-level "format OK" message is emitted. Verbosity
 is forced to at least info so that message is visible at the
 default warn level.
 
+**Per-line tracing.** Each dispatched line emits a `start` event
+and a matching outcome event (`ok`, `warning`, or `error (exit N)`)
+at info level, prefixed with the line number and the original
+input text. They are silent at the default warn level — pass `-v`
+to see them.
+
 **Tracing flags belong to `batch-run`, not per-line.** Pass
 `--json-tracing`, `--aws-sdk-tracing`, `--span-events-tracing`,
 `--disable-color-tracing`, and `-v`/`-q` to `batch-run` itself —
@@ -301,6 +311,20 @@ set `--json-tracing`, `--aws-sdk-tracing`, `--span-events-tracing`,
 or `--disable-color-tracing` are rejected at validation time;
 per-line `-v`/`-q` is silently ignored (the tracing subscriber is
 installed once, at the top of the run).
+
+**Caveats and safety.**
+
+- Even when you increase the parallelism level (`--parallel`), the
+  various rate limits apply on a per-command basis (they are not
+  divided across or aggregated over the workers).
+- Increasing `--parallel` may increase the load on the operating
+  system. It consumes CPU, memory, file descriptors, and other
+  resources — pick a value the host and the target service can
+  absorb.
+- `batch-run` is a dangerous command and must be used with caution.
+  Whenever possible, perform a dry run by using each subcommand's
+  `--dry-run` flag, and pass `-v` to `batch-run` itself to surface
+  the per-line info-level logs for preliminary verification.
 
 **Restrictions.**
 

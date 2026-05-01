@@ -112,6 +112,24 @@ fn flatten(msg: &str) -> String {
         .join(" ")
 }
 
+/// Resolve the failure-stop policy from the (mutually exclusive)
+/// `--continue-on-error` and `--max-errors` flags:
+///   - `--continue-on-error` → `None` (run every line, never stop on
+///     failures).
+///   - `--max-errors N`     → `Some(N)` (stop after `N` failures).
+///   - neither flag         → `Some(1)` (stop on the first failure —
+///     the historical default).
+///
+/// clap rejects the conflicting combination at parse time, so this
+/// function never has to break the tie.
+fn error_threshold(args: &BatchRunArgs) -> Option<u64> {
+    if args.continue_on_error {
+        None
+    } else {
+        Some(args.max_errors.unwrap_or(1))
+    }
+}
+
 /// Read-all (default) mode. Read the whole script first (file or stdin),
 /// parse and validate every line, then install the SIGINT listener and
 /// execute. Original behavior preserved when the script is `-`.
@@ -171,7 +189,7 @@ async fn run_read_all(args: BatchRunArgs) -> i32 {
     let workers = resolve_workers(args.parallel);
     let opts = ExecutorOptions {
         workers,
-        continue_on_error: args.continue_on_error,
+        error_threshold: error_threshold(&args),
         no_summary: args.no_summary,
         streaming: args.streaming,
     };
@@ -211,7 +229,7 @@ async fn run_streaming(args: BatchRunArgs) -> i32 {
     let workers = resolve_workers(args.parallel);
     let opts = ExecutorOptions {
         workers,
-        continue_on_error: args.continue_on_error,
+        error_threshold: error_threshold(&args),
         no_summary: args.no_summary,
         streaming: args.streaming,
     };

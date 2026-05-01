@@ -138,8 +138,20 @@ pub struct BatchRunArgs {
     /// Continue executing remaining commands after a failure.
     /// By default, the first failing command stops execution
     /// (sequential) or prevents new commands from starting (parallel).
-    #[arg(long)]
+    /// Mutually exclusive with `--max-errors`.
+    #[arg(long, conflicts_with = "max_errors")]
     pub continue_on_error: bool,
+
+    /// Stop spawning new commands once `N` failures have been recorded
+    /// (graceful: in-flight commands complete). Must be >= 1. When
+    /// omitted, the run stops on the first failure — the same behavior
+    /// as no flag at all. Mutually exclusive with `--continue-on-error`.
+    #[arg(
+        long,
+        value_name = "N",
+        value_parser = clap::value_parser!(u64).range(1..),
+    )]
+    pub max_errors: Option<u64>,
 
     /// Suppress the end-of-run summary line on stderr.
     #[arg(long)]

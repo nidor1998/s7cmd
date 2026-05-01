@@ -91,7 +91,9 @@ fn batch_run_help_works() {
         .success()
         .stdout(predicate::str::contains("--parallel"))
         .stdout(predicate::str::contains("--streaming"))
-        .stdout(predicate::str::contains("--continue-on-error"));
+        .stdout(predicate::str::contains("--continue-on-error"))
+        .stdout(predicate::str::contains("--max-errors"))
+        .stdout(predicate::str::contains("--check-format"));
 }
 
 #[test]
@@ -394,4 +396,142 @@ fn batch_run_check_format_missing_file_errors() {
         .stderr(predicate::str::contains(
             "/nonexistent/s7cmd-check-format.txt",
         ));
+}
+
+// ---- --max-errors coverage ----
+
+/// `--max-errors 2` keeps running past the first failure and stops only
+/// after the second. With the input below: `ls --recursive` fails at
+/// dispatch (line 2), `create-bucket --dry-run` succeeds (line 3),
+/// `ls --recursive` fails again (line 4) → threshold reached, line 5
+/// is skipped.
+#[test]
+fn batch_run_max_errors_two_stops_after_second_failure() {
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["batch-run", "--max-errors", "2", "-"])
+        .write_stdin(concat!(
+            "create-bucket --dry-run s3://b1\n",
+            "ls --recursive\n",
+            "create-bucket --dry-run s3://b2\n",
+            "ls --recursive\n",
+            "create-bucket --dry-run s3://b3\n",
+        ))
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("2 ok, 2 failed, 1 skipped"));
+}
+
+/// `--max-errors` is mutually exclusive with `--continue-on-error` —
+/// clap rejects the combination at parse time.
+#[test]
+fn batch_run_max_errors_conflicts_with_continue_on_error() {
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["batch-run", "--continue-on-error", "--max-errors", "3", "-"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("cannot be used with"));
+}
+
+/// `--max-errors 0` is rejected by clap's value-parser range.
+#[test]
+fn batch_run_max_errors_zero_rejected() {
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["batch-run", "--max-errors", "0", "-"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("invalid value"));
+}
+
+/// Without `--max-errors`, the historical fail-fast behaviour is
+/// unchanged: the first failure stops the run and the rest are
+/// skipped (covered already by `batch_run_invalid_sync_config_*`,
+/// but assert it explicitly here so any future regression in the
+/// default-mapping helper trips this test).
+#[test]
+fn batch_run_default_is_fail_fast() {
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["batch-run", "-"])
+        .write_stdin(concat!(
+            "create-bucket --dry-run s3://b1\n",
+            "ls --recursive\n",
+            "create-bucket --dry-run s3://b2\n",
+        ))
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("1 ok, 1 failed, 1 skipped"));
+}
+
+// ---- per-line start/end info logs ----
+
+/// With `-v` (verbosity bumped to info), every dispatched line emits a
+/// `start` and matching outcome event. The line number and raw text
+/// identify which subcommand each event belongs to.
+#[test]
+fn batch_run_logs_per_line_start_and_end_at_info() {
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["batch-run", "-v", "-"])
+        .write_stdin(concat!(
+            "create-bucket --dry-run s3://b1\n",
+            "create-bucket --dry-run s3://b2\n",
+        ))
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "line 1: start: create-bucket --dry-run s3://b1",
+        ))
+        .stderr(predicate::str::contains(
+            "line 1: ok: create-bucket --dry-run s3://b1",
+        ))
+        .stderr(predicate::str::contains(
+            "line 2: start: create-bucket --dry-run s3://b2",
+        ))
+        .stderr(predicate::str::contains(
+            "line 2: ok: create-bucket --dry-run s3://b2",
+        ));
+}
+
+/// A failing line is logged with `error (exit N)` outcome, not `ok`.
+/// Verifies the exit-code → outcome-word mapping for the error case.
+#[test]
+fn batch_run_logs_per_line_error_outcome_with_exit_code() {
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        // `--continue-on-error` so the run reaches both lines and we
+        // can assert both events.
+        .args(["batch-run", "-v", "--continue-on-error", "-"])
+        .write_stdin(concat!(
+            "create-bucket --dry-run s3://b1\n",
+            // `ls --recursive` (no target) is a config-validation
+            // failure → dispatch returns exit 2.
+            "ls --recursive\n",
+        ))
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("line 1: ok: create-bucket"))
+        .stderr(predicate::str::contains("line 2: start: ls --recursive"))
+        .stderr(predicate::str::contains(
+            "line 2: error (exit 2): ls --recursive",
+        ));
+}
+
+/// Without `-v`, info logs are suppressed (default verbosity is warn).
+/// Confirms the new logs don't leak at the default level.
+#[test]
+fn batch_run_per_line_logs_silent_at_default_verbosity() {
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["batch-run", "-"])
+        .write_stdin("create-bucket --dry-run s3://b1\n")
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("line 1: start").not())
+        .stderr(predicate::str::contains("line 1: ok").not())
+        // The summary line must still appear — it goes to plain stderr,
+        // not via tracing.
+        .stderr(predicate::str::contains("1 ok, 0 failed"));
 }

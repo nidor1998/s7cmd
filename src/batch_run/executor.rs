@@ -24,17 +24,41 @@ pub type DispatchFn = Arc<dyn Fn(Cmd) -> Pin<Box<dyn Future<Output = i32>>> + Se
 
 pub struct PreparedLine {
     pub line_no: usize,
-    // raw is kept on the struct so the `==> line N: <raw>` banner can be
-    // re-enabled by uncommenting the eprintln calls in the executor loops.
-    #[allow(dead_code)]
+    /// The original input line, used by `log_start` / `log_end` to
+    /// identify which subcommand each per-line event belongs to.
     pub raw: String,
     pub cmd: Cmd,
+}
+
+/// Emitted at info level immediately before each dispatched
+/// subcommand. Visible with `-v`.
+fn log_start(line_no: usize, raw: &str) {
+    tracing::info!("line {line_no}: start: {}", raw.trim_end());
+}
+
+/// Emitted at info level immediately after each dispatched
+/// subcommand. Maps the exit code to one of the three outcome words
+/// the user wants to see at a glance.
+fn log_end(line_no: usize, raw: &str, code: i32) {
+    let raw = raw.trim_end();
+    match code {
+        0 => tracing::info!("line {line_no}: ok: {raw}"),
+        // EXIT_CODE_WARNING from util_bin::cli — kept literal here to
+        // avoid a cross-module dep just for one number.
+        3 => tracing::info!("line {line_no}: warning: {raw}"),
+        _ => tracing::info!("line {line_no}: error (exit {code}): {raw}"),
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct ExecutorOptions {
     pub workers: usize, // resolved (1 = sequential)
-    pub continue_on_error: bool,
+    /// `Some(N)` = stop spawning new commands once `N` failures have
+    /// been recorded (graceful: in-flight commands complete). `None` =
+    /// `--continue-on-error` (no failure-driven stop). Default mapping
+    /// performed in `batch_run::run`: no flag → `Some(1)` (fail-fast),
+    /// `--max-errors N` → `Some(N)`, `--continue-on-error` → `None`.
+    pub error_threshold: Option<u64>,
     pub no_summary: bool,
     pub streaming: bool,
 }
@@ -62,20 +86,22 @@ pub async fn run_sequential(
 
     for (idx, line) in lines.into_iter().enumerate() {
         // Bail out if SIGINT arrived between commands (regardless of
-        // continue_on_error — interrupt is unconditional).
+        // error threshold — interrupt is unconditional).
         if interrupt.load(Ordering::SeqCst) {
             let processed = idx as u64;
             summary.skipped = total.saturating_sub(processed);
             break;
         }
-        // eprintln!("==> line {}: {}", line.line_no, line.raw);
-        let code = dispatch(line.cmd).await;
+        let PreparedLine { line_no, raw, cmd } = line;
+        log_start(line_no, &raw);
+        let code = dispatch(cmd).await;
+        log_end(line_no, &raw, code);
         progress.tick(code);
         summary.record(code);
         if code > worst {
             worst = code;
         }
-        if code != 0 && !opts.continue_on_error {
+        if code != 0 && opts.error_threshold.is_some_and(|t| summary.failed >= t) {
             // Skipped count = total - already-processed.
             let processed = (idx + 1) as u64;
             summary.skipped = total.saturating_sub(processed);
@@ -104,6 +130,7 @@ pub async fn run_parallel(
 
     let sem = Arc::new(Semaphore::new(opts.workers));
     let fail_cancel = Arc::new(AtomicBool::new(false));
+    let fail_count = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let mut spawned = 0u64;
 
     // Dispatched futures hold non-`Send` types (e.g. `&dyn
@@ -120,25 +147,35 @@ pub async fn run_parallel(
                 if interrupt.load(Ordering::SeqCst) {
                     break;
                 }
-                // Failure-driven cancel only stops spawning when fail-fast is on.
-                if fail_cancel.load(Ordering::SeqCst) && !opts.continue_on_error {
+                // Failure-driven cancel: tasks set `fail_cancel` only after
+                // the per-run error threshold has been crossed (None =
+                // unbounded → never set).
+                if fail_cancel.load(Ordering::SeqCst) {
                     break;
                 }
                 let permit = sem.clone().acquire_owned().await.expect("sem closed");
                 let dispatch = Arc::clone(&dispatch);
                 let progress = Arc::clone(&progress);
                 let fail_cancel = Arc::clone(&fail_cancel);
-                let continue_on_error = opts.continue_on_error;
+                let fail_count = Arc::clone(&fail_count);
+                let error_threshold = opts.error_threshold;
                 spawned += 1;
                 joinset.spawn_local(async move {
                     let _permit = permit;
-                    // eprintln!("==> line {}: {}", line.line_no, line.raw);
-                    let code = dispatch(line.cmd).await;
-                    if code != 0 && !continue_on_error {
-                        fail_cancel.store(true, Ordering::SeqCst);
+                    let PreparedLine { line_no, raw, cmd } = line;
+                    log_start(line_no, &raw);
+                    let code = dispatch(cmd).await;
+                    log_end(line_no, &raw, code);
+                    if code != 0 {
+                        let new_count = fail_count.fetch_add(1, Ordering::SeqCst) + 1;
+                        if let Some(threshold) = error_threshold
+                            && new_count >= threshold
+                        {
+                            fail_cancel.store(true, Ordering::SeqCst);
+                        }
                     }
                     progress.lock().await.tick(code);
-                    (line.line_no, code)
+                    (line_no, code)
                 });
             }
 
@@ -200,14 +237,16 @@ pub async fn run_sequential_streaming(
             }
             break;
         }
-        // eprintln!("==> line {}: {}", line.line_no, line.raw);
-        let code = dispatch(line.cmd).await;
+        let PreparedLine { line_no, raw, cmd } = line;
+        log_start(line_no, &raw);
+        let code = dispatch(cmd).await;
+        log_end(line_no, &raw, code);
         progress.tick(code);
         summary.record(code);
         if code > worst {
             worst = code;
         }
-        if code != 0 && !opts.continue_on_error {
+        if code != 0 && opts.error_threshold.is_some_and(|t| summary.failed >= t) {
             // Drain remaining items already in the channel as skipped.
             while rx.recv().await.is_some() {
                 summary.skipped += 1;
@@ -237,6 +276,7 @@ pub async fn run_parallel_streaming(
 
     let sem = Arc::new(Semaphore::new(opts.workers));
     let fail_cancel = Arc::new(AtomicBool::new(false));
+    let fail_count = Arc::new(std::sync::atomic::AtomicU64::new(0));
 
     // Use LocalSet because dispatch futures are not Send.
     let local = LocalSet::new();
@@ -248,8 +288,10 @@ pub async fn run_parallel_streaming(
                 if interrupt.load(Ordering::SeqCst) {
                     break;
                 }
-                // Failure-driven cancel only stops spawning when fail-fast is on.
-                if fail_cancel.load(Ordering::SeqCst) && !opts.continue_on_error {
+                // Failure-driven cancel: tasks set `fail_cancel` only after
+                // the per-run error threshold has been crossed (None =
+                // unbounded → never set).
+                if fail_cancel.load(Ordering::SeqCst) {
                     break;
                 }
 
@@ -264,16 +306,24 @@ pub async fn run_parallel_streaming(
                 let dispatch = Arc::clone(&dispatch);
                 let progress = Arc::clone(&progress);
                 let fail_cancel = Arc::clone(&fail_cancel);
-                let continue_on_error = opts.continue_on_error;
+                let fail_count = Arc::clone(&fail_count);
+                let error_threshold = opts.error_threshold;
                 joinset.spawn_local(async move {
                     let _permit = permit;
-                    // eprintln!("==> line {}: {}", line.line_no, line.raw);
-                    let code = dispatch(line.cmd).await;
-                    if code != 0 && !continue_on_error {
-                        fail_cancel.store(true, Ordering::SeqCst);
+                    let PreparedLine { line_no, raw, cmd } = line;
+                    log_start(line_no, &raw);
+                    let code = dispatch(cmd).await;
+                    log_end(line_no, &raw, code);
+                    if code != 0 {
+                        let new_count = fail_count.fetch_add(1, Ordering::SeqCst) + 1;
+                        if let Some(threshold) = error_threshold
+                            && new_count >= threshold
+                        {
+                            fail_cancel.store(true, Ordering::SeqCst);
+                        }
                     }
                     progress.lock().await.tick(code);
-                    (line.line_no, code)
+                    (line_no, code)
                 });
             }
 
@@ -367,10 +417,13 @@ mod tests {
             .collect()
     }
 
-    fn opts(workers: usize, continue_on_error: bool) -> ExecutorOptions {
+    /// `error_threshold = Some(1)` is the historical "fail-fast" mode
+    /// (no flag); `None` is `--continue-on-error`; `Some(N>1)` is
+    /// `--max-errors N`.
+    fn opts(workers: usize, error_threshold: Option<u64>) -> ExecutorOptions {
         ExecutorOptions {
             workers,
-            continue_on_error,
+            error_threshold,
             no_summary: true,
             streaming: false,
         }
@@ -389,7 +442,7 @@ mod tests {
         let lines = make_lines(3);
         let (code, summary) = run_sequential(
             lines,
-            opts(1, false),
+            opts(1, Some(1)),
             fake_dispatch(vec![0, 0, 0]),
             no_interrupt(),
         )
@@ -405,7 +458,7 @@ mod tests {
         let lines = make_lines(5);
         let (code, summary) = run_sequential(
             lines,
-            opts(1, false),
+            opts(1, Some(1)),
             fake_dispatch(vec![0, 1]),
             no_interrupt(),
         )
@@ -421,7 +474,7 @@ mod tests {
         let lines = make_lines(4);
         let (code, summary) = run_sequential(
             lines,
-            opts(1, true),
+            opts(1, None),
             fake_dispatch(vec![0, 1, 0, 4]),
             no_interrupt(),
         )
@@ -437,7 +490,7 @@ mod tests {
         let lines = make_lines(3);
         let (code, summary) = run_sequential(
             lines,
-            opts(1, true), // even with continue_on_error
+            opts(1, None), // even with continue_on_error
             fake_dispatch(vec![]),
             already_interrupted(),
         )
@@ -453,7 +506,7 @@ mod tests {
         let lines = make_lines(4);
         let (code, summary) = run_parallel(
             lines,
-            opts(2, false),
+            opts(2, Some(1)),
             fake_dispatch(vec![0, 0, 0, 0]),
             no_interrupt(),
         )
@@ -470,7 +523,7 @@ mod tests {
         let lines = make_lines(5);
         let (code, _) = run_parallel(
             lines,
-            opts(2, false),
+            opts(2, Some(1)),
             fake_dispatch(vec![1, 0, 0, 0, 0]),
             no_interrupt(),
         )
@@ -503,7 +556,7 @@ mod tests {
         drop(tx);
         let (code, summary) = run_sequential_streaming(
             rx,
-            opts(1, false),
+            opts(1, Some(1)),
             fake_dispatch(vec![0, 0, 0]),
             no_interrupt(),
         )
@@ -523,7 +576,7 @@ mod tests {
         drop(tx);
         let (code, summary) = run_sequential_streaming(
             rx,
-            opts(1, false),
+            opts(1, Some(1)),
             fake_dispatch(vec![0, 1]),
             no_interrupt(),
         )
@@ -543,7 +596,7 @@ mod tests {
         drop(tx);
         let (code, summary) = run_sequential_streaming(
             rx,
-            opts(1, true),
+            opts(1, None),
             fake_dispatch(vec![0, 1, 0, 4]),
             no_interrupt(),
         )
@@ -563,7 +616,7 @@ mod tests {
         drop(tx);
         let (code, summary) = run_sequential_streaming(
             rx,
-            opts(1, true),
+            opts(1, None),
             fake_dispatch(vec![]),
             already_interrupted(),
         )
@@ -583,7 +636,7 @@ mod tests {
         drop(tx);
         let (code, summary) = run_parallel_streaming(
             rx,
-            opts(2, false),
+            opts(2, Some(1)),
             fake_dispatch(vec![0, 0, 0, 0]),
             no_interrupt(),
         )
@@ -601,7 +654,7 @@ mod tests {
         drop(tx);
         let (code, _) = run_parallel_streaming(
             rx,
-            opts(2, false),
+            opts(2, Some(1)),
             fake_dispatch(vec![1, 0, 0, 0, 0]),
             no_interrupt(),
         )
@@ -609,5 +662,89 @@ mod tests {
         assert_eq!(code, 1);
         // We don't assert exact skipped count because parallel ordering
         // is racy — what matters is that fail_fast did stop the spawn loop.
+    }
+
+    // ---- --max-errors threshold ----
+
+    /// Threshold of 2: the run continues past the first failure (line 1
+    /// fails, line 2 ok, line 3 fails → threshold reached) and stops
+    /// before line 4. Sequential ordering makes the skip count exact.
+    #[tokio::test]
+    async fn sequential_max_errors_two_stops_after_second_failure() {
+        let lines = make_lines(5);
+        let (code, summary) = run_sequential(
+            lines,
+            opts(1, Some(2)),
+            fake_dispatch(vec![1, 0, 1, 0, 0]),
+            no_interrupt(),
+        )
+        .await;
+        assert_eq!(code, 1);
+        assert_eq!(summary.ok, 1);
+        assert_eq!(summary.failed, 2);
+        assert_eq!(summary.skipped, 2); // lines 4 and 5 not run
+    }
+
+    /// Threshold of 3 with only two failures across the whole run: the
+    /// threshold is never reached, every line executes, and nothing is
+    /// skipped.
+    #[tokio::test]
+    async fn sequential_max_errors_three_runs_to_completion_with_two_failures() {
+        let lines = make_lines(4);
+        let (code, summary) = run_sequential(
+            lines,
+            opts(1, Some(3)),
+            fake_dispatch(vec![0, 1, 0, 1]),
+            no_interrupt(),
+        )
+        .await;
+        assert_eq!(code, 1);
+        assert_eq!(summary.ok, 2);
+        assert_eq!(summary.failed, 2);
+        assert_eq!(summary.skipped, 0);
+    }
+
+    /// Same shape in the streaming sequential executor.
+    #[tokio::test]
+    async fn sequential_streaming_max_errors_two_stops_after_second_failure() {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        for line in make_lines(5) {
+            tx.send(line).unwrap();
+        }
+        drop(tx);
+        let (code, summary) = run_sequential_streaming(
+            rx,
+            opts(1, Some(2)),
+            fake_dispatch(vec![1, 0, 1, 0, 0]),
+            no_interrupt(),
+        )
+        .await;
+        assert_eq!(code, 1);
+        assert_eq!(summary.ok, 1);
+        assert_eq!(summary.failed, 2);
+        assert_eq!(summary.skipped, 2);
+    }
+
+    /// Parallel executor with workers=2 and threshold=2: at least one of
+    /// the trailing lines must be skipped because the spawn loop stops
+    /// once two failures have been recorded. Exact skip count is racy
+    /// (an in-flight task may complete first) so we only assert the
+    /// load-bearing invariant.
+    #[tokio::test]
+    async fn parallel_max_errors_two_stops_spawning() {
+        let lines = make_lines(8);
+        let (code, summary) = run_parallel(
+            lines,
+            opts(2, Some(2)),
+            fake_dispatch(vec![1, 1, 0, 0, 0, 0, 0, 0]),
+            no_interrupt(),
+        )
+        .await;
+        assert_eq!(code, 1);
+        assert!(summary.failed >= 2);
+        assert!(
+            summary.skipped > 0,
+            "threshold should have stopped the spawn loop; summary={summary:?}"
+        );
     }
 }
