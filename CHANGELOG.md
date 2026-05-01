@@ -29,10 +29,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   When neither flag is set, the run stops on the first failure (the
   historical default).
 - `batch-run` per-line tracing: each dispatched line emits an
-  info-level `start` event and a matching outcome event (`ok`,
-  `warning`, or `error (exit N)`) prefixed with the line number and
-  raw input text, so the active subcommand is identifiable in the
-  log. Silent at the default warn level; pass `-v` to see them.
+  info-level `start` event and a matching outcome event
+  (`success`, `warning`, or `failure (exit N)`) prefixed with the
+  line number and raw input text, so the active subcommand is
+  identifiable in the log. Silent at the default warn level; pass
+  `-v` to see them.
 - `--dry-run` flag on every state-mutating subcommand (`cp`, `mv`, `rm`,
   `create-bucket`, all `put-*`, all `delete-*`). Argument validation,
   JSON parsing, and SDK setup run as normal; an info-level `[dry-run]`

@@ -42,11 +42,11 @@ fn log_start(line_no: usize, raw: &str) {
 fn log_end(line_no: usize, raw: &str, code: i32) {
     let raw = raw.trim_end();
     match code {
-        0 => tracing::info!("line {line_no}: ok: {raw}"),
+        0 => tracing::info!("line {line_no}: success: {raw}"),
         // EXIT_CODE_WARNING from util_bin::cli — kept literal here to
         // avoid a cross-module dep just for one number.
         3 => tracing::info!("line {line_no}: warning: {raw}"),
-        _ => tracing::info!("line {line_no}: error (exit {code}): {raw}"),
+        _ => tracing::info!("line {line_no}: failure (exit {code}): {raw}"),
     }
 }
 

@@ -298,10 +298,10 @@ is forced to at least info so that message is visible at the
 default warn level.
 
 **Per-line tracing.** Each dispatched line emits a `start` event
-and a matching outcome event (`ok`, `warning`, or `error (exit N)`)
-at info level, prefixed with the line number and the original
-input text. They are silent at the default warn level — pass `-v`
-to see them.
+and a matching outcome event (`success`, `warning`, or
+`failure (exit N)`) at info level, prefixed with the line number
+and the original input text. They are silent at the default warn
+level — pass `-v` to see them.
 
 **Tracing flags belong to `batch-run`, not per-line.** Pass
 `--json-tracing`, `--aws-sdk-tracing`, `--span-events-tracing`,
