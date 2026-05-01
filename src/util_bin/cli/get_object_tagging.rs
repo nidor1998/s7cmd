@@ -35,16 +35,16 @@ pub async fn run_get_object_tagging(
             Ok(ExitStatus::Success)
         }
         Err(HeadError::BucketNotFound) => {
-            tracing::error!("bucket s3://{bucket} not found");
+            tracing::warn!("bucket s3://{bucket} not found");
             Ok(ExitStatus::NotFound)
         }
         Err(HeadError::NotFound) => {
             match args.source_version_id.as_deref() {
                 Some(v) => {
-                    tracing::error!("s3://{bucket}/{key} (versionId={v}) not found");
+                    tracing::warn!("s3://{bucket}/{key} (versionId={v}) not found");
                 }
                 None => {
-                    tracing::error!("s3://{bucket}/{key} not found");
+                    tracing::warn!("s3://{bucket}/{key} not found");
                 }
             }
             Ok(ExitStatus::NotFound)

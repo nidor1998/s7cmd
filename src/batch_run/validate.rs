@@ -218,8 +218,11 @@ mod tests {
 
     #[test]
     fn rejects_per_line_json_tracing_on_cp() {
-        let cmd = parse_cmd(&["s7cmd", "cp", "--json-tracing", "s3://b/a", "/tmp/b"]);
-        let err = validate(2, "cp --json-tracing ...", &cmd).unwrap_err();
+        // Use s3-to-s3 paths so `s3util_rs::Config::try_from` succeeds on
+        // every platform (a local path like `/tmp/b` is rejected on Windows
+        // before the tracing check runs).
+        let cmd = parse_cmd(&["s7cmd", "cp", "--json-tracing", "s3://b/a", "s3://b/b"]);
+        let err = validate(2, "cp --json-tracing s3://b/a s3://b/b", &cmd).unwrap_err();
         assert!(err.to_string().contains("tracing flags"));
     }
 
@@ -272,12 +275,72 @@ mod tests {
         assert_rejects_tracing(&["s7cmd", "clean", "--force", "--json-tracing", "s3://b"]);
     }
 
+    /// Each non-`json_tracing` flag on `Clean` is checked individually so
+    /// the boolean-OR chain is exercised past the short-circuit on
+    /// `json_tracing` — covering the per-flag arms in `reject_per_line_tracing`.
+    #[test]
+    fn rejects_per_line_tracing_on_clean_aws_sdk_tracing() {
+        assert_rejects_tracing(&["s7cmd", "clean", "--force", "--aws-sdk-tracing", "s3://b"]);
+    }
+
+    #[test]
+    fn rejects_per_line_tracing_on_clean_span_events_tracing() {
+        assert_rejects_tracing(&[
+            "s7cmd",
+            "clean",
+            "--force",
+            "--span-events-tracing",
+            "s3://b",
+        ]);
+    }
+
+    #[test]
+    fn rejects_per_line_tracing_on_clean_disable_color_tracing() {
+        assert_rejects_tracing(&[
+            "s7cmd",
+            "clean",
+            "--force",
+            "--disable-color-tracing",
+            "s3://b",
+        ]);
+    }
+
     #[test]
     fn rejects_per_line_tracing_on_sync() {
         // `Sync` reads tracing flags through `s3sync::Config::try_from(...)`.
         // A simple s3-to-s3 invocation is enough for `Config::try_from` to
         // succeed and surface the tracing flag.
         assert_rejects_tracing(&["s7cmd", "sync", "--json-tracing", "s3://b1", "s3://b2"]);
+    }
+
+    /// Each non-`json_tracing` flag on `Sync` is checked individually so
+    /// the OR chain inside the `if let Some(t) = cfg.tracing_config &&
+    /// (t.json_tracing || ...)` block is fully exercised.
+    #[test]
+    fn rejects_per_line_tracing_on_sync_aws_sdk_tracing() {
+        assert_rejects_tracing(&["s7cmd", "sync", "--aws-sdk-tracing", "s3://b1", "s3://b2"]);
+    }
+
+    #[test]
+    fn rejects_per_line_tracing_on_sync_span_events_tracing() {
+        assert_rejects_tracing(&[
+            "s7cmd",
+            "sync",
+            "--span-events-tracing",
+            "s3://b1",
+            "s3://b2",
+        ]);
+    }
+
+    #[test]
+    fn rejects_per_line_tracing_on_sync_disable_color_tracing() {
+        assert_rejects_tracing(&[
+            "s7cmd",
+            "sync",
+            "--disable-color-tracing",
+            "s3://b1",
+            "s3://b2",
+        ]);
     }
 
     #[test]

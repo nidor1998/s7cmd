@@ -1,7 +1,7 @@
 //! `batch-run` subcommand.
 
 use anyhow::Result;
-use clap::Parser;
+use clap::FromArgMatches;
 use std::io::BufRead;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -13,8 +13,26 @@ pub mod progress;
 pub mod summary;
 pub mod validate;
 
-use crate::cli::{BatchRunArgs, Cli};
+use crate::cli::{BatchRunArgs, Cli, cli_command};
 use executor::{DispatchFn, ExecutorOptions, Interrupt, PreparedLine, resolve_workers};
+
+/// Parse one batch-run line's argv into a `Cli`, using the same
+/// post-processed `clap::Command` that `main.rs` uses at the top level.
+///
+/// `cli_command()` clears the long name on every subcommand's
+/// `--auto-complete-shell` (the flag is inherited from upstream args
+/// structs and is redundant with the top-level form). Going through it
+/// here means per-line `cp --auto-complete-shell <SHELL>` etc. is rejected
+/// at parse time with a clean "unexpected argument" error — instead of
+/// accepting the line and panicking later when `Config::try_from` calls
+/// `parse_storage_path("")` on the absent source positional.
+///
+/// Direct `Cli::try_parse_from` would skip that mutation and reintroduce
+/// the panic. All batch-run line parsing should go through this helper.
+fn parse_line_argv(argv: &[String]) -> clap::error::Result<Cli> {
+    let matches = cli_command().try_get_matches_from(argv)?;
+    Cli::from_arg_matches(&matches)
+}
 
 pub async fn run(args: BatchRunArgs) -> i32 {
     if args.check_format {
@@ -26,35 +44,68 @@ pub async fn run(args: BatchRunArgs) -> i32 {
     }
 }
 
+/// Drain stdin to EOF without parsing it, so an upstream producer
+/// (xargs, a shell loop, etc.) can finish its writes cleanly. If
+/// `s7cmd` exits while bytes are still in flight on stdin, the
+/// kernel breaks the pipe and the producer gets SIGPIPE on its next
+/// write — visible to the user as
+/// `xargs: terminated with signal 13`. Reading-and-discarding keeps
+/// the pipe open until the producer is done; the data is never
+/// parsed because by the time we drain we've already decided to exit
+/// with an error.
+///
+/// Skipped when the script source is `-` (we've already consumed
+/// stdin in the normal code path).
+fn drain_stdin_on_error_exit(args: &BatchRunArgs) {
+    if args.script == "-" {
+        return;
+    }
+    let _ = std::io::copy(&mut std::io::stdin().lock(), &mut std::io::sink());
+}
+
 /// `--check-format` mode. Walk the script line by line; the first
 /// tokenize / clap-parse / validate failure (or read I/O error) is
 /// reported at error level and the process returns 1 immediately —
 /// no further lines are inspected and no command is executed. On a
 /// clean walk, log a single info-level success message and return 0.
 fn run_check_format(args: BatchRunArgs) -> i32 {
+    let source = script_source_label(&args.script);
     let has_issue = if args.script == "-" {
         let stdin = std::io::stdin();
-        check_format_lines(stdin.lock())
+        check_format_lines(stdin.lock(), source)
     } else {
         match std::fs::File::open(&args.script) {
-            Ok(f) => check_format_lines(std::io::BufReader::new(f)),
+            Ok(f) => check_format_lines(std::io::BufReader::new(f), source),
             Err(e) => {
-                tracing::error!("{}: {e}", args.script);
+                tracing::error!("{source}: {e}");
+                drain_stdin_on_error_exit(&args);
                 return 1;
             }
         }
     };
     if has_issue {
+        drain_stdin_on_error_exit(&args);
         1
     } else {
-        tracing::info!("batch-run: format OK ({}).", args.script);
+        tracing::info!("batch-run: format OK ({source}).");
         0
     }
 }
 
+/// Display label for the script source: `"stdin"` for `-`, the file
+/// path otherwise. Used to prefix per-line check-format diagnostics so
+/// the user can see at a glance which file is being checked — the
+/// real-world failure mode is forgetting `-` and accidentally pointing
+/// `batch-run` at a non-script file (`/etc/hosts`, etc.).
+fn script_source_label(script: &str) -> &str {
+    if script == "-" { "stdin" } else { script }
+}
+
 /// Walk lines and stop at the first problem. Returns `true` if an issue
 /// was reported (via `tracing::error!`), `false` if every line passed.
-fn check_format_lines<R: BufRead>(mut reader: R) -> bool {
+/// Each per-line error is prefixed with `<source>: line N:` so the log
+/// identifies *which* file the offending line is from.
+fn check_format_lines<R: BufRead>(mut reader: R, source: &str) -> bool {
     let mut line_no: usize = 0;
     loop {
         line_no += 1;
@@ -62,7 +113,7 @@ fn check_format_lines<R: BufRead>(mut reader: R) -> bool {
             Ok(Some(s)) => s,
             Ok(None) => return false,
             Err(e) => {
-                tracing::error!("line {line_no}: read error: {e}");
+                tracing::error!("{source}: line {line_no}: read error: {e}");
                 return true;
             }
         };
@@ -70,16 +121,20 @@ fn check_format_lines<R: BufRead>(mut reader: R) -> bool {
             Ok(Some(a)) => a,
             Ok(None) => continue, // blank or comment
             Err(e) => {
-                tracing::error!("line {line_no}: parse error: {e}: {}", line.trim_end());
+                tracing::error!(
+                    "{source}: line {line_no}: parse error: {e}: {}",
+                    line.trim_end()
+                );
                 return true;
             }
         };
-        let cli = match Cli::try_parse_from(&argv) {
+        let cli = match parse_line_argv(&argv) {
             Ok(c) => c,
             Err(e) => {
+                let s = e.to_string();
                 tracing::error!(
-                    "line {line_no}: parse error: {}: {}",
-                    flatten(&e.to_string()),
+                    "{source}: line {line_no}: parse error: {}: {}",
+                    clap_error_summary(&s),
                     line.trim_end()
                 );
                 return true;
@@ -88,28 +143,51 @@ fn check_format_lines<R: BufRead>(mut reader: R) -> bool {
         let cmd = match cli.command {
             Some(c) => c,
             None => {
-                tracing::error!("line {line_no}: empty command: {}", line.trim_end());
+                tracing::error!(
+                    "{source}: line {line_no}: empty command: {}",
+                    line.trim_end()
+                );
                 return true;
             }
         };
         if let Err(e) = validate::validate(line_no, &line, &cmd) {
-            // validate already includes the line number and a `> raw`
-            // tail; flatten to keep one log entry per line.
-            tracing::error!("{}", flatten(&e.to_string()));
+            // validate's message already includes "line N: <description>"
+            // plus a `> raw` tail; flatten and prefix with the source.
+            tracing::error!("{source}: {}", flatten(&e.to_string()));
             return true;
         }
     }
 }
 
 /// Collapse a multi-line error message into a single line so each entry
-/// in the error log occupies exactly one line. clap errors in
-/// particular span several lines (`error: ...` plus usage / help).
+/// in the error log occupies exactly one line. Used for `validate`
+/// errors, whose follow-up lines (`  > <raw>`) carry useful context
+/// worth keeping. clap errors take a different path — see
+/// `clap_error_summary`.
 fn flatten(msg: &str) -> String {
     msg.lines()
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// Extract the first non-empty line of a clap error and strip its
+/// leading `error: ` prefix, returning a short single-line summary.
+///
+/// clap formats parse errors as a description line followed by blank-
+/// separated `Usage: ...` and `For more information, try '--help'.`
+/// blocks. Those trailers are noise in a per-line check-format report
+/// (the user already saw the help when they invoked the binary), and
+/// the leading `error: ` would otherwise appear right after our own
+/// `parse error:` prefix.
+fn clap_error_summary(msg: &str) -> &str {
+    let first = msg
+        .lines()
+        .map(str::trim)
+        .find(|s| !s.is_empty())
+        .unwrap_or("parse error");
+    first.strip_prefix("error: ").unwrap_or(first)
 }
 
 /// Resolve the failure-stop policy from the (mutually exclusive)
@@ -142,7 +220,7 @@ async fn run_read_all(args: BatchRunArgs) -> i32 {
         match parser::read_all(stdin.lock()) {
             Ok(p) => p,
             Err(e) => {
-                eprintln!("batch-run: {e}");
+                tracing::error!("{e}");
                 return 1;
             }
         }
@@ -150,27 +228,26 @@ async fn run_read_all(args: BatchRunArgs) -> i32 {
         let file = match std::fs::File::open(&args.script) {
             Ok(f) => f,
             Err(e) => {
-                eprintln!("batch-run: {}: {e}", args.script);
+                tracing::error!("{}: {e}", args.script);
                 return 1;
             }
         };
         match parser::read_all(std::io::BufReader::new(file)) {
             Ok(p) => p,
             Err(e) => {
-                eprintln!("batch-run: {e}");
+                tracing::error!("{e}");
                 return 1;
             }
         }
     };
 
     // Phase 2 - parse and validate every line. Still under default SIGINT.
-    let prepared = match parse_and_validate(parsed) {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("batch-run: {e}");
-            return 1;
-        }
-    };
+    // Per-line failures (tokenize / clap-parse / empty / validate) are
+    // turned into `PreparedLineKind::Invalid` entries here and become
+    // exit-2 failures inside the executor — they NO LONGER abort the
+    // whole run, so `--max-errors` and `--continue-on-error` apply to
+    // them like any other failure.
+    let prepared = parse_and_validate(parsed);
 
     // Phase 3 - install the SIGINT listener. From this point on, Ctrl-C
     // sets the shared flag the executors check before each new spawn;
@@ -190,8 +267,12 @@ async fn run_read_all(args: BatchRunArgs) -> i32 {
     let opts = ExecutorOptions {
         workers,
         error_threshold: error_threshold(&args),
-        no_summary: args.no_summary,
+        continue_on_warning: args.continue_on_warning,
         streaming: args.streaming,
+        // `--json-tracing` implies machine-readable output — the live
+        // progress bar would be visual noise interleaved with JSON, so
+        // suppress it just like `--no-progress` does.
+        no_progress: args.no_progress || args.json_tracing,
     };
 
     let dispatch: DispatchFn =
@@ -204,7 +285,7 @@ async fn run_read_all(args: BatchRunArgs) -> i32 {
     };
 
     if !args.no_summary {
-        eprintln!("{}", summary.format());
+        eprintln!("{}", format_summary(&summary, args.json_tracing));
     }
 
     code
@@ -230,8 +311,10 @@ async fn run_streaming(args: BatchRunArgs) -> i32 {
     let opts = ExecutorOptions {
         workers,
         error_threshold: error_threshold(&args),
-        no_summary: args.no_summary,
+        continue_on_warning: args.continue_on_warning,
         streaming: args.streaming,
+        // See `run_read_all` for the `--json-tracing` rationale.
+        no_progress: args.no_progress || args.json_tracing,
     };
     let dispatch: DispatchFn =
         Arc::new(|cmd| Box::pin(async move { crate::dispatch::dispatch(cmd).await }));
@@ -244,19 +327,22 @@ async fn run_streaming(args: BatchRunArgs) -> i32 {
     // dropped, the task returns. File-open failure is reported here
     // before any executor work and short-circuits the run.
     let interrupt_for_reader = Arc::clone(&interrupt);
+    let source = script_source_label(&args.script).to_string();
     let reader_handle: tokio::task::JoinHandle<Result<()>> = if args.script == "-" {
         let reader = tokio::io::BufReader::new(tokio::io::stdin());
-        tokio::spawn(async move { streaming_reader(reader, tx, interrupt_for_reader).await })
+        tokio::spawn(
+            async move { streaming_reader(reader, tx, interrupt_for_reader, source).await },
+        )
     } else {
         match tokio::fs::File::open(&args.script).await {
             Ok(f) => {
                 let reader = tokio::io::BufReader::new(f);
-                tokio::spawn(
-                    async move { streaming_reader(reader, tx, interrupt_for_reader).await },
-                )
+                tokio::spawn(async move {
+                    streaming_reader(reader, tx, interrupt_for_reader, source).await
+                })
             }
             Err(e) => {
-                eprintln!("batch-run: {}: {e}", args.script);
+                tracing::error!("{}: {e}", args.script);
                 return 1;
             }
         }
@@ -277,33 +363,48 @@ async fn run_streaming(args: BatchRunArgs) -> i32 {
     let final_code = match reader_handle.await {
         Ok(Ok(())) => code,
         Ok(Err(e)) => {
-            eprintln!("batch-run: {e}");
+            tracing::error!("{}", flatten(&e.to_string()));
             code.max(1)
         }
         Err(e) => {
-            eprintln!("batch-run: reader task panicked: {e}");
+            tracing::error!("reader task panicked: {e}");
             code.max(1)
         }
     };
 
     if !args.no_summary {
-        eprintln!("{}", summary.format());
+        eprintln!("{}", format_summary(&summary, args.json_tracing));
     }
 
     final_code
 }
 
+/// Pick the summary representation: human-readable line by default,
+/// JSON object when `--json-tracing` is set on `batch-run`.
+fn format_summary(summary: &summary::Summary, json_tracing: bool) -> String {
+    if json_tracing {
+        summary.format_json()
+    } else {
+        summary.format()
+    }
+}
+
 /// Async reader loop for streaming mode. Reads the script line by line,
 /// tokenizes / parses / validates each line, and pushes a `PreparedLine`
-/// onto the channel. Returns:
+/// onto the channel. Per-line tokenize / clap-parse / empty / validate
+/// failures are pushed as `PreparedLineKind::Invalid` so the executor
+/// can count them toward `--max-errors` like any other failure — they
+/// do NOT short-circuit the reader. Returns:
 ///   - `Ok(())` on EOF, on Ctrl-C (interrupt set), or when the receiver
 ///     has been dropped.
-///   - `Err(_)` on parse / validate / I/O error (the caller prints it
-///     and bumps the exit code to >= 1).
+///   - `Err(_)` only on a true read I/O error (file unreadable, line
+///     cap exceeded, non-UTF-8). The caller prints it and bumps the
+///     exit code to >= 1.
 async fn streaming_reader<R>(
     mut reader: R,
     tx: tokio::sync::mpsc::UnboundedSender<PreparedLine>,
     interrupt: Interrupt,
+    source: String,
 ) -> Result<()>
 where
     R: tokio::io::AsyncBufRead + Unpin,
@@ -324,38 +425,29 @@ where
                     Ok(None) => return Ok(()), // EOF
                     Err(e) => {
                         return Err(anyhow::anyhow!(
-                            "stdin read error at line {line_no}: {e}"
+                            "{source} read error at line {line_no}: {e}"
                         ));
                     }
                 };
 
-                // Tokenize (skips blank/comment).
-                let argv = match parser::tokenize_line(&text) {
-                    Ok(Some(a)) => a,
-                    Ok(None) => continue,
-                    Err(e) => {
-                        return Err(anyhow::anyhow!(
-                            "parse error at line {line_no}: {e}\n  > {text}"
-                        ));
-                    }
+                // Tokenize (skips blank/comment). Tokenize errors flow
+                // through as a `TokenizeError` ParsedLine kind so they
+                // become exit-2 Invalid lines downstream rather than
+                // aborting the reader.
+                let parsed_kind = match parser::tokenize_line(&text) {
+                    Ok(None) => continue, // blank / comment
+                    Ok(Some(argv)) => parser::ParsedLineKind::Ok(argv),
+                    Err(e) => parser::ParsedLineKind::TokenizeError(format!(
+                        "line {line_no}: parse error: {e}: {}",
+                        text.trim_end()
+                    )),
                 };
 
-                // Parse via clap.
-                let cli = Cli::try_parse_from(&argv).map_err(|e| {
-                    anyhow::anyhow!("line {line_no}: parse error: {e}\n  > {text}")
-                })?;
-                let cmd = cli.command.ok_or_else(|| {
-                    anyhow::anyhow!("line {line_no}: empty command\n  > {text}")
-                })?;
-
-                // Validate.
-                validate::validate(line_no, &text, &cmd)?;
-
-                let prepared = PreparedLine {
+                let prepared = try_prepare(parser::ParsedLine {
                     line_no,
                     raw: text,
-                    cmd,
-                };
+                    kind: parsed_kind,
+                });
 
                 if tx.send(prepared).is_err() {
                     // Receiver dropped; executor finished early.
@@ -412,28 +504,55 @@ where
     }
 }
 
-fn parse_and_validate(parsed: Vec<parser::ParsedLine>) -> Result<Vec<PreparedLine>> {
-    let mut prepared = Vec::with_capacity(parsed.len());
-    for line in parsed {
-        let cli = Cli::try_parse_from(&line.argv).map_err(|e| {
-            anyhow::anyhow!(
-                "line {}: parse error: {}\n  > {}",
-                line.line_no,
-                e,
-                line.raw
-            )
-        })?;
-        let cmd = cli.command.ok_or_else(|| {
-            anyhow::anyhow!("line {}: empty command\n  > {}", line.line_no, line.raw)
-        })?;
-        validate::validate(line.line_no, &line.raw, &cmd)?;
-        prepared.push(PreparedLine {
-            line_no: line.line_no,
-            raw: line.raw,
-            cmd,
-        });
-    }
-    Ok(prepared)
+/// Convert one `ParsedLine` into a `PreparedLine`. Tokenize / clap-parse
+/// / empty-command / validate failures all become `PreparedLineKind::Invalid`
+/// carrying a single-line error message; only successful clap parses with
+/// a present subcommand and clean validation become `PreparedLineKind::Cmd`.
+/// Per-line failures are NEVER fatal here — the executor schedules
+/// `Invalid` lines as exit-2 failures so they count toward `--max-errors`
+/// like any runtime failure.
+fn try_prepare(parsed: parser::ParsedLine) -> PreparedLine {
+    let parser::ParsedLine { line_no, raw, kind } = parsed;
+    let kind = match build_prepared_kind(line_no, &raw, kind) {
+        Ok(k) => k,
+        Err(message) => executor::PreparedLineKind::Invalid(message),
+    };
+    PreparedLine { line_no, raw, kind }
+}
+
+/// `Ok(Cmd(_))` on a successfully parsed + validated line; `Err(msg)`
+/// otherwise. The error string is single-line, already prefixed with
+/// `line N:` and suffixed with the offending raw line, suitable for
+/// direct emission via `tracing::error!`.
+fn build_prepared_kind(
+    line_no: usize,
+    raw: &str,
+    parsed_kind: parser::ParsedLineKind,
+) -> std::result::Result<executor::PreparedLineKind, String> {
+    let argv = match parsed_kind {
+        parser::ParsedLineKind::TokenizeError(msg) => return Err(msg),
+        parser::ParsedLineKind::Ok(argv) => argv,
+    };
+    let cli = parse_line_argv(&argv).map_err(|e| {
+        // Strip clap's `Usage:` / `For more information…` trailers and
+        // its leading `error:` prefix so the message stays single-line —
+        // same approach as `check_format_lines`.
+        let s = e.to_string();
+        format!(
+            "line {line_no}: parse error: {}: {}",
+            clap_error_summary(&s),
+            raw.trim_end()
+        )
+    })?;
+    let cmd = cli
+        .command
+        .ok_or_else(|| format!("line {line_no}: empty command: {}", raw.trim_end()))?;
+    validate::validate(line_no, raw, &cmd).map_err(|e| flatten(&e.to_string()))?;
+    Ok(executor::PreparedLineKind::Cmd(Box::new(cmd)))
+}
+
+fn parse_and_validate(parsed: Vec<parser::ParsedLine>) -> Vec<PreparedLine> {
+    parsed.into_iter().map(try_prepare).collect()
 }
 
 #[cfg(test)]
@@ -445,29 +564,48 @@ mod tests {
         ParsedLine {
             line_no,
             raw: raw.to_string(),
-            argv: argv.iter().map(|s| s.to_string()).collect(),
+            kind: parser::ParsedLineKind::Ok(argv.iter().map(|s| s.to_string()).collect()),
+        }
+    }
+
+    fn pl_tokenize_err(line_no: usize, raw: &str, message: &str) -> ParsedLine {
+        ParsedLine {
+            line_no,
+            raw: raw.to_string(),
+            kind: parser::ParsedLineKind::TokenizeError(message.to_string()),
         }
     }
 
     // ---- parse_and_validate ----
+    //
+    // Per-line failures are now `PreparedLineKind::Invalid` entries
+    // rather than an early `Err` return — the function never bails
+    // mid-Vec. Helpers that classify the result by variant.
 
-    fn ok(r: Result<Vec<PreparedLine>>) -> Vec<PreparedLine> {
-        match r {
-            Ok(v) => v,
-            Err(e) => panic!("expected Ok, got Err: {e:#}"),
+    fn assert_invalid(line: &PreparedLine, must_contain: &[&str]) {
+        match &line.kind {
+            executor::PreparedLineKind::Invalid(msg) => {
+                for needle in must_contain {
+                    assert!(msg.contains(needle), "expected {needle:?} in {msg:?}");
+                }
+            }
+            executor::PreparedLineKind::Cmd(_) => {
+                panic!("expected Invalid, got Cmd for line {}", line.line_no)
+            }
         }
     }
 
-    fn err(r: Result<Vec<PreparedLine>>) -> anyhow::Error {
-        match r {
-            Ok(_) => panic!("expected Err, got Ok"),
-            Err(e) => e,
-        }
+    fn assert_cmd(line: &PreparedLine) {
+        assert!(
+            matches!(line.kind, executor::PreparedLineKind::Cmd(_)),
+            "expected Cmd for line {}",
+            line.line_no
+        );
     }
 
     #[test]
     fn parse_and_validate_empty_input_returns_empty() {
-        let out = ok(parse_and_validate(Vec::new()));
+        let out = parse_and_validate(Vec::new());
         assert!(out.is_empty());
     }
 
@@ -478,10 +616,11 @@ mod tests {
             "head-bucket s3://bucket",
             &["s7cmd", "head-bucket", "s3://bucket"],
         )];
-        let out = ok(parse_and_validate(parsed));
+        let out = parse_and_validate(parsed);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].line_no, 1);
         assert_eq!(out[0].raw, "head-bucket s3://bucket");
+        assert_cmd(&out[0]);
     }
 
     #[test]
@@ -498,25 +637,42 @@ mod tests {
                 &["s7cmd", "head-bucket", "s3://b2"],
             ),
         ];
-        let out = ok(parse_and_validate(parsed));
+        let out = parse_and_validate(parsed);
         assert_eq!(out.len(), 2);
-        assert_eq!(out[0].line_no, 1);
-        assert_eq!(out[1].line_no, 3);
+        assert_cmd(&out[0]);
+        assert_cmd(&out[1]);
     }
 
     #[test]
-    fn parse_and_validate_parse_error_includes_line_number_and_raw() {
-        // Unknown subcommand → clap parse error.
+    fn parse_and_validate_parse_error_becomes_invalid_with_line_number_and_raw() {
+        // Unknown subcommand → clap parse error → `Invalid` PreparedLine.
         let parsed = vec![pl(7, "no-such-command", &["s7cmd", "no-such-command"])];
-        let e = err(parse_and_validate(parsed));
-        let msg = e.to_string();
-        assert!(msg.contains("line 7"), "msg: {msg}");
-        assert!(msg.contains("parse error"), "msg: {msg}");
-        assert!(msg.contains("no-such-command"), "msg: {msg}");
+        let out = parse_and_validate(parsed);
+        assert_eq!(out.len(), 1);
+        assert_invalid(&out[0], &["line 7", "parse error", "no-such-command"]);
+    }
+
+    /// Per-line `cp --auto-complete-shell <SHELL>` previously panicked
+    /// inside `s3util_rs::Config::try_from` because clap accepted the
+    /// flag (inherited from upstream `CommonTransferArgs`) with `source` /
+    /// `target` left as `None`, and downstream `parse_storage_path("")`
+    /// did `unwrap()` on an `Err`. Going through `parse_line_argv` (which
+    /// uses `cli_command()`) clears the per-subcommand long name so clap
+    /// rejects the flag at parse time. Same behavior the top-level binary
+    /// already had — batch-run was the inconsistency.
+    #[test]
+    fn parse_and_validate_rejects_per_line_auto_complete_shell_on_cp() {
+        let parsed = vec![pl(
+            4,
+            "cp --auto-complete-shell fish",
+            &["s7cmd", "cp", "--auto-complete-shell", "fish"],
+        )];
+        let out = parse_and_validate(parsed);
+        assert_invalid(&out[0], &["line 4", "parse error", "auto-complete-shell"]);
     }
 
     #[test]
-    fn parse_and_validate_empty_command_errors_with_line_number() {
+    fn parse_and_validate_empty_command_becomes_invalid() {
         // `--auto-complete-shell` is a top-level flag that doesn't require
         // a subcommand, so clap parses successfully but `cli.command` is
         // `None` — this exercises the `ok_or_else` branch.
@@ -525,28 +681,26 @@ mod tests {
             "--auto-complete-shell bash",
             &["s7cmd", "--auto-complete-shell", "bash"],
         )];
-        let e = err(parse_and_validate(parsed));
-        let msg = e.to_string();
-        assert!(msg.contains("line 2"), "msg: {msg}");
-        assert!(msg.contains("empty command"), "msg: {msg}");
+        let out = parse_and_validate(parsed);
+        assert_invalid(&out[0], &["line 2", "empty command"]);
     }
 
     #[test]
-    fn parse_and_validate_validate_error_propagates() {
+    fn parse_and_validate_validate_error_becomes_invalid() {
         // Nested batch-run is rejected by validate::validate. The script
         // positional is required at parse time, so include `-` to reach
         // the validate step.
         let parsed = vec![pl(5, "batch-run -", &["s7cmd", "batch-run", "-"])];
-        let e = err(parse_and_validate(parsed));
-        let msg = e.to_string();
-        assert!(msg.contains("line 5"), "msg: {msg}");
-        assert!(msg.contains("nested batch-run"), "msg: {msg}");
+        let out = parse_and_validate(parsed);
+        assert_invalid(&out[0], &["line 5", "nested batch-run"]);
     }
 
     #[test]
-    fn parse_and_validate_stops_at_first_error() {
-        // Two lines: first valid, second invalid → must error on the
-        // second one (indicating loop continues past the first).
+    fn parse_and_validate_continues_past_per_line_errors() {
+        // Two lines: first valid, second invalid. Both must appear in
+        // the output (Cmd then Invalid) — proving the loop no longer
+        // bails at the first per-line failure. This is what makes
+        // `--max-errors` apply to parse failures.
         let parsed = vec![
             pl(
                 1,
@@ -555,8 +709,25 @@ mod tests {
             ),
             pl(2, "batch-run -", &["s7cmd", "batch-run", "-"]),
         ];
-        let e = err(parse_and_validate(parsed));
-        assert!(e.to_string().contains("line 2"));
+        let out = parse_and_validate(parsed);
+        assert_eq!(out.len(), 2);
+        assert_cmd(&out[0]);
+        assert_invalid(&out[1], &["line 2", "nested batch-run"]);
+    }
+
+    #[test]
+    fn parse_and_validate_propagates_tokenize_error_kind_as_invalid() {
+        // `parser::read_all` now surfaces tokenize failures as
+        // `TokenizeError` ParsedLineKind. Verify `parse_and_validate`
+        // converts that 1:1 into an `Invalid` PreparedLine carrying
+        // the same message — no re-formatting, just a passthrough.
+        let parsed = vec![pl_tokenize_err(
+            9,
+            "cp \"unterminated",
+            "line 9: parse error: malformed quoting: cp \"unterminated",
+        )];
+        let out = parse_and_validate(parsed);
+        assert_invalid(&out[0], &["line 9", "parse error", "malformed"]);
     }
 
     // ---- run / run_read_all / run_streaming with empty stdin ----
@@ -627,6 +798,30 @@ mod tests {
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
     }
 
+    /// `streaming_reader` is generic over `AsyncBufRead`; in production
+    /// it's called with both `tokio::io::stdin()` and `tokio::fs::File`.
+    /// On a read I/O error it must name the *actual* source (file path or
+    /// "stdin"), not a hardcoded label. Drive it with an in-memory reader
+    /// big enough to trip the line-length cap and assert the message
+    /// carries the supplied source string.
+    #[tokio::test]
+    async fn streaming_reader_io_error_uses_source_label() {
+        // MAX_LINE_LEN + 1 bytes, no newline → cap-exceeded I/O error.
+        let s: String = std::iter::repeat_n('x', MAX_LINE_LEN + 1).collect();
+        let reader = tokio::io::BufReader::new(s.as_bytes());
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<PreparedLine>();
+        let interrupt: Interrupt = Arc::new(AtomicBool::new(false));
+        let err = streaming_reader(reader, tx, interrupt, "/tmp/script.txt".to_string())
+            .await
+            .unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("/tmp/script.txt read error"),
+            "expected source-prefixed read-error message; got: {msg}"
+        );
+        assert!(msg.contains("line 1"), "msg: {msg}");
+    }
+
     #[tokio::test]
     async fn capped_async_rejects_invalid_utf8() {
         let bytes: &[u8] = &[0xff, 0xfe, b'\n'];
@@ -646,39 +841,80 @@ mod tests {
     #[test]
     fn check_format_lines_empty_input_is_clean() {
         let input: &[u8] = b"";
-        assert!(!check_format_lines(input));
+        assert!(!check_format_lines(input, "test"));
     }
 
     #[test]
     fn check_format_lines_only_blank_and_comment_is_clean() {
         let input: &[u8] = b"\n# comment\n   \n";
-        assert!(!check_format_lines(input));
+        assert!(!check_format_lines(input, "test"));
     }
 
     #[test]
     fn check_format_lines_valid_commands_is_clean() {
         let input: &[u8] = b"head-bucket s3://b1\ncreate-bucket --dry-run s3://b2\n";
-        assert!(!check_format_lines(input));
+        assert!(!check_format_lines(input, "test"));
     }
 
     #[test]
     fn check_format_lines_tokenize_error_returns_true() {
         // Unbalanced quote → shlex rejects.
         let input: &[u8] = b"cp \"oops\n";
-        assert!(check_format_lines(input));
+        assert!(check_format_lines(input, "test"));
     }
 
     #[test]
     fn check_format_lines_clap_parse_error_returns_true() {
         let input: &[u8] = b"no-such-command\n";
-        assert!(check_format_lines(input));
+        assert!(check_format_lines(input, "test"));
+    }
+
+    #[test]
+    fn script_source_label_maps_dash_to_stdin() {
+        assert_eq!(script_source_label("-"), "stdin");
+    }
+
+    #[test]
+    fn script_source_label_passes_through_paths() {
+        assert_eq!(script_source_label("/etc/hosts"), "/etc/hosts");
+        assert_eq!(script_source_label("./script.txt"), "./script.txt");
+    }
+
+    #[test]
+    fn clap_error_summary_strips_error_prefix_and_trailers() {
+        let msg = "error: unrecognized subcommand '127.0.0.1'\n\
+                   \n\
+                   Usage: s7cmd [OPTIONS] [COMMAND]\n\
+                   \n\
+                   For more information, try '--help'.\n";
+        assert_eq!(
+            clap_error_summary(msg),
+            "unrecognized subcommand '127.0.0.1'"
+        );
+    }
+
+    #[test]
+    fn clap_error_summary_handles_message_without_error_prefix() {
+        let msg = "missing required argument <FILE>\n";
+        assert_eq!(clap_error_summary(msg), "missing required argument <FILE>");
+    }
+
+    #[test]
+    fn clap_error_summary_handles_empty_input() {
+        assert_eq!(clap_error_summary(""), "parse error");
+    }
+
+    #[test]
+    fn clap_error_summary_skips_leading_blank_lines() {
+        let msg = "\n\nerror: bad thing\n\nUsage: ...";
+        assert_eq!(clap_error_summary(msg), "bad thing");
     }
 
     #[test]
     fn check_format_lines_validate_error_returns_true() {
         // Nested batch-run rejected by validate.
         let input: &[u8] = b"batch-run -\n";
-        assert!(check_format_lines(input));
+        assert!(check_format_lines(input, "test"));
     }
 
     #[test]
@@ -692,7 +928,7 @@ mod tests {
         let payload = b"no-such-command\nbatch-run -\ncp s3://b/k -\n";
         let mut cursor = Cursor::new(&payload[..]);
         assert!(
-            check_format_lines(&mut cursor),
+            check_format_lines(&mut cursor, "test"),
             "first bad line must be reported"
         );
         let mut rest = String::new();
@@ -710,6 +946,6 @@ mod tests {
         s.push('#');
         s.extend(std::iter::repeat_n('x', parser::MAX_LINE_LEN));
         s.push('\n');
-        assert!(check_format_lines(s.as_bytes()));
+        assert!(check_format_lines(s.as_bytes(), "test"));
     }
 }

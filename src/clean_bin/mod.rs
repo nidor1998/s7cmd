@@ -58,7 +58,7 @@ pub async fn run(config: Config) -> Result<i32> {
         if let Err(e) = pipeline.check_prerequisites().await {
             pipeline.close_stats_sender();
             if is_cancelled_error(&e) {
-                println!("Deletion cancelled.");
+                eprintln!("Deletion cancelled.");
                 debug!("deletion cancelled by user.");
                 return Ok(EXIT_CODE_SUCCESS);
             }

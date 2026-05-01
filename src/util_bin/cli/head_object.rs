@@ -50,10 +50,10 @@ pub async fn run_head_object(
         Err(HeadError::BucketNotFound | HeadError::NotFound) => {
             match args.source_version_id.as_deref() {
                 Some(v) => {
-                    tracing::error!("s3://{bucket}/{key} (versionId={v}) not found");
+                    tracing::warn!("s3://{bucket}/{key} (versionId={v}) not found");
                 }
                 None => {
-                    tracing::error!("s3://{bucket}/{key} not found");
+                    tracing::warn!("s3://{bucket}/{key} not found");
                 }
             }
             Ok(ExitStatus::NotFound)

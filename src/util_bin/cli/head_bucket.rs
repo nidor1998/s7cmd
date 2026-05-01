@@ -34,7 +34,7 @@ pub async fn run_head_bucket(
             Ok(ExitStatus::Success)
         }
         Err(HeadError::BucketNotFound) | Err(HeadError::NotFound) => {
-            tracing::error!("bucket s3://{bucket} not found");
+            tracing::warn!("bucket s3://{bucket} not found");
             Ok(ExitStatus::NotFound)
         }
         Err(HeadError::Other(e)) => Err(e),

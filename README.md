@@ -35,7 +35,7 @@ migrations.
 - **Single binary, full coverage.** Object transfer, bulk delete, and
   every common bucket-level configuration in one tool.
 - **Strong integrity verification.** Native support for SHA256, SHA1,
-  CRC32, CRC32C, and CRC64NVME — aligned with S3's 2025 default
+  CRC32, CRC32C, and CRC64NVME — aligned with S3's 2026 default
   checksum policy.
 - **Predictable performance.** Configurable workers, multipart
   thresholds, and chunk sizes; bounded memory footprint suitable for
@@ -52,13 +52,15 @@ management** — listing (`ls`), single- and bulk-object transfers
 versioning, policy, lifecycle, encryption, CORS,
 public-access-block, website, logging, notification). For any S3 use
 case outside that scope, use a more comprehensive tool such as the
-[AWS CLI](https://aws.amazon.com/cli/) (`aws s3` / `aws s3api`).
+[AWS CLI](https://aws.amazon.com/cli/) (`aws s3api`).
 
 s7cmd targets **Amazon S3** as its primary supported platform.
 S3-compatible storage (MinIO, Cloudflare R2, Backblaze B2, Wasabi,
 Ceph RGW, DigitalOcean Spaces, IBM COS, and similar) is supported
 on a **best-effort basis only** — such services may work via
-`--endpoint-url`, but they are not part of the official test matrix
+`--endpoint-url` (and `--source-force-path-style` /
+`--target-force-path-style` when path-style addressing is required),
+but they are not part of the official test matrix
 and behavior may change between releases. This is a structural
 consequence of building on `aws-sdk-rust`, which is generated from
 AWS service models and assumes Amazon S3 semantics (checksum
@@ -71,7 +73,7 @@ be triaged but not prioritized, and fixes are not guaranteed.
 s7cmd is **not** intended to be a drop-in replacement for, or
 behaviorally compatible with, any other S3 client — including the
 AWS CLI (`aws s3`, `aws s3api`) and tools such as `s3cmd`, `s4cmd`,
-`s5cmd`, and `s6cmd`. Its command-line flags, transfer semantics,
+`s5cmd`, `s6cmd`, and `rclone`. Its command-line flags, transfer semantics,
 verification rules, and exit codes are designed around the
 underlying libraries' own scope and design principles — not
 interoperability with another tool's interface. Output formats and
@@ -101,7 +103,7 @@ regardless of demand:
   or "Y is missing compared to tool X" — will be closed without
   further discussion. The existence of a feature, flag, command,
   output format, or behavior in `aws s3`, `aws s3api`, `s3cmd`,
-  `s4cmd`, `s5cmd`, `s6cmd`, or any other S3 tool carries no weight
+  `s4cmd`, `s5cmd`, `s6cmd`, `rclone`, or any other S3 tool carries no weight
   in s7cmd's design decisions, regardless of how the request is
   framed. Each feature is evaluated solely against s7cmd's own
   scope and the design principles of its underlying libraries. If
@@ -109,7 +111,8 @@ regardless of demand:
 - Outperforming other S3 tools on raw speed or memory usage.
   Performance and resource consumption are addressed only when they
   compromise practical workflows — not for edge cases or benchmark
-  wins. Issues of the form "tool X transfers Y MB/s faster" or
+  wins. Issues of the form "tool X transfers Y MB/s faster",
+  "tool X transfers Y objects/second faster", or
   "tool X uses less RAM than s7cmd in benchmark Z" will be closed.
   If raw throughput is your top criterion, use a tool optimized
   for it.
@@ -125,6 +128,12 @@ regardless of demand:
 - AWS service coverage beyond S3. s7cmd will not add subcommands for
   IAM, KMS, CloudFront, or any other AWS service, even when they
   interact closely with S3.
+- Edge cases that are more reasonably addressed by using the AWS
+  SDK directly, shell scripting, or other purpose-built tooling.
+  s7cmd is not intended to cover every conceivable S3 use case;
+  niche or one-off requirements that can be straightforwardly
+  handled by combining the AWS SDK, shell pipelines, or existing
+  tools fall outside its scope.
 
 Issues and pull requests requesting any of the above will be closed.
 
@@ -285,23 +294,38 @@ mode. Pass `--continue-on-error` to run every line regardless, or
 `--max-errors N` (`N` ≥ 1) to keep running up to `N` failures and
 then stop gracefully (sequential: stops after the N-th failure;
 parallel: stops spawning new commands once N failures have been
-recorded — in-flight commands complete). `--continue-on-error` and
-`--max-errors` are mutually exclusive. The process exit code is
-the worst (highest) seen across all executed commands.
+recorded — in-flight commands complete). Pass
+`--continue-on-warning` to keep running past per-line warnings
+(exit codes 3 and 4 — `EXIT_CODE_WARNING` and
+`EXIT_CODE_NOT_FOUND`) while still stopping on true failures
+according to `--max-errors` (or the default first-failure stop).
+`--continue-on-error` is mutually exclusive with both
+`--max-errors` and `--continue-on-warning`. The process exit code
+is the worst (highest) seen across all executed commands.
+
+Lines that can't be parsed or validated (quoting errors, unknown
+subcommands, missing or invalid arguments, empty commands) count as
+failures the same way runtime failures do — they synthesize exit
+code `2`, log at error level, increment the `failed` bucket, and
+count toward `--max-errors` / `--continue-on-error`. So
+`--max-errors 5` will let you tolerate up to 5 typo'd lines anywhere
+in the script. (True read I/O errors — line over the 16 KiB cap,
+non-UTF-8 bytes, file unreadable — still abort the whole run.)
 
 **Format check.** Pass `--check-format` to validate the script
 without executing anything. The walk stops at the first
-tokenize / parse / validate problem (or read I/O error), reports
-that line as a single error-level log entry, and exits 1. On a
-clean pass an info-level "format OK" message is emitted. Verbosity
-is forced to at least info so that message is visible at the
-default warn level.
+parse or validation problem (or read I/O error), reports
+that line as a single error-level log entry — prefixed with the
+script source (file path, or `stdin` for `-`) and the line number
+— and exits 1. On a clean pass a `"format OK"` message is emitted.
 
 **Per-line tracing.** Each dispatched line emits a `start` event
-and a matching outcome event (`success`, `warning`, or
-`failure (exit N)`) at info level, prefixed with the line number
-and the original input text. They are silent at the default warn
-level — pass `-v` to see them.
+and a matching outcome event (`success`, `warning (exit N)`,
+`skipped (exit 130)`, or `failure (exit N)`) prefixed with the
+line number and the original input text. `start` and `success`
+are info level (silent at the default warn level — pass `-v` to
+see them); `warning` and `skipped` are warn level and `failure`
+is error level, all three visible without `-v`.
 
 **Tracing flags belong to `batch-run`, not per-line.** Pass
 `--json-tracing`, `--aws-sdk-tracing`, `--span-events-tracing`,
@@ -314,6 +338,9 @@ installed once, at the top of the run).
 
 **Caveats and safety.**
 
+- If you're not concerned with performance, it's best to leave
+  `--parallel` at its default setting and run the process in series.
+  There are many factors to consider when parallelizing.
 - Even when you increase the parallelism level (`--parallel`), the
   various rate limits apply on a per-command basis (they are not
   divided across or aggregated over the workers).
@@ -321,10 +348,87 @@ installed once, at the top of the run).
   system. It consumes CPU, memory, file descriptors, and other
   resources — pick a value the host and the target service can
   absorb.
+- The failure threshold in parallel mode is "stop spawning new
+  commands", not "cancel in-flight commands." When `--parallel N`
+  is close to or exceeds the number of script lines, every line may
+  already be in flight by the time the threshold trips, so the run
+  completes as if no threshold were set. The threshold is most
+  effective when the line count is significantly larger than `N`. To
+  cancel work that is already in flight, send SIGINT (Ctrl-C); per-
+  subcommand cancellation handlers propagate it into in-flight
+  transfers.
 - `batch-run` is a dangerous command and must be used with caution.
   Whenever possible, perform a dry run by using each subcommand's
   `--dry-run` flag, and pass `-v` to `batch-run` itself to surface
   the per-line info-level logs for preliminary verification.
+
+For example, suppose you want to create two buckets and tag one of
+them. First, prepare a dry-run script (`sample_dry_run.txt`) with
+each subcommand's `--dry-run` flag baked in:
+
+```text
+# sample_dry_run.txt — preview only; nothing is sent to S3 except per-subcommand --dry-run client-side validation.
+create-bucket --dry-run s3://example-bucket-1
+create-bucket --dry-run s3://example-bucket-2
+put-bucket-tagging --dry-run --tagging "team=data&env=prod" s3://example-bucket-1
+```
+
+Run it with `-v` on `batch-run` itself so the per-line `start` /
+`success` events and the per-subcommand `[dry-run] would …` info
+lines are visible. `--no-progress` is added so the live progress
+bar (drawn by default on TTY stderr) does not interleave with
+the log lines you want to read:
+
+```console
+$ s7cmd batch-run -v --no-progress sample_dry_run.txt
+2026-04-30T23:34:11.178191Z  INFO line 2: start: create-bucket --dry-run s3://example-bucket-1
+2026-04-30T23:34:11.282653Z  INFO [dry-run] would create bucket. bucket=example-bucket-1
+2026-04-30T23:34:11.282756Z  INFO line 2: success: create-bucket --dry-run s3://example-bucket-1
+2026-04-30T23:34:11.282762Z  INFO line 3: start: create-bucket --dry-run s3://example-bucket-2
+2026-04-30T23:34:11.283018Z  INFO [dry-run] would create bucket. bucket=example-bucket-2
+2026-04-30T23:34:11.283038Z  INFO line 3: success: create-bucket --dry-run s3://example-bucket-2
+2026-04-30T23:34:11.283040Z  INFO line 4: start: put-bucket-tagging --dry-run --tagging "team=data&env=prod" s3://example-bucket-1
+2026-04-30T23:34:11.283239Z  INFO [dry-run] would put bucket tagging. bucket=example-bucket-1
+2026-04-30T23:34:11.283284Z  INFO line 4: success: put-bucket-tagging --dry-run --tagging "team=data&env=prod" s3://example-bucket-1
+batch-run: 3 succeeded, 0 failed, 0 warnings, 0 skipped, elapsed 0.1s
+```
+
+Once the dry run looks correct, run the same commands without
+`--dry-run` (`sample.txt`):
+
+```text
+# sample.txt — the real run; this DOES create buckets and apply tags.
+create-bucket s3://example-bucket-1
+create-bucket s3://example-bucket-2
+put-bucket-tagging --tagging "team=data&env=prod" s3://example-bucket-1
+```
+
+```console
+$ s7cmd batch-run -v --no-progress sample.txt
+2026-04-30T23:35:42.418901Z  INFO line 2: start: create-bucket s3://example-bucket-1
+2026-04-30T23:35:43.512214Z  INFO Bucket created. bucket=example-bucket-1
+2026-04-30T23:35:43.512410Z  INFO line 2: success: create-bucket s3://example-bucket-1
+2026-04-30T23:35:43.512430Z  INFO line 3: start: create-bucket s3://example-bucket-2
+2026-04-30T23:35:44.601877Z  INFO Bucket created. bucket=example-bucket-2
+2026-04-30T23:35:44.602008Z  INFO line 3: success: create-bucket s3://example-bucket-2
+2026-04-30T23:35:44.602020Z  INFO line 4: start: put-bucket-tagging --tagging "team=data&env=prod" s3://example-bucket-1
+2026-04-30T23:35:44.881342Z  INFO Bucket tagging set. bucket=example-bucket-1
+2026-04-30T23:35:44.881455Z  INFO line 4: success: put-bucket-tagging --tagging "team=data&env=prod" s3://example-bucket-1
+batch-run: 3 succeeded, 0 failed, 0 warnings, 0 skipped, elapsed 2.5s
+```
+
+The per-subcommand `[dry-run] would …` info lines are replaced by
+their concrete counterparts (`Bucket created.`,
+`Bucket tagging set.`); everything else — the `start` / `success`
+events, the trailing summary — is the same shape.
+
+Without `-v`, both the per-line `start` / `success` events and
+the per-subcommand info lines (`[dry-run] would …`,
+`Bucket created.`, etc.) are suppressed at the default warn
+level — only warnings and errors are logged, plus the trailing
+summary line on stderr. That is why the safety guidance pairs
+`--dry-run` with `-v`: you need info-level output to see what
+*would* happen.
 
 **Restrictions.**
 
@@ -333,8 +437,29 @@ installed once, at the top of the run).
 - Per-line input is capped at 16 KiB.
 
 **Summary.** When the run completes (or aborts), an
-`N ok, N failed, N skipped, elapsed Ts` line is written to stderr.
-Suppress it with `--no-summary`.
+`N succeeded, N failed, N warnings, N skipped, elapsed Ts` line is
+written to stderr. Per-line outcomes bucket as: exit `0` →
+`succeeded`; exit `3` or `4` (`EXIT_CODE_WARNING`,
+`EXIT_CODE_NOT_FOUND`) → `warnings`; exit `130` (the conventional
+Unix code for SIGINT — returned by per-subcommand cancellation
+handlers when the user hits Ctrl-C) → `skipped` (logged at warn
+level, not error, and never counted toward `--max-errors`); any
+other non-zero exit → `failed`; lines that were never dispatched
+(fail-fast or `--max-errors` threshold tripped, or SIGINT) →
+`skipped`.
+Suppress the line with `--no-summary`. With `--json-tracing` the
+same information is emitted as a single-line JSON object instead,
+e.g. `{"summary":"batch-run","succeeded":48,"failed":1,"warnings":2,"skipped":1,"elapsed_seconds":3.4}`.
+
+**Progress bar.** In read-all mode, when stderr is a TTY, a live
+progress bar is drawn on stderr while the run is in progress.
+Suppress it with `--no-progress` — useful when stderr is a TTY
+but you want machine-readable log output (terminal multiplexers,
+`script(1)`, some CI runners). Streaming mode and non-TTY stderr
+already suppress the bar. `--json-tracing` also suppresses it
+automatically (the bar would interleave with JSON output).
+`--no-progress` and `--no-summary` are independent — each controls
+only its own visual element; pass both for fully clean output.
 
 ## Documentation
 

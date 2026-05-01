@@ -44,7 +44,7 @@ pub async fn run_get_bucket_logging(
             // — the NotFound arm is unreachable in practice but kept here
             // for symmetry with the other `get_*` runtimes and to satisfy
             // exhaustiveness on the shared `HeadError` type.
-            tracing::error!("bucket s3://{bucket} not found");
+            tracing::warn!("bucket s3://{bucket} not found");
             Ok(ExitStatus::NotFound)
         }
         Err(HeadError::Other(e)) => Err(e),

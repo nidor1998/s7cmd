@@ -27,8 +27,33 @@ pub struct PreparedLine {
     /// The original input line, used by `log_start` / `log_end` to
     /// identify which subcommand each per-line event belongs to.
     pub raw: String,
-    pub cmd: Cmd,
+    pub kind: PreparedLineKind,
 }
+
+/// Per-line outcome of the parse + validate stage. `Cmd` is a clean
+/// line ready to dispatch; `Invalid` is a line that failed to tokenize,
+/// failed clap parsing, was empty, or failed validation. Invalid lines
+/// are still scheduled by the executor — they synthesize exit code 2
+/// (logged at error level, bucketed as `failed`) so they count toward
+/// `--max-errors` and `--continue-on-error` like any other failure
+/// instead of unconditionally aborting the whole run.
+pub enum PreparedLineKind {
+    /// `Cmd` is boxed because the `cli::Cmd` enum is ~1 KiB (some
+    /// upstream args structs are large). Boxing keeps the
+    /// `PreparedLineKind` enum small so the much-more-common
+    /// `Invalid(String)` variant doesn't carry around an unused 1 KiB.
+    Cmd(Box<Cmd>),
+    /// Already-formatted single-line error message (no leading "line N:"
+    /// prefix; the executor adds that uniformly via the `failure` log).
+    Invalid(String),
+}
+
+/// Synthetic exit code used when an `Invalid` line is "executed":
+/// matches clap's convention for argument parsing errors. Counted as a
+/// failure by `Summary::record` and `Progress::tick`, and stop-worthy
+/// in `is_stop_worthy`, so it flows through `--max-errors` /
+/// `--continue-on-error` like any runtime failure.
+pub const EXIT_CODE_INVALID_LINE: i32 = 2;
 
 /// Emitted at info level immediately before each dispatched
 /// subcommand. Visible with `-v`.
@@ -36,17 +61,49 @@ fn log_start(line_no: usize, raw: &str) {
     tracing::info!("line {line_no}: start: {}", raw.trim_end());
 }
 
-/// Emitted at info level immediately after each dispatched
-/// subcommand. Maps the exit code to one of the three outcome words
-/// the user wants to see at a glance.
+/// Drive one prepared line to completion. For `Cmd`, runs the start /
+/// dispatch / end sequence and returns the dispatched exit code. For
+/// `Invalid`, logs the pre-formatted error message at error level and
+/// returns the synthetic `EXIT_CODE_INVALID_LINE` (= 2). Returning
+/// `(line_no, code)` lets callers record / tick / threshold-check
+/// uniformly without inspecting the variant.
+async fn execute_line(line: PreparedLine, dispatch: &DispatchFn) -> (usize, i32) {
+    let PreparedLine { line_no, raw, kind } = line;
+    let code = match kind {
+        PreparedLineKind::Cmd(cmd) => {
+            log_start(line_no, &raw);
+            let code = dispatch(*cmd).await;
+            log_end(line_no, &raw, code);
+            code
+        }
+        PreparedLineKind::Invalid(message) => {
+            tracing::error!("{message}");
+            EXIT_CODE_INVALID_LINE
+        }
+    };
+    (line_no, code)
+}
+
+/// Emitted immediately after each dispatched subcommand. The level
+/// matches the outcome so non-zero exits are visible at the default
+/// `warn` verbosity without needing `-v`:
+///   - exit 0 → info (`success`)
+///   - exit 3 / 4 (`EXIT_CODE_WARNING`, `EXIT_CODE_NOT_FOUND`) → warn
+///   - exit 130 (SIGINT, returned by per-subcommand cancellation
+///     handlers when the user hits Ctrl-C) → warn (`skipped`) — visible
+///     at the default verbosity so the user can see which lines were
+///     interrupted, but not error level since the user asked for it.
+///   - any other non-zero exit → error (`failure`)
+///
+/// The 3/4/130 literals avoid a cross-module dep just for three numbers;
+/// each bucket matches the progress-bar / summary bucket the code feeds.
 fn log_end(line_no: usize, raw: &str, code: i32) {
     let raw = raw.trim_end();
     match code {
         0 => tracing::info!("line {line_no}: success: {raw}"),
-        // EXIT_CODE_WARNING from util_bin::cli — kept literal here to
-        // avoid a cross-module dep just for one number.
-        3 => tracing::info!("line {line_no}: warning: {raw}"),
-        _ => tracing::info!("line {line_no}: failure (exit {code}): {raw}"),
+        3 | 4 => tracing::warn!("line {line_no}: warning (exit {code}): {raw}"),
+        130 => tracing::warn!("line {line_no}: skipped (exit 130): {raw}"),
+        _ => tracing::error!("line {line_no}: failure (exit {code}): {raw}"),
     }
 }
 
@@ -59,8 +116,29 @@ pub struct ExecutorOptions {
     /// performed in `batch_run::run`: no flag → `Some(1)` (fail-fast),
     /// `--max-errors N` → `Some(N)`, `--continue-on-error` → `None`.
     pub error_threshold: Option<u64>,
-    pub no_summary: bool,
+    /// `--continue-on-warning`: per-line exit codes 3 and 4 are
+    /// classified as warnings and do NOT count toward `error_threshold`.
+    /// Other non-zero exits still count.
+    pub continue_on_warning: bool,
     pub streaming: bool,
+    pub no_progress: bool,
+}
+
+/// Returns true when this exit code should count toward the
+/// `error_threshold`. Zero never counts. Exit codes 3
+/// (`EXIT_CODE_WARNING`) and 4 (`EXIT_CODE_NOT_FOUND`) — kept literal
+/// to avoid a cross-module dep just for two numbers — only count when
+/// `--continue-on-warning` is NOT set. Exit code 130 (SIGINT, returned
+/// by per-subcommand cancellation handlers when the user hits Ctrl-C)
+/// never counts: SIGINT already breaks the spawn loop via the shared
+/// interrupt flag, and the cancellation is the user's intent — not a
+/// failure that should trip `--max-errors`.
+fn is_stop_worthy(code: i32, continue_on_warning: bool) -> bool {
+    match code {
+        0 | 130 => false,
+        3 | 4 => !continue_on_warning,
+        _ => true,
+    }
 }
 
 /// Shared interrupt flag. Set by the SIGINT handler installed in
@@ -78,34 +156,39 @@ pub async fn run_sequential(
     let total = lines.len() as u64;
     let mut progress = Progress::new(
         total,
-        Progress::should_show(opts.no_summary, opts.streaming),
+        Progress::should_show(opts.streaming, opts.no_progress),
     );
     let mut summary = Summary::default();
     let start = Instant::now();
     let mut worst = 0i32;
+    // Local stop-worthy counter, distinct from `summary.failed` (which
+    // still counts every non-zero exit). With `--continue-on-warning`
+    // this skips exit codes 3 and 4.
+    let mut fail_count: u64 = 0;
 
     for (idx, line) in lines.into_iter().enumerate() {
         // Bail out if SIGINT arrived between commands (regardless of
-        // error threshold — interrupt is unconditional).
+        // error threshold — interrupt is unconditional). `+=` so that
+        // any per-line exit-130 skips already counted via `record()`
+        // are preserved alongside the never-dispatched count.
         if interrupt.load(Ordering::SeqCst) {
             let processed = idx as u64;
-            summary.skipped = total.saturating_sub(processed);
+            summary.skipped += total.saturating_sub(processed);
             break;
         }
-        let PreparedLine { line_no, raw, cmd } = line;
-        log_start(line_no, &raw);
-        let code = dispatch(cmd).await;
-        log_end(line_no, &raw, code);
+        let (_, code) = execute_line(line, &dispatch).await;
         progress.tick(code);
         summary.record(code);
         if code > worst {
             worst = code;
         }
-        if code != 0 && opts.error_threshold.is_some_and(|t| summary.failed >= t) {
-            // Skipped count = total - already-processed.
-            let processed = (idx + 1) as u64;
-            summary.skipped = total.saturating_sub(processed);
-            break;
+        if is_stop_worthy(code, opts.continue_on_warning) {
+            fail_count += 1;
+            if opts.error_threshold.is_some_and(|t| fail_count >= t) {
+                let processed = (idx + 1) as u64;
+                summary.skipped += total.saturating_sub(processed);
+                break;
+            }
         }
     }
 
@@ -123,7 +206,7 @@ pub async fn run_parallel(
     let total = lines.len() as u64;
     let progress = Arc::new(tokio::sync::Mutex::new(Progress::new(
         total,
-        Progress::should_show(opts.no_summary, opts.streaming),
+        Progress::should_show(opts.streaming, opts.no_progress),
     )));
     let mut summary = Summary::default();
     let start = Instant::now();
@@ -159,14 +242,12 @@ pub async fn run_parallel(
                 let fail_cancel = Arc::clone(&fail_cancel);
                 let fail_count = Arc::clone(&fail_count);
                 let error_threshold = opts.error_threshold;
+                let continue_on_warning = opts.continue_on_warning;
                 spawned += 1;
                 joinset.spawn_local(async move {
                     let _permit = permit;
-                    let PreparedLine { line_no, raw, cmd } = line;
-                    log_start(line_no, &raw);
-                    let code = dispatch(cmd).await;
-                    log_end(line_no, &raw, code);
-                    if code != 0 {
+                    let (line_no, code) = execute_line(line, &dispatch).await;
+                    if is_stop_worthy(code, continue_on_warning) {
                         let new_count = fail_count.fetch_add(1, Ordering::SeqCst) + 1;
                         if let Some(threshold) = error_threshold
                             && new_count >= threshold
@@ -199,7 +280,9 @@ pub async fn run_parallel(
         })
         .await;
 
-    summary.skipped = total.saturating_sub(spawned);
+    // `+=`: any per-line exit-130 skips already counted via `record()`
+    // are preserved alongside the never-spawned count.
+    summary.skipped += total.saturating_sub(spawned);
     {
         let p = progress.lock().await;
         if summary.skipped > 0 {
@@ -227,6 +310,8 @@ pub async fn run_sequential_streaming(
     let mut summary = Summary::default();
     let start = Instant::now();
     let mut worst = 0i32;
+    // Local stop-worthy counter; see `run_sequential` for rationale.
+    let mut fail_count: u64 = 0;
 
     while let Some(line) = rx.recv().await {
         if interrupt.load(Ordering::SeqCst) {
@@ -237,21 +322,21 @@ pub async fn run_sequential_streaming(
             }
             break;
         }
-        let PreparedLine { line_no, raw, cmd } = line;
-        log_start(line_no, &raw);
-        let code = dispatch(cmd).await;
-        log_end(line_no, &raw, code);
+        let (_, code) = execute_line(line, &dispatch).await;
         progress.tick(code);
         summary.record(code);
         if code > worst {
             worst = code;
         }
-        if code != 0 && opts.error_threshold.is_some_and(|t| summary.failed >= t) {
-            // Drain remaining items already in the channel as skipped.
-            while rx.recv().await.is_some() {
-                summary.skipped += 1;
+        if is_stop_worthy(code, opts.continue_on_warning) {
+            fail_count += 1;
+            if opts.error_threshold.is_some_and(|t| fail_count >= t) {
+                // Drain remaining items already in the channel as skipped.
+                while rx.recv().await.is_some() {
+                    summary.skipped += 1;
+                }
+                break;
             }
-            break;
         }
     }
 
@@ -308,13 +393,11 @@ pub async fn run_parallel_streaming(
                 let fail_cancel = Arc::clone(&fail_cancel);
                 let fail_count = Arc::clone(&fail_count);
                 let error_threshold = opts.error_threshold;
+                let continue_on_warning = opts.continue_on_warning;
                 joinset.spawn_local(async move {
                     let _permit = permit;
-                    let PreparedLine { line_no, raw, cmd } = line;
-                    log_start(line_no, &raw);
-                    let code = dispatch(cmd).await;
-                    log_end(line_no, &raw, code);
-                    if code != 0 {
+                    let (line_no, code) = execute_line(line, &dispatch).await;
+                    if is_stop_worthy(code, continue_on_warning) {
                         let new_count = fail_count.fetch_add(1, Ordering::SeqCst) + 1;
                         if let Some(threshold) = error_threshold
                             && new_count >= threshold
@@ -404,15 +487,54 @@ mod tests {
         })
     }
 
+    /// Dispatch fn whose first invocation panics — used to drive the
+    /// `Err(e)` join arm in the parallel executors (the panic recovery
+    /// path that records a synthetic failure and bumps the worst exit
+    /// code to 1).
+    fn panicking_dispatch() -> DispatchFn {
+        Arc::new(|_cmd: Cmd| Box::pin(async move { panic!("synthetic panic for test") }))
+    }
+
     fn make_lines(n: usize) -> Vec<PreparedLine> {
         (0..n)
             .map(|i| PreparedLine {
                 line_no: i + 1,
                 raw: format!("create-bucket s3://b{i}"),
-                cmd: crate::cli::Cli::try_parse_from(["s7cmd", "create-bucket", "s3://b"])
-                    .unwrap()
-                    .command
-                    .unwrap(),
+                kind: PreparedLineKind::Cmd(Box::new(
+                    crate::cli::Cli::try_parse_from(["s7cmd", "create-bucket", "s3://b"])
+                        .unwrap()
+                        .command
+                        .unwrap(),
+                )),
+            })
+            .collect()
+    }
+
+    /// Mix of `Cmd` and `Invalid` lines, useful for verifying that
+    /// `--max-errors` counts parse failures alongside runtime failures.
+    /// The `cmd_codes` slice supplies the dispatch result for each `Cmd`
+    /// line in order; `Invalid` lines do not consume an entry.
+    fn make_mixed_lines(kinds: &[bool]) -> Vec<PreparedLine> {
+        // `kinds[i] == true` → Cmd, `false` → Invalid.
+        kinds
+            .iter()
+            .enumerate()
+            .map(|(i, is_cmd)| {
+                let line_no = i + 1;
+                let raw = format!("line-{line_no}");
+                let kind = if *is_cmd {
+                    PreparedLineKind::Cmd(Box::new(
+                        crate::cli::Cli::try_parse_from(["s7cmd", "create-bucket", "s3://b"])
+                            .unwrap()
+                            .command
+                            .unwrap(),
+                    ))
+                } else {
+                    PreparedLineKind::Invalid(format!(
+                        "line {line_no}: parse error: synthetic test failure"
+                    ))
+                };
+                PreparedLine { line_no, raw, kind }
             })
             .collect()
     }
@@ -424,8 +546,19 @@ mod tests {
         ExecutorOptions {
             workers,
             error_threshold,
-            no_summary: true,
+            continue_on_warning: false,
             streaming: false,
+            no_progress: false,
+        }
+    }
+
+    fn opts_warn(workers: usize, error_threshold: Option<u64>) -> ExecutorOptions {
+        ExecutorOptions {
+            workers,
+            error_threshold,
+            continue_on_warning: true,
+            streaming: false,
+            no_progress: false,
         }
     }
 
@@ -481,7 +614,8 @@ mod tests {
         .await;
         assert_eq!(code, 4);
         assert_eq!(summary.ok, 2);
-        assert_eq!(summary.failed, 2);
+        assert_eq!(summary.failed, 1); // exit 1
+        assert_eq!(summary.warning, 1); // exit 4
         assert_eq!(summary.skipped, 0);
     }
 
@@ -603,7 +737,8 @@ mod tests {
         .await;
         assert_eq!(code, 4);
         assert_eq!(summary.ok, 2);
-        assert_eq!(summary.failed, 2);
+        assert_eq!(summary.failed, 1); // exit 1
+        assert_eq!(summary.warning, 1); // exit 4
         assert_eq!(summary.skipped, 0);
     }
 
@@ -746,5 +881,388 @@ mod tests {
             summary.skipped > 0,
             "threshold should have stopped the spawn loop; summary={summary:?}"
         );
+    }
+
+    // ---- is_stop_worthy ----
+
+    #[test]
+    fn is_stop_worthy_zero_never_counts() {
+        assert!(!is_stop_worthy(0, false));
+        assert!(!is_stop_worthy(0, true));
+    }
+
+    #[test]
+    fn is_stop_worthy_warnings_only_count_without_continue_on_warning() {
+        assert!(is_stop_worthy(3, false));
+        assert!(is_stop_worthy(4, false));
+        assert!(!is_stop_worthy(3, true));
+        assert!(!is_stop_worthy(4, true));
+    }
+
+    #[test]
+    fn is_stop_worthy_other_nonzero_always_counts() {
+        for code in [1, 2, 5, 255] {
+            assert!(is_stop_worthy(code, false), "code {code}");
+            assert!(is_stop_worthy(code, true), "code {code}");
+        }
+    }
+
+    #[test]
+    fn is_stop_worthy_130_never_counts() {
+        // Exit 130 is SIGINT (the user's intent, not a failure). The
+        // shared interrupt flag already breaks the spawn loop; counting
+        // 130 toward `--max-errors` would be redundant noise.
+        assert!(!is_stop_worthy(130, false));
+        assert!(!is_stop_worthy(130, true));
+    }
+
+    // ---- --continue-on-warning ----
+
+    /// `--continue-on-warning` with default threshold (`Some(1)`):
+    /// warnings (3, 4) are skipped over and the run completes; the worst
+    /// exit code is still propagated.
+    #[tokio::test]
+    async fn sequential_continue_on_warning_skips_warnings() {
+        let lines = make_lines(4);
+        let (code, summary) = run_sequential(
+            lines,
+            opts_warn(1, Some(1)),
+            fake_dispatch(vec![0, 3, 4, 0]),
+            no_interrupt(),
+        )
+        .await;
+        assert_eq!(code, 4); // worst exit code surfaces
+        assert_eq!(summary.ok, 2);
+        assert_eq!(summary.warning, 2); // exits 3 and 4
+        assert_eq!(summary.failed, 0);
+        assert_eq!(summary.skipped, 0); // nothing skipped — warnings did NOT stop the run
+    }
+
+    /// `--continue-on-warning` still stops on a true failure (default
+    /// threshold `Some(1)` = first failure stops). Preceding warnings do
+    /// not exhaust the threshold.
+    #[tokio::test]
+    async fn sequential_continue_on_warning_stops_on_failure() {
+        let lines = make_lines(5);
+        let (code, summary) = run_sequential(
+            lines,
+            opts_warn(1, Some(1)),
+            fake_dispatch(vec![3, 4, 1, 0, 0]),
+            no_interrupt(),
+        )
+        .await;
+        assert_eq!(code, 4); // worst is 4, not 1, since 4 > 1
+        assert_eq!(summary.ok, 0);
+        assert_eq!(summary.warning, 2); // exits 3 and 4
+        assert_eq!(summary.failed, 1); // exit 1
+        assert_eq!(summary.skipped, 2); // lines 4 and 5 skipped after the failure
+    }
+
+    /// `--continue-on-warning` combined with `--max-errors 2`: warnings
+    /// don't count, so the run stops on the second TRUE failure.
+    #[tokio::test]
+    async fn sequential_continue_on_warning_with_max_errors_two() {
+        let lines = make_lines(6);
+        let (code, summary) = run_sequential(
+            lines,
+            opts_warn(1, Some(2)),
+            fake_dispatch(vec![3, 1, 4, 1, 0, 0]),
+            no_interrupt(),
+        )
+        .await;
+        assert_eq!(code, 4);
+        assert_eq!(summary.failed, 2); // exits 1, 1
+        assert_eq!(summary.warning, 2); // exits 3, 4
+        assert_eq!(summary.skipped, 2); // lines 5 and 6 skipped after second failure
+    }
+
+    /// Streaming sequential mirror.
+    #[tokio::test]
+    async fn sequential_streaming_continue_on_warning_skips_warnings() {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        for line in make_lines(4) {
+            tx.send(line).unwrap();
+        }
+        drop(tx);
+        let (code, summary) = run_sequential_streaming(
+            rx,
+            opts_warn(1, Some(1)),
+            fake_dispatch(vec![0, 3, 4, 0]),
+            no_interrupt(),
+        )
+        .await;
+        assert_eq!(code, 4);
+        assert_eq!(summary.ok, 2);
+        assert_eq!(summary.warning, 2);
+        assert_eq!(summary.failed, 0);
+        assert_eq!(summary.skipped, 0);
+    }
+
+    /// Parallel: `--continue-on-warning` lets warnings pass and the run
+    /// completes when only warnings occur.
+    #[tokio::test]
+    async fn parallel_continue_on_warning_skips_warnings() {
+        let lines = make_lines(4);
+        let (code, summary) = run_parallel(
+            lines,
+            opts_warn(2, Some(1)),
+            fake_dispatch(vec![3, 4, 3, 0]),
+            no_interrupt(),
+        )
+        .await;
+        assert_eq!(code, 4);
+        // No spawn-loop stop expected: nothing skipped.
+        assert_eq!(summary.skipped, 0);
+        assert_eq!(summary.warning, 3); // exits 3, 4, 3
+        assert_eq!(summary.failed, 0);
+    }
+
+    /// Parallel streaming mirror.
+    #[tokio::test]
+    async fn parallel_streaming_continue_on_warning_skips_warnings() {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        for line in make_lines(4) {
+            tx.send(line).unwrap();
+        }
+        drop(tx);
+        let (code, summary) = run_parallel_streaming(
+            rx,
+            opts_warn(2, Some(1)),
+            fake_dispatch(vec![3, 4, 3, 0]),
+            no_interrupt(),
+        )
+        .await;
+        assert_eq!(code, 4);
+        assert_eq!(summary.skipped, 0);
+        assert_eq!(summary.warning, 3);
+        assert_eq!(summary.failed, 0);
+    }
+
+    // ---- Invalid lines (parse / validate failures) ----
+    //
+    // `Invalid` PreparedLines synthesize exit code 2, log at error
+    // level, count toward `--max-errors`, and record as `failed`.
+
+    #[tokio::test]
+    async fn sequential_invalid_line_counts_as_failure_with_continue_on_error() {
+        // Three Invalid lines + one Cmd, `--continue-on-error`. All four
+        // must be processed; the three Invalid ones bucket as failed
+        // (exit 2), and the Cmd (returning 0) buckets as ok.
+        let lines = make_mixed_lines(&[false, true, false, false]);
+        let (code, summary) = run_sequential(
+            lines,
+            opts(1, None), // continue-on-error
+            fake_dispatch(vec![0]),
+            no_interrupt(),
+        )
+        .await;
+        assert_eq!(code, 2);
+        assert_eq!(summary.ok, 1);
+        assert_eq!(summary.failed, 3);
+        assert_eq!(summary.skipped, 0);
+    }
+
+    #[tokio::test]
+    async fn sequential_invalid_line_trips_max_errors_threshold() {
+        // Six Invalid lines, `--max-errors 3`. The third Invalid line
+        // should trip the threshold and skip the remaining three.
+        let lines = make_mixed_lines(&[false; 6]);
+        let (code, summary) = run_sequential(
+            lines,
+            opts(1, Some(3)),
+            fake_dispatch(vec![]), // no Cmd lines, so dispatch is never called
+            no_interrupt(),
+        )
+        .await;
+        assert_eq!(code, 2);
+        assert_eq!(summary.failed, 3);
+        assert_eq!(summary.skipped, 3);
+    }
+
+    #[tokio::test]
+    async fn sequential_invalid_line_default_threshold_stops_after_first() {
+        // Default `Some(1)`: a single Invalid line on line 1 stops
+        // the run; the other four lines (2 Cmd + 2 Invalid) are
+        // skipped without any dispatch call.
+        let lines = make_mixed_lines(&[false, true, true, false, false]);
+        let (code, summary) = run_sequential(
+            lines,
+            opts(1, Some(1)),
+            fake_dispatch(vec![]), // dispatch must NOT be called
+            no_interrupt(),
+        )
+        .await;
+        assert_eq!(code, 2);
+        assert_eq!(summary.failed, 1);
+        assert_eq!(summary.skipped, 4);
+    }
+
+    /// Parallel mirror: an Invalid line dispatched into a worker also
+    /// flows through `record(2)` and trips the threshold.
+    #[tokio::test]
+    async fn parallel_invalid_line_counts_toward_max_errors() {
+        let lines = make_mixed_lines(&[false, false, false, false]);
+        let (code, summary) = run_parallel(
+            lines,
+            opts(2, Some(2)),
+            fake_dispatch(vec![]),
+            no_interrupt(),
+        )
+        .await;
+        assert_eq!(code, 2);
+        assert!(summary.failed >= 2);
+        // The exact skipped count is racy in parallel mode (in-flight
+        // tasks may complete first), but at least one should be skipped
+        // since the threshold tripped before all 4 spawned.
+        assert!(
+            summary.failed + summary.skipped == 4,
+            "all lines accounted for; summary={summary:?}"
+        );
+    }
+
+    // ---- exit 130 (SIGINT) bucketing ----
+    //
+    // Per-line exit 130 (returned by per-subcommand cancellation
+    // handlers when the user hits Ctrl-C) is bucketed as `skipped`,
+    // not `failed`, and does NOT count toward `--max-errors`. The
+    // overall `worst` exit code still surfaces 130 so the process
+    // exit reflects the SIGINT.
+
+    #[tokio::test]
+    async fn sequential_exit_130_buckets_as_skipped_and_does_not_trip_threshold() {
+        // Default threshold (`Some(1)`): if 130 counted, the run would
+        // stop after line 1. Here every line must execute and 130s
+        // accumulate in `skipped`, not `failed`.
+        let lines = make_lines(4);
+        let (code, summary) = run_sequential(
+            lines,
+            opts(1, Some(1)),
+            fake_dispatch(vec![130, 0, 130, 0]),
+            no_interrupt(),
+        )
+        .await;
+        assert_eq!(code, 130);
+        assert_eq!(summary.ok, 2);
+        assert_eq!(summary.failed, 0);
+        assert_eq!(summary.warning, 0);
+        assert_eq!(summary.skipped, 2); // both 130s
+    }
+
+    /// Parallel mirror: 130s land in `skipped` and do not stop spawning.
+    #[tokio::test]
+    async fn parallel_exit_130_buckets_as_skipped_and_does_not_trip_threshold() {
+        let lines = make_lines(4);
+        let (code, summary) = run_parallel(
+            lines,
+            opts(2, Some(1)),
+            fake_dispatch(vec![130, 0, 130, 0]),
+            no_interrupt(),
+        )
+        .await;
+        assert_eq!(code, 130);
+        assert_eq!(summary.ok, 2);
+        assert_eq!(summary.failed, 0);
+        assert_eq!(summary.skipped, 2);
+    }
+
+    /// Sequential: a real failure mid-run still trips the threshold,
+    /// and the trailing `skipped` count reflects BOTH the never-
+    /// dispatched lines AND any earlier 130 (via `+=`).
+    #[tokio::test]
+    async fn sequential_exit_130_then_failure_accumulates_skipped() {
+        let lines = make_lines(5);
+        let (code, summary) = run_sequential(
+            lines,
+            opts(1, Some(1)),
+            fake_dispatch(vec![130, 1]), // line 1 = 130, line 2 = failure → stop
+            no_interrupt(),
+        )
+        .await;
+        assert_eq!(code, 130); // worst: max(130, 1) = 130
+        assert_eq!(summary.ok, 0);
+        assert_eq!(summary.failed, 1); // line 2
+        assert_eq!(summary.skipped, 1 + 3); // line 1 (130) + lines 3,4,5 (never run)
+    }
+
+    // ---- panic recovery in parallel join loop ----
+    //
+    // When a dispatched task panics, `JoinSet::join_next` returns
+    // `Err(JoinError)`. The parallel executors translate that into a
+    // synthetic `failed += 1` and bump the worst exit code to at least 1.
+    // These tests exercise that recovery arm.
+
+    /// `run_parallel`: a panicking dispatch produces a `JoinError`; the
+    /// executor records a synthetic failure and surfaces exit code 1.
+    /// `--continue-on-error` is set so the spawn loop doesn't pre-empt.
+    #[tokio::test]
+    async fn parallel_join_arm_handles_task_panic() {
+        let lines = make_lines(1);
+        let (code, summary) = run_parallel(
+            lines,
+            opts(1, None), // continue-on-error semantics
+            panicking_dispatch(),
+            no_interrupt(),
+        )
+        .await;
+        assert_eq!(code, 1);
+        assert_eq!(summary.failed, 1);
+        assert_eq!(summary.ok, 0);
+    }
+
+    /// `run_parallel_streaming`: same shape, via the channel.
+    #[tokio::test]
+    async fn parallel_streaming_join_arm_handles_task_panic() {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        for line in make_lines(1) {
+            tx.send(line).unwrap();
+        }
+        drop(tx);
+        let (code, summary) =
+            run_parallel_streaming(rx, opts(1, None), panicking_dispatch(), no_interrupt()).await;
+        assert_eq!(code, 1);
+        assert_eq!(summary.failed, 1);
+        assert_eq!(summary.ok, 0);
+    }
+
+    // ---- interrupt-mid-spawn-loop in parallel executors ----
+    //
+    // When `interrupt` is already set when the spawn loop starts, the
+    // loop immediately breaks before spawning anything. Sets `summary.skipped`
+    // to `total` (parallel) or drains the channel (streaming-parallel).
+
+    #[tokio::test]
+    async fn parallel_interrupt_breaks_spawn_loop_immediately() {
+        let lines = make_lines(3);
+        let (code, summary) = run_parallel(
+            lines,
+            opts(2, Some(1)),
+            fake_dispatch(vec![]),
+            already_interrupted(),
+        )
+        .await;
+        assert_eq!(code, 0);
+        assert_eq!(summary.ok, 0);
+        assert_eq!(summary.failed, 0);
+        assert_eq!(summary.skipped, 3);
+    }
+
+    #[tokio::test]
+    async fn parallel_streaming_interrupt_breaks_spawn_loop_immediately() {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        for line in make_lines(3) {
+            tx.send(line).unwrap();
+        }
+        drop(tx);
+        let (code, summary) = run_parallel_streaming(
+            rx,
+            opts(2, Some(1)),
+            fake_dispatch(vec![]),
+            already_interrupted(),
+        )
+        .await;
+        assert_eq!(code, 0);
+        assert_eq!(summary.ok, 0);
+        assert_eq!(summary.failed, 0);
+        assert_eq!(summary.skipped, 3);
     }
 }

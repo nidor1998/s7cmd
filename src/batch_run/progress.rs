@@ -1,5 +1,6 @@
 //! Progress bar wrapper around indicatif. Only drawn in read-all mode
-//! when stderr is a TTY and `--no-summary` is not set.
+//! when stderr is a TTY and `--no-progress` is not set. Decoupled from
+//! `--no-summary`: that flag controls only the trailing summary line.
 
 use indicatif::{ProgressBar, ProgressStyle};
 use std::io::IsTerminal;
@@ -8,17 +9,21 @@ pub struct Progress {
     bar: Option<ProgressBar>,
     ok: u64,
     failed: u64,
+    warning: u64,
+    skipped: u64,
 }
 
 impl Progress {
     /// Build a new bar. If progress should not be shown (streaming mode,
-    /// `--no-summary`, or non-TTY stderr), return a Progress with no bar.
+    /// `--no-progress`, or non-TTY stderr), return a Progress with no bar.
     pub fn new(total: u64, show: bool) -> Self {
         if !show {
             return Self {
                 bar: None,
                 ok: 0,
                 failed: 0,
+                warning: 0,
+                skipped: 0,
             };
         }
         let bar = ProgressBar::new(total);
@@ -29,32 +34,47 @@ impl Progress {
             .expect("hard-coded template")
             .progress_chars("=> "),
         );
-        bar.set_message("0 ok, 0 failed");
+        bar.set_message("0 successes, 0 failures, 0 warnings, 0 skipped");
         Self {
             bar: Some(bar),
             ok: 0,
             failed: 0,
+            warning: 0,
+            skipped: 0,
         }
     }
 
     /// Decide whether to draw the bar. Returns true only when
-    /// no_summary=false, streaming=false, AND stderr is a TTY.
-    pub fn should_show(no_summary: bool, streaming: bool) -> bool {
-        if no_summary || streaming {
+    /// streaming=false, no_progress=false, AND stderr is a TTY.
+    /// `--no-summary` no longer participates: the bar and the trailing
+    /// summary line are independent visual elements, each controlled by
+    /// its own flag.
+    pub fn should_show(streaming: bool, no_progress: bool) -> bool {
+        if streaming || no_progress {
             return false;
         }
         std::io::stderr().is_terminal()
     }
 
-    /// Record a completion (success or failure) and update the message.
+    /// Record a completion and update the message. Exit codes 3
+    /// (`EXIT_CODE_WARNING`) and 4 (`EXIT_CODE_NOT_FOUND`) — kept literal
+    /// to avoid a cross-module dep just for two numbers — count as
+    /// warnings. Exit code 130 (the conventional Unix code for SIGINT,
+    /// returned by per-subcommand cancellation handlers when the user
+    /// hits Ctrl-C) counts as skipped. Everything else nonzero counts
+    /// as a failure.
     pub fn tick(&mut self, exit_code: i32) {
-        if exit_code == 0 {
-            self.ok += 1;
-        } else {
-            self.failed += 1;
+        match exit_code {
+            0 => self.ok += 1,
+            3 | 4 => self.warning += 1,
+            130 => self.skipped += 1,
+            _ => self.failed += 1,
         }
         if let Some(bar) = &self.bar {
-            bar.set_message(format!("{} ok, {} failed", self.ok, self.failed));
+            bar.set_message(format!(
+                "{} successes, {} failures, {} warnings, {} skipped",
+                self.ok, self.failed, self.warning, self.skipped
+            ));
             bar.inc(1);
         }
     }
@@ -81,17 +101,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn should_show_false_when_no_summary() {
+    fn should_show_false_when_streaming() {
         assert!(!Progress::should_show(true, false));
     }
 
     #[test]
-    fn should_show_false_when_streaming() {
+    fn should_show_false_when_no_progress() {
         assert!(!Progress::should_show(false, true));
     }
 
     #[test]
-    fn should_show_false_when_no_summary_and_streaming() {
+    fn should_show_false_when_streaming_and_no_progress() {
         assert!(!Progress::should_show(true, true));
     }
 
@@ -106,17 +126,26 @@ mod tests {
         assert!(p.bar.is_none());
         assert_eq!(p.ok, 0);
         assert_eq!(p.failed, 0);
+        assert_eq!(p.warning, 0);
+        assert_eq!(p.skipped, 0);
     }
 
     #[test]
-    fn tick_counts_success_and_failure_without_bar() {
-        let mut p = Progress::new(5, false);
+    fn tick_classifies_success_warning_failure_and_skipped_without_bar() {
+        let mut p = Progress::new(9, false);
         p.tick(0);
         p.tick(0);
         p.tick(1);
+        p.tick(2);
         p.tick(3);
+        p.tick(4);
+        p.tick(4);
+        p.tick(130);
+        p.tick(130);
         assert_eq!(p.ok, 2);
-        assert_eq!(p.failed, 2);
+        assert_eq!(p.warning, 3); // 3, 4, 4
+        assert_eq!(p.failed, 2); // 1, 2
+        assert_eq!(p.skipped, 2); // 130, 130
     }
 
     #[test]
@@ -144,6 +173,8 @@ mod tests {
         assert!(p.bar.is_some());
         assert_eq!(p.ok, 0);
         assert_eq!(p.failed, 0);
+        assert_eq!(p.warning, 0);
+        assert_eq!(p.skipped, 0);
     }
 
     #[test]
@@ -153,8 +184,10 @@ mod tests {
         p.tick(1);
         p.tick(0);
         p.tick(2);
+        p.tick(3);
         assert_eq!(p.ok, 2);
         assert_eq!(p.failed, 2);
+        assert_eq!(p.warning, 1);
     }
 
     #[test]
@@ -172,12 +205,11 @@ mod tests {
         p.abandon();
     }
 
-    // Calling `should_show(false, false)` reaches the `is_terminal()` line.
-    // The boolean result depends on whether the test runner's stderr is a
-    // TTY, but the line is exercised either way.
+    // Calling `should_show(false, false)` reaches the `is_terminal()`
+    // line. The boolean result depends on whether the test runner's
+    // stderr is a TTY, but the line is exercised either way.
     #[test]
     fn should_show_reaches_is_terminal_branch() {
-        // Don't assert the exact bool — just call to cover line 46.
         let _ = Progress::should_show(false, false);
     }
 }

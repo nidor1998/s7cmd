@@ -7,49 +7,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > **Preview.** s7cmd is in an early/preview phase (0.x). The CLI surface, flag names, output formats, and exit codes may change between minor versions until 1.0.0.
 
-## [0.2.0] - 2026-05-01
+## [0.2.0] - 2026-05-02
 
 ### Added
-- `batch-run <FILE>` subcommand: read s7cmd commands from a script file
-  (or stdin via `-`, mirroring `put-bucket-policy`) and execute them
-  in-process. Supports sequential or parallel (`--parallel N`, `0` =
-  num_cpus), fail-fast or `--continue-on-error`, read-all (default with
-  progress bar) or `--streaming`. Tracing flags must be passed to
-  `batch-run` itself; per-line tracing flags are rejected. Final exit
-  code is the worst (highest) seen across all executed commands.
-- `--check-format` flag on `batch-run`: validates the script without
-  running any command. Stops at the first problematic line, reports it
-  as a single error-level log entry, and exits 1. A clean pass logs an
-  info-level "format OK" message; verbosity is forced to at least info
-  while this flag is set so the message is visible at the default warn
-  level.
-- `--max-errors <N>` flag on `batch-run`: stop spawning new commands
-  once `N` (≥ 1) failures have been recorded (graceful: in-flight
-  commands complete). Mutually exclusive with `--continue-on-error`.
-  When neither flag is set, the run stops on the first failure (the
-  historical default).
-- `batch-run` per-line tracing: each dispatched line emits an
-  info-level `start` event and a matching outcome event
-  (`success`, `warning`, or `failure (exit N)`) prefixed with the
-  line number and raw input text, so the active subcommand is
-  identifiable in the log. Silent at the default warn level; pass
-  `-v` to see them.
-- `--dry-run` flag on every state-mutating subcommand (`cp`, `mv`, `rm`,
-  `create-bucket`, all `put-*`, all `delete-*`). Argument validation,
-  JSON parsing, and SDK setup run as normal; an info-level `[dry-run]`
-  log line describes what would have happened, and the binary exits 0
-  without making any AWS-side change. Read-only commands (`get-*`,
-  `head-*`) deliberately do not accept this flag. Verbosity is forced to
-  at least info while `--dry-run` is set so the message is visible at
-  default verbosity.
+
+- **`batch-run` subcommand** for running many s7cmd commands from a
+  script file (or `-` for stdin). Choose sequential or parallel
+  execution (`--parallel N`, `0` picks the CPU count) and pick how
+  failures are handled:
+  - default: stop on the first non-zero exit (sequential) or stop
+    spawning new commands (parallel; in-flight lines finish);
+  - `--continue-on-error`: run every line regardless of outcome;
+  - `--continue-on-warning`: keep running past warnings (exit codes
+    `3` and `4`) but still stop on true failures;
+  - `--max-errors N`: stop once `N` failures have been recorded.
+    Parse/validation errors (typos, unknown subcommands, bad
+    arguments) count the same as runtime failures, so
+    `--max-errors 5` tolerates up to 5 broken lines anywhere.
+
+  The final exit code is the worst seen across the whole batch. A
+  trailing summary `N succeeded, N failed, N warnings, N skipped,
+  elapsed Ts` is written to stderr; suppress with `--no-summary`,
+  or pass `--json-tracing` to emit it as a single-line JSON object
+  instead.
+- **Live progress bar in `batch-run`** drawn on TTY stderr in
+  read-all mode while the run is in progress. Suppress with
+  `--no-progress` (useful inside terminal multiplexers, `script(1)`,
+  or CI runners). Streaming mode, non-TTY stderr, and
+  `--json-tracing` already suppress the bar.
+- **`--check-format`** validates a `batch-run` script without
+  executing anything. It stops at the first problematic line —
+  prefixed with the script source (file path, or `stdin` for `-`)
+  and the line number — and exits 1; a clean script logs `format OK`.
+- **Per-line tracing in `batch-run`**: each line logs a `start` event
+  and a matching outcome — `success`, `warning (exit N)`,
+  `skipped (exit 130)` (Ctrl-C / SIGINT), or `failure (exit N)` —
+  prefixed with the line number and the original command. `start`
+  and `success` are info level (silent at the default warn level —
+  pass `-v`); `warning`, `skipped`, and `failure` are visible
+  without `-v`. Per-line outcome buckets: `0` → succeeded;
+  `3` / `4` → warnings; `130` → skipped (never counts toward
+  `--max-errors`); other non-zero → failed.
+- **`--dry-run` on every state-mutating subcommand** (`cp`, `mv`,
+  `rm`, `create-bucket`, `delete-bucket`, all `put-*` and
+  `delete-*`). Arguments and inputs are still validated, an
+  `[dry-run]` log line describes what would have happened, and the
+  command exits 0 without touching AWS. Read-only commands (`get-*`,
+  `head-*`, `ls`) intentionally do not accept this flag.
 
 ### Changed
-- `sync_bin::cli::run`, `clean_bin::run`, `ls_bin::run` now return
-  `Result<i32>` instead of calling `std::process::exit` internally, so
-  they can be invoked from `batch-run` without killing the process
-  mid-batch. Single-subcommand invocations are behaviorally unchanged.
-- Bumped `s3util-rs` from 1.0 to 1.1 and re-synced the vendored bin
-  modules (`util_bin/cli/*.rs`) accordingly.
+
+- `sync`, `clean`, and `ls` no longer terminate the process on their
+  own — required so a single failing line inside `batch-run` does not
+  kill the rest of the batch. Behavior of standalone invocations is
+  unchanged.
+- Bumped `s3util-rs` from 1.0 to 1.1 (vendored CLI sources synced to
+  match).
+
+### Fixed
+
+- Dispatching `cp` / `mv` could overflow the thread stack on
+  platforms with small default stacks; the inner futures are now
+  boxed so dispatch is safe regardless of stack size.
 
 ## [0.1.3] - 2026-04-29
 

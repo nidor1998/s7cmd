@@ -10,12 +10,26 @@ use std::io::{self, BufRead};
 pub(crate) const MAX_LINE_LEN: usize = 16 * 1024;
 
 /// One parsed line: line number (1-based), the original raw text, and
-/// the tokenized argv (with `"s7cmd"` as argv[0]).
+/// either the tokenized argv (with `"s7cmd"` as argv[0]) or a
+/// pre-formatted single-line tokenization error message. Per-line
+/// tokenization errors are surfaced as `TokenizeError` rather than
+/// bailing the whole `read_all` pass so they can be counted toward
+/// `--max-errors` / `--continue-on-error` like any other failed line.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedLine {
     pub line_no: usize,
     pub raw: String,
-    pub argv: Vec<String>,
+    pub kind: ParsedLineKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ParsedLineKind {
+    /// Successful tokenization. The vector starts with `"s7cmd"`.
+    Ok(Vec<String>),
+    /// Tokenization failed (unbalanced quotes, etc.). The message is a
+    /// single-line description suitable for direct logging — already
+    /// includes "line N:", the error text, and the raw line.
+    TokenizeError(String),
 }
 
 /// Tokenize a single line. Returns:
@@ -37,9 +51,12 @@ pub fn tokenize_line(line: &str) -> Result<Option<Vec<String>>> {
     Ok(Some(argv))
 }
 
-/// Read the whole reader, returning a Vec of ParsedLine. Errors bail out
-/// with line number and raw line included in the error message. Lines
-/// longer than `MAX_LINE_LEN` are rejected at read time.
+/// Read the whole reader, returning a Vec of ParsedLine. Read I/O
+/// errors (including lines longer than `MAX_LINE_LEN` and non-UTF-8
+/// content) still bail out with the line number in the message —
+/// recovering past those is not safe. Per-line tokenize errors are
+/// surfaced as `ParsedLineKind::TokenizeError` so the executor can
+/// count them like any other per-line failure.
 pub fn read_all<R: BufRead>(mut reader: R) -> Result<Vec<ParsedLine>> {
     let mut out = Vec::new();
     let mut line_no: usize = 0;
@@ -54,11 +71,16 @@ pub fn read_all<R: BufRead>(mut reader: R) -> Result<Vec<ParsedLine>> {
             Ok(Some(argv)) => out.push(ParsedLine {
                 line_no,
                 raw: line,
-                argv,
+                kind: ParsedLineKind::Ok(argv),
             }),
             Ok(None) => continue,
             Err(e) => {
-                return Err(anyhow!("parse error at line {line_no}: {e}\n  > {line}"));
+                let message = format!("line {line_no}: parse error: {e}: {}", line.trim_end());
+                out.push(ParsedLine {
+                    line_no,
+                    raw: line,
+                    kind: ParsedLineKind::TokenizeError(message),
+                });
             }
         }
     }
@@ -163,17 +185,36 @@ mod tests {
         let lines = read_all(input.as_bytes()).unwrap();
         assert_eq!(lines.len(), 2);
         assert_eq!(lines[0].line_no, 1);
-        assert_eq!(lines[0].argv, vec!["s7cmd", "ls", "s3://b1"]);
+        assert!(
+            matches!(&lines[0].kind, ParsedLineKind::Ok(a) if a == &vec!["s7cmd".to_string(), "ls".to_string(), "s3://b1".to_string()])
+        );
         assert_eq!(lines[1].line_no, 4);
-        assert_eq!(lines[1].argv, vec!["s7cmd", "cp", "/a", "s3://b2/k"]);
+        assert!(
+            matches!(&lines[1].kind, ParsedLineKind::Ok(a) if a == &vec!["s7cmd".to_string(), "cp".to_string(), "/a".to_string(), "s3://b2/k".to_string()])
+        );
     }
 
     #[test]
-    fn read_all_propagates_parse_error_with_line_number() {
+    fn read_all_surfaces_tokenize_error_as_kind_and_continues() {
+        // Per-line tokenize errors used to bail the whole pass; now they
+        // appear as a `TokenizeError` entry, and the next line still
+        // parses. This is what lets `--max-errors` count tokenize
+        // failures alongside runtime ones.
         let input = "ls s3://b1\ncp \"oops\nls s3://b2\n";
-        let err = read_all(input.as_bytes()).unwrap_err();
-        let msg = err.to_string();
-        assert!(msg.contains("line 2"), "msg: {msg}");
+        let lines = read_all(input.as_bytes()).unwrap();
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[0].line_no, 1);
+        assert!(matches!(lines[0].kind, ParsedLineKind::Ok(_)));
+        assert_eq!(lines[1].line_no, 2);
+        match &lines[1].kind {
+            ParsedLineKind::TokenizeError(msg) => {
+                assert!(msg.contains("line 2"), "msg: {msg}");
+                assert!(msg.contains("parse error"), "msg: {msg}");
+            }
+            other => panic!("expected TokenizeError, got {other:?}"),
+        }
+        assert_eq!(lines[2].line_no, 3);
+        assert!(matches!(lines[2].kind, ParsedLineKind::Ok(_)));
     }
 
     #[test]

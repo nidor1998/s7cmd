@@ -135,17 +135,34 @@ pub struct BatchRunArgs {
     #[arg(long)]
     pub streaming: bool,
 
-    /// Continue executing remaining commands after a failure.
-    /// By default, the first failing command stops execution
-    /// (sequential) or prevents new commands from starting (parallel).
-    /// Mutually exclusive with `--max-errors`.
-    #[arg(long, conflicts_with = "max_errors")]
+    /// Continue executing remaining commands after any non-zero exit
+    /// (failure or warning). By default, the first non-zero exit stops
+    /// execution (sequential) or prevents new commands from starting
+    /// (parallel). Mutually exclusive with `--max-errors` and
+    /// `--continue-on-warning`.
+    #[arg(long, conflicts_with_all = ["max_errors", "continue_on_warning"])]
     pub continue_on_error: bool,
+
+    /// Continue executing remaining commands after a per-line warning
+    /// (exit codes 3 and 4 — `EXIT_CODE_WARNING` and `EXIT_CODE_NOT_FOUND`).
+    /// True failures (any other non-zero exit) still stop the run
+    /// according to `--max-errors` (or the default first-failure stop).
+    /// Mutually exclusive with `--continue-on-error`.
+    #[arg(long, conflicts_with = "continue_on_error")]
+    pub continue_on_warning: bool,
 
     /// Stop spawning new commands once `N` failures have been recorded
     /// (graceful: in-flight commands complete). Must be >= 1. When
     /// omitted, the run stops on the first failure — the same behavior
     /// as no flag at all. Mutually exclusive with `--continue-on-error`.
+    /// When combined with `--continue-on-warning`, only true failures
+    /// (non-warning non-zero exits) count toward `N`.
+    ///
+    /// In parallel mode this only stops NEW spawns; in-flight commands
+    /// run to completion. When `--parallel` is close to or exceeds the
+    /// total line count, every line may already be in flight by the
+    /// time the threshold trips, so the threshold has no visible effect.
+    /// Send SIGINT to cancel in-flight work.
     #[arg(
         long,
         value_name = "N",
@@ -156,6 +173,15 @@ pub struct BatchRunArgs {
     /// Suppress the end-of-run summary line on stderr.
     #[arg(long)]
     pub no_summary: bool,
+
+    /// Suppress the live progress bar on stderr (the end-of-run summary
+    /// is still printed unless `--no-summary` is also set). Useful when
+    /// stderr is a TTY but you want machine-readable log output —
+    /// terminal multiplexers, `script(1)`, some CI runners. Has no
+    /// effect with `--streaming` or non-TTY stderr, which already
+    /// suppress the bar.
+    #[arg(long)]
+    pub no_progress: bool,
 
     /// Only validate the script's format. Stops at the first
     /// problematic line, reports it at error level, and exits 1 — no

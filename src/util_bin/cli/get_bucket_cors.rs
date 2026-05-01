@@ -33,11 +33,11 @@ pub async fn run_get_bucket_cors(
             Ok(ExitStatus::Success)
         }
         Err(HeadError::BucketNotFound) => {
-            tracing::error!("bucket s3://{bucket} not found");
+            tracing::warn!("bucket s3://{bucket} not found");
             Ok(ExitStatus::NotFound)
         }
         Err(HeadError::NotFound) => {
-            tracing::error!("CORS configuration for s3://{bucket} not found");
+            tracing::warn!("CORS configuration for s3://{bucket} not found");
             Ok(ExitStatus::NotFound)
         }
         Err(HeadError::Other(e)) => Err(e),
