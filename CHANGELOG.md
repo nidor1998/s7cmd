@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   progress bar) or `--streaming`. Tracing flags must be passed to
   `batch-run` itself; per-line tracing flags are rejected. Final exit
   code is the worst (highest) seen across all executed commands.
+- `--check-format` flag on `batch-run`: validates the script without
+  running any command. Stops at the first problematic line, reports it
+  as a single error-level log entry, and exits 1. A clean pass logs an
+  info-level "format OK" message; verbosity is forced to at least info
+  while this flag is set so the message is visible at the default warn
+  level.
 - `--dry-run` flag on every state-mutating subcommand (`cp`, `mv`, `rm`,
   `create-bucket`, all `put-*`, all `delete-*`). Argument validation,
   JSON parsing, and SDK setup run as normal; an info-level `[dry-run]`

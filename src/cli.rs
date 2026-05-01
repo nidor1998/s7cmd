@@ -145,6 +145,14 @@ pub struct BatchRunArgs {
     #[arg(long)]
     pub no_summary: bool,
 
+    /// Only validate the script's format. Stops at the first
+    /// problematic line, reports it at error level, and exits 1 — no
+    /// command is executed. On success an info-level message is logged.
+    /// Verbosity is forced to at least info while this flag is set so
+    /// the success message is visible at the default warn level.
+    #[arg(long)]
+    pub check_format: bool,
+
     // Tracing flags — same names as every other subcommand's tracing
     // block. AWS auth/endpoint flags are intentionally NOT included
     // (each per-line subcommand brings its own).

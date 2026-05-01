@@ -310,3 +310,88 @@ fn batch_run_reads_from_file_in_streaming_mode() {
         .success()
         .stderr(predicate::str::contains("2 ok, 0 failed"));
 }
+
+// ---- --check-format coverage ----
+
+/// A clean script reports "format OK" at info level (verbosity bumped
+/// to info by --check-format itself), exits 0, and runs no commands —
+/// the absence of a `[dry-run]` line confirms no dispatch happened.
+#[test]
+fn batch_run_check_format_reports_ok_for_valid_script() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("script.txt");
+    let mut f = std::fs::File::create(&path).unwrap();
+    writeln!(f, "# this is a comment").unwrap();
+    writeln!(f, "head-bucket s3://b1").unwrap();
+    writeln!(f, "create-bucket --dry-run s3://b2").unwrap();
+    drop(f);
+
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["batch-run", "--check-format", path.to_str().unwrap()])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("format OK"))
+        // No execution: no [dry-run] log, no run summary.
+        .stderr(predicate::str::contains("[dry-run]").not())
+        .stderr(predicate::str::contains("ok, ").not());
+}
+
+/// Stops at the first problematic line — only that line's error is
+/// logged, later bad lines are not reported, and no "format OK"
+/// message is emitted.
+#[test]
+fn batch_run_check_format_stops_at_first_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("script.txt");
+    let mut f = std::fs::File::create(&path).unwrap();
+    writeln!(f, "head-bucket s3://b1").unwrap(); // valid
+    writeln!(f, "batch-run -").unwrap(); // invalid (nested batch-run)
+    writeln!(f, "cp s3://b/k -").unwrap(); // invalid (stdio)
+    writeln!(f, "another-bad-line").unwrap(); // invalid (unknown subcommand)
+    drop(f);
+
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["batch-run", "--check-format", path.to_str().unwrap()])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("line 2"))
+        .stderr(predicate::str::contains("nested batch-run"))
+        // Walk stopped at line 2: line 3 / line 4 must NOT appear.
+        .stderr(predicate::str::contains("line 3").not())
+        .stderr(predicate::str::contains("line 4").not())
+        .stderr(predicate::str::contains("stdin/stdout").not())
+        .stderr(predicate::str::contains("format OK").not());
+}
+
+/// `--check-format -` reads the script from stdin and behaves the same.
+#[test]
+fn batch_run_check_format_reads_from_stdin() {
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["batch-run", "--check-format", "-"])
+        .write_stdin("head-bucket s3://b1\nbatch-run -\n")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("line 2"))
+        .stderr(predicate::str::contains("nested batch-run"))
+        .stderr(predicate::str::contains("format OK").not());
+}
+
+/// A missing file is reported at error level and exits non-zero.
+#[test]
+fn batch_run_check_format_missing_file_errors() {
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args([
+            "batch-run",
+            "--check-format",
+            "/nonexistent/s7cmd-check-format.txt",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "/nonexistent/s7cmd-check-format.txt",
+        ));
+}

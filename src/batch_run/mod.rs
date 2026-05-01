@@ -2,6 +2,7 @@
 
 use anyhow::Result;
 use clap::Parser;
+use std::io::BufRead;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -16,11 +17,99 @@ use crate::cli::{BatchRunArgs, Cli};
 use executor::{DispatchFn, ExecutorOptions, Interrupt, PreparedLine, resolve_workers};
 
 pub async fn run(args: BatchRunArgs) -> i32 {
-    if args.streaming {
+    if args.check_format {
+        run_check_format(args)
+    } else if args.streaming {
         run_streaming(args).await
     } else {
         run_read_all(args).await
     }
+}
+
+/// `--check-format` mode. Walk the script line by line; the first
+/// tokenize / clap-parse / validate failure (or read I/O error) is
+/// reported at error level and the process returns 1 immediately —
+/// no further lines are inspected and no command is executed. On a
+/// clean walk, log a single info-level success message and return 0.
+fn run_check_format(args: BatchRunArgs) -> i32 {
+    let has_issue = if args.script == "-" {
+        let stdin = std::io::stdin();
+        check_format_lines(stdin.lock())
+    } else {
+        match std::fs::File::open(&args.script) {
+            Ok(f) => check_format_lines(std::io::BufReader::new(f)),
+            Err(e) => {
+                tracing::error!("{}: {e}", args.script);
+                return 1;
+            }
+        }
+    };
+    if has_issue {
+        1
+    } else {
+        tracing::info!("batch-run: format OK ({}).", args.script);
+        0
+    }
+}
+
+/// Walk lines and stop at the first problem. Returns `true` if an issue
+/// was reported (via `tracing::error!`), `false` if every line passed.
+fn check_format_lines<R: BufRead>(mut reader: R) -> bool {
+    let mut line_no: usize = 0;
+    loop {
+        line_no += 1;
+        let line = match parser::read_line_capped(&mut reader) {
+            Ok(Some(s)) => s,
+            Ok(None) => return false,
+            Err(e) => {
+                tracing::error!("line {line_no}: read error: {e}");
+                return true;
+            }
+        };
+        let argv = match parser::tokenize_line(&line) {
+            Ok(Some(a)) => a,
+            Ok(None) => continue, // blank or comment
+            Err(e) => {
+                tracing::error!("line {line_no}: parse error: {e}: {}", line.trim_end());
+                return true;
+            }
+        };
+        let cli = match Cli::try_parse_from(&argv) {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!(
+                    "line {line_no}: parse error: {}: {}",
+                    flatten(&e.to_string()),
+                    line.trim_end()
+                );
+                return true;
+            }
+        };
+        let cmd = match cli.command {
+            Some(c) => c,
+            None => {
+                tracing::error!("line {line_no}: empty command: {}", line.trim_end());
+                return true;
+            }
+        };
+        if let Err(e) = validate::validate(line_no, &line, &cmd) {
+            // validate already includes the line number and a `> raw`
+            // tail; flatten to keep one log entry per line.
+            tracing::error!("{}", flatten(&e.to_string()));
+            return true;
+        }
+    }
+}
+
+/// Collapse a multi-line error message into a single line so each entry
+/// in the error log occupies exactly one line. clap errors in
+/// particular span several lines (`error: ...` plus usage / help).
+fn flatten(msg: &str) -> String {
+    msg.lines()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Read-all (default) mode. Read the whole script first (file or stdin),
@@ -526,5 +615,83 @@ mod tests {
         let mut r = tokio::io::BufReader::new(bytes);
         let err = read_line_capped_async(&mut r).await.unwrap_err();
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+    }
+
+    // ---- check_format_lines ----
+    //
+    // The function emits the first problem via `tracing::error!` and
+    // returns a bool. We can verify the bool without a tracing
+    // subscriber. Fail-fast behaviour and visible log output are
+    // exercised by the process-level integration tests in
+    // `tests/batch_run.rs`.
+
+    #[test]
+    fn check_format_lines_empty_input_is_clean() {
+        let input: &[u8] = b"";
+        assert!(!check_format_lines(input));
+    }
+
+    #[test]
+    fn check_format_lines_only_blank_and_comment_is_clean() {
+        let input: &[u8] = b"\n# comment\n   \n";
+        assert!(!check_format_lines(input));
+    }
+
+    #[test]
+    fn check_format_lines_valid_commands_is_clean() {
+        let input: &[u8] = b"head-bucket s3://b1\ncreate-bucket --dry-run s3://b2\n";
+        assert!(!check_format_lines(input));
+    }
+
+    #[test]
+    fn check_format_lines_tokenize_error_returns_true() {
+        // Unbalanced quote → shlex rejects.
+        let input: &[u8] = b"cp \"oops\n";
+        assert!(check_format_lines(input));
+    }
+
+    #[test]
+    fn check_format_lines_clap_parse_error_returns_true() {
+        let input: &[u8] = b"no-such-command\n";
+        assert!(check_format_lines(input));
+    }
+
+    #[test]
+    fn check_format_lines_validate_error_returns_true() {
+        // Nested batch-run rejected by validate.
+        let input: &[u8] = b"batch-run -\n";
+        assert!(check_format_lines(input));
+    }
+
+    #[test]
+    fn check_format_lines_stops_at_first_error() {
+        // First line is bad. The function must return true after that
+        // line; later bad lines are not consumed. `Cursor<&[u8]>`
+        // implements `BufRead` directly, so its position tracks exactly
+        // what `check_format_lines` consumed (no read-ahead from a
+        // wrapping `BufReader`).
+        use std::io::{Cursor, Read};
+        let payload = b"no-such-command\nbatch-run -\ncp s3://b/k -\n";
+        let mut cursor = Cursor::new(&payload[..]);
+        assert!(
+            check_format_lines(&mut cursor),
+            "first bad line must be reported"
+        );
+        let mut rest = String::new();
+        cursor.read_to_string(&mut rest).unwrap();
+        assert!(
+            rest.contains("batch-run -"),
+            "later lines must remain unread; rest={rest:?}"
+        );
+    }
+
+    #[test]
+    fn check_format_lines_read_error_returns_true() {
+        // A line over the 16 KiB cap triggers a read I/O error.
+        let mut s = String::with_capacity(parser::MAX_LINE_LEN + 3);
+        s.push('#');
+        s.extend(std::iter::repeat_n('x', parser::MAX_LINE_LEN));
+        s.push('\n');
+        assert!(check_format_lines(s.as_bytes()));
     }
 }

@@ -285,6 +285,14 @@ mode. Pass `--continue-on-error` to run every line regardless. The
 process exit code is the worst (highest) seen across all executed
 commands.
 
+**Format check.** Pass `--check-format` to validate the script
+without executing anything. The walk stops at the first
+tokenize / parse / validate problem (or read I/O error), reports
+that line as a single error-level log entry, and exits 1. On a
+clean pass an info-level "format OK" message is emitted. Verbosity
+is forced to at least info so that message is visible at the
+default warn level.
+
 **Tracing flags belong to `batch-run`, not per-line.** Pass
 `--json-tracing`, `--aws-sdk-tracing`, `--span-events-tracing`,
 `--disable-color-tracing`, and `-v`/`-q` to `batch-run` itself —
