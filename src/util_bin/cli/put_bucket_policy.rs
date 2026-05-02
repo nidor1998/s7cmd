@@ -1,4 +1,4 @@
-// Vendored from s3util-rs@0.2.0
+// Vendored from s3util-rs@1.1.0
 //   src/bin/s3util/cli/put_bucket_policy.rs
 // Adjustments: no tests stripped; rewrote crate::cli → super
 
@@ -38,6 +38,10 @@ pub async fn run_put_bucket_policy(
     };
 
     let client = client_config.create_client().await;
+    if args.dry_run {
+        info!(bucket = %bucket, "[dry-run] would put bucket policy.");
+        return Ok(());
+    }
     api::put_bucket_policy(&client, &bucket, &policy_body).await?;
     info!(bucket = %bucket, "Bucket policy set.");
     Ok(())

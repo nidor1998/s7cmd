@@ -65,11 +65,14 @@ pub fn init_tracing(config: &TracingConfig) {
     let subscriber_builder = subscriber_builder
         .with_env_filter(event_filter)
         .with_target(show_target);
-    if config.json_tracing {
-        subscriber_builder.json().init();
+    // try_init keeps init_tracing idempotent: batch-run installs the
+    // subscriber once at the top, then per-line subcommand dispatch
+    // arms call this again (harmlessly).
+    let _ = if config.json_tracing {
+        subscriber_builder.json().try_init()
     } else {
-        subscriber_builder.init();
-    }
+        subscriber_builder.try_init()
+    };
 }
 
 #[cfg(test)]

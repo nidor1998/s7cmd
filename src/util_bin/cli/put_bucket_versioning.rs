@@ -1,4 +1,4 @@
-// Vendored from s3util-rs@0.2.0
+// Vendored from s3util-rs@1.1.0
 //   src/bin/s3util/cli/put_bucket_versioning.rs
 // Adjustments: no tests stripped; rewrote crate::cli → super
 use anyhow::Result;
@@ -26,6 +26,10 @@ pub async fn run_put_bucket_versioning(
         .map_err(|e| anyhow::anyhow!("{}", e.trim_end()))?;
     let status = args.versioning_status();
     let client = client_config.create_client().await;
+    if args.dry_run {
+        info!(bucket = %bucket, status = %status.as_str(), "[dry-run] would put bucket versioning.");
+        return Ok(());
+    }
     api::put_bucket_versioning(&client, &bucket, status.clone()).await?;
     info!(bucket = %bucket, status = %status.as_str(), "Bucket versioning set.");
     Ok(())

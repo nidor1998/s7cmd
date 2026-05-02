@@ -90,6 +90,7 @@ mod e2e {
     use aws_config::meta::region::{ProvideRegion, RegionProviderChain};
     use aws_sdk_s3::Client;
     use aws_sdk_s3::config::Region;
+    use aws_sdk_s3::operation::get_object_tagging::GetObjectTaggingOutput;
     use aws_sdk_s3::types::{
         BucketLocationConstraint, BucketVersioningStatus, CreateBucketConfiguration, Tag, Tagging,
         VersioningConfiguration,
@@ -183,6 +184,71 @@ mod e2e {
                 .send()
                 .await
                 .expect("put_object");
+        }
+
+        /// PutObject with a `tagging` query parameter. Used by tests that
+        /// need to seed tags atomically with the object so they can later
+        /// verify --dry-run leaves them untouched.
+        pub async fn put_object_with_tagging(
+            &self,
+            bucket: &str,
+            key: &str,
+            body: Vec<u8>,
+            tagging: &str,
+        ) {
+            self.client
+                .put_object()
+                .bucket(bucket)
+                .key(key)
+                .tagging(tagging)
+                .body(body.into())
+                .send()
+                .await
+                .expect("put_object_with_tagging");
+        }
+
+        /// Fetch an object's body and return the raw bytes. Used by
+        /// process-level e2e tests to verify upload/download round-trips.
+        pub async fn get_object_bytes(
+            &self,
+            bucket: &str,
+            key: &str,
+            version_id: Option<String>,
+        ) -> Vec<u8> {
+            let out = self
+                .client
+                .get_object()
+                .bucket(bucket)
+                .key(key)
+                .set_version_id(version_id)
+                .send()
+                .await
+                .expect("get_object");
+            out.body
+                .collect()
+                .await
+                .expect("collect body")
+                .into_bytes()
+                .to_vec()
+        }
+
+        /// Fetch the tag set for an object. Used by --dry-run tests to
+        /// confirm that put-/delete-object-tagging dry-runs leave the
+        /// existing tag set unchanged.
+        pub async fn get_object_tagging(
+            &self,
+            bucket: &str,
+            key: &str,
+            version_id: Option<String>,
+        ) -> GetObjectTaggingOutput {
+            self.client
+                .get_object_tagging()
+                .bucket(bucket)
+                .key(key)
+                .set_version_id(version_id)
+                .send()
+                .await
+                .expect("get_object_tagging")
         }
 
         /// PutObject and return the assigned `VersionId`. The bucket must

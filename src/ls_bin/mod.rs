@@ -2,8 +2,14 @@
 //   src/bin/s3ls/main.rs
 // Adjustments: removed #[tokio::main] async fn main() (s7cmd has its own);
 //              helpers made pub for dispatch from s7cmd::main; stripped
-//              any #[cfg(test)] blocks; load_config_exit_if_err takes args
-//              by value instead of calling parse() (s7cmd parses at top level)
+//              any #[cfg(test)] blocks. The upstream
+//              `load_config_exit_if_err` helper was dropped: it called
+//              `clap::Error::exit()` (i.e. `std::process::exit(2)`) on bad
+//              config, which would kill batch-run mid-batch. dispatch.rs
+//              calls `Config::try_from` directly and returns exit code 2
+//              on Err instead. run() now returns Result<i32> instead of
+//              calling std::process::exit (so it can be invoked from
+//              batch-run without killing the process mid-batch).
 
 use anyhow::Result;
 use tracing::{debug, error};
@@ -11,23 +17,11 @@ use tracing::{debug, error};
 use s3ls_rs::bucket_lister;
 use s3ls_rs::config::Config;
 use s3ls_rs::{
-    CLIArgs, ListingPipeline, create_pipeline_cancellation_token, exit_code_from_error,
-    is_cancelled_error,
+    ListingPipeline, create_pipeline_cancellation_token, exit_code_from_error, is_cancelled_error,
 };
 
 mod ctrl_c_handler;
 mod tracing_init;
-
-// Adjusted from upstream: takes args by value instead of calling
-// CLIArgs::parse() internally (s7cmd parses at the top level).
-pub fn load_config_exit_if_err(args: CLIArgs) -> Config {
-    match Config::try_from(args) {
-        Ok(config) => config,
-        Err(error_message) => {
-            clap::Error::raw(clap::error::ErrorKind::ValueValidation, error_message).exit();
-        }
-    }
-}
 
 pub fn start_tracing_if_necessary(config: &Config) -> bool {
     if let Some(tracing_config) = config.tracing_config.as_ref() {
@@ -38,19 +32,19 @@ pub fn start_tracing_if_necessary(config: &Config) -> bool {
     }
 }
 
-pub async fn run(config: Config) -> Result<()> {
+pub async fn run(config: Config) -> Result<i32> {
     // Bucket listing mode: no target specified
     if config.target.bucket.is_empty() {
         return match bucket_lister::list_buckets(&config).await {
-            Ok(()) => Ok(()),
+            Ok(()) => Ok(0),
             Err(e) => {
                 if let Some(io_err) = e.downcast_ref::<std::io::Error>()
                     && io_err.kind() == std::io::ErrorKind::BrokenPipe
                 {
-                    return Ok(());
+                    return Ok(0);
                 }
                 error!("{}", e);
-                std::process::exit(1);
+                Ok(1)
             }
         };
     }
@@ -68,24 +62,24 @@ pub async fn run(config: Config) -> Result<()> {
         Ok(()) => {
             let duration_sec = format!("{:.3}", start_time.elapsed().as_secs_f32());
             debug!(duration_sec = duration_sec, "s7cmd ls has been completed.");
-            Ok(())
+            Ok(0)
         }
         Err(e) => {
             // Broken pipe is expected when piped to head/tail — exit silently.
             if let Some(io_err) = e.downcast_ref::<std::io::Error>()
                 && io_err.kind() == std::io::ErrorKind::BrokenPipe
             {
-                return Ok(());
+                return Ok(0);
             }
             let duration_sec = format!("{:.3}", start_time.elapsed().as_secs_f32());
             if is_cancelled_error(&e) {
                 debug!("listing cancelled by user.");
-                return Ok(());
+                return Ok(0);
             }
             let code = exit_code_from_error(&e);
             error!(duration_sec = duration_sec, "s7cmd ls failed.");
             error!("{}", e);
-            std::process::exit(code);
+            Ok(code)
         }
     }
 }
@@ -93,6 +87,7 @@ pub async fn run(config: Config) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use clap::Parser;
+    use s3ls_rs::CLIArgs;
 
     use super::*;
 
@@ -100,28 +95,68 @@ mod tests {
         CLIArgs::try_parse_from(args).unwrap()
     }
 
-    #[test]
-    fn load_config_exit_if_err_returns_config_for_valid_args() {
-        let cli_args = parse(&["s3ls", "--target-profile", "p", "s3://test-bucket/prefix/"]);
-        let config = load_config_exit_if_err(cli_args);
-        assert_eq!(config.target.bucket, "test-bucket");
-        assert_eq!(config.target.prefix.as_deref(), Some("prefix/"));
-    }
-
-    #[test]
-    fn load_config_exit_if_err_returns_config_for_bucket_listing() {
-        let cli_args = parse(&["s3ls", "--target-profile", "p"]);
-        let config = load_config_exit_if_err(cli_args);
-        // Bucket listing mode — target.bucket is empty.
-        assert!(config.target.bucket.is_empty());
+    fn build_config(args: &[&str]) -> Config {
+        Config::try_from(parse(args)).unwrap()
     }
 
     #[test]
     fn start_tracing_if_necessary_returns_false_when_no_tracing_config() {
         // -qqq drops below all tracing levels → tracing_config is None.
-        let cli_args = parse(&["s3ls", "-qqq", "--target-profile", "p", "s3://test-bucket"]);
-        let config = load_config_exit_if_err(cli_args);
+        let config = build_config(&["s3ls", "-qqq", "--target-profile", "p", "s3://test-bucket"]);
         assert!(config.tracing_config.is_none());
         assert!(!start_tracing_if_necessary(&config));
+    }
+
+    /// Bucket-listing mode (no target prefix) against an unreachable endpoint.
+    /// Exercises the `bucket_lister::list_buckets` Err arm — should return Ok(1).
+    #[tokio::test]
+    async fn run_bucket_listing_against_fake_endpoint_returns_one() {
+        let config = build_config(&[
+            "s3ls",
+            "--target-access-key",
+            "dummy",
+            "--target-secret-access-key",
+            "dummy",
+            "--target-endpoint-url",
+            "http://127.0.0.1:1",
+            "--target-region",
+            "us-east-1",
+            "--connect-timeout-milliseconds",
+            "1",
+            "--aws-max-attempts",
+            "0",
+        ]);
+        // Bucket listing mode — target.bucket is empty.
+        assert!(config.target.bucket.is_empty());
+        let code = run(config).await.unwrap();
+        // Connection refused → list_buckets returns Err, run() maps to Ok(1).
+        assert_eq!(code, 1);
+    }
+
+    /// Listing-pipeline mode with a target prefix against an unreachable
+    /// endpoint. Exercises the `pipeline.run()` Err arm — should return a
+    /// non-zero exit code (the SDK error is mapped via `exit_code_from_error`).
+    #[tokio::test]
+    async fn run_listing_pipeline_against_fake_endpoint_returns_nonzero() {
+        let config = build_config(&[
+            "s3ls",
+            "--target-access-key",
+            "dummy",
+            "--target-secret-access-key",
+            "dummy",
+            "--target-endpoint-url",
+            "http://127.0.0.1:1",
+            "--target-region",
+            "us-east-1",
+            "--connect-timeout-milliseconds",
+            "1",
+            "--aws-max-attempts",
+            "0",
+            "s3://nonexistent-bucket-for-s7cmd-tests/prefix/",
+        ]);
+        assert!(!config.target.bucket.is_empty());
+        let code = run(config).await.unwrap();
+        // Connection refused → pipeline.run returns Err, run() returns non-zero.
+        assert_ne!(code, 0);
     }
 }

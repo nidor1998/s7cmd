@@ -844,6 +844,7 @@ dependencies = [
  "anstyle",
  "clap_lex",
  "strsim",
+ "terminal_size",
 ]
 
 [[package]]
@@ -2861,9 +2862,9 @@ dependencies = [
 
 [[package]]
 name = "s3rm-rs"
-version = "1.3.4"
+version = "1.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "960461e95afaa5bd103a57316c41f68b65ab23b98da3a33f956436bf4ffb06ab"
+checksum = "d087bd242c7986a9c1a5077bccbba0e75d3919e94358e2a4e8f9a78dad2babf1"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -2965,9 +2966,9 @@ dependencies = [
 
 [[package]]
 name = "s3util-rs"
-version = "1.0.0"
+version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20ca5b2d06420c06f448e450055d8b90d721bf4d9c57f7d9274820e8eb0fe0c5"
+checksum = "ade98666588f79b829deed9ea88a5d74a16560598f901fc3f48693ab669a88ea"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -3025,17 +3026,19 @@ dependencies = [
 
 [[package]]
 name = "s7cmd"
-version = "0.1.3"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
  "async-channel",
+ "async-trait",
  "aws-config",
  "aws-sdk-s3",
  "aws-smithy-runtime-api",
  "aws-smithy-types",
  "chrono",
  "clap",
+ "clap-verbosity-flag",
  "clap_complete",
  "dyn-clone",
  "indicatif",
@@ -3049,7 +3052,9 @@ dependencies = [
  "s3util-rs",
  "serde_json",
  "shadow-rs",
+ "shlex",
  "simple_moving_average",
+ "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -3395,6 +3400,16 @@ dependencies = [
  "fastrand",
  "getrandom 0.4.2",
  "once_cell",
+ "rustix",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "terminal_size"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "230a1b821ccbd75b185820a1f1ff7b14d21da1e442e22c0863ea5f08771a8874"
+dependencies = [
  "rustix",
  "windows-sys 0.61.2",
 ]

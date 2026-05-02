@@ -1,5 +1,6 @@
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::shells::Shell;
+use clap_verbosity_flag::{Verbosity, WarnLevel};
 
 #[cfg(feature = "version")]
 use shadow_rs::shadow;
@@ -97,6 +98,9 @@ Bucket Notification:
   get-bucket-notification-configuration Get a bucket's notification configuration
   put-bucket-notification-configuration Put a bucket notification configuration
 
+Batch:
+  batch-run                             Run s7cmd commands from a file (or - for stdin)
+
 Other:
   help                                  Print this message or the help of the given subcommand(s)
 
@@ -113,6 +117,101 @@ pub struct Cli {
 
     #[command(subcommand)]
     pub command: Option<Cmd>,
+}
+
+#[derive(clap::Args, Clone, Debug)]
+pub struct BatchRunArgs {
+    /// Path to a script file with s7cmd commands, or `-` to read from stdin.
+    #[arg(value_name = "FILE")]
+    pub script: String,
+
+    /// Number of commands to run concurrently. 1 = sequential (default).
+    /// 0 = use all logical CPUs.
+    #[arg(long, default_value_t = 1, value_name = "N")]
+    pub parallel: usize,
+
+    /// Execute commands as they are read from stdin (no progress bar).
+    /// By default, all commands are read first, then executed.
+    #[arg(long)]
+    pub streaming: bool,
+
+    /// Continue executing remaining commands after any non-zero exit
+    /// (failure or warning). By default, the first non-zero exit stops
+    /// execution (sequential) or prevents new commands from starting
+    /// (parallel). Mutually exclusive with `--max-errors` and
+    /// `--continue-on-warning`.
+    #[arg(long, conflicts_with_all = ["max_errors", "continue_on_warning"])]
+    pub continue_on_error: bool,
+
+    /// Continue executing remaining commands after a per-line warning
+    /// (exit codes 3 and 4 — `EXIT_CODE_WARNING` and `EXIT_CODE_NOT_FOUND`).
+    /// True failures (any other non-zero exit) still stop the run
+    /// according to `--max-errors` (or the default first-failure stop).
+    /// Mutually exclusive with `--continue-on-error`.
+    #[arg(long, conflicts_with = "continue_on_error")]
+    pub continue_on_warning: bool,
+
+    /// Stop spawning new commands once `N` failures have been recorded
+    /// (graceful: in-flight commands complete). Must be >= 1. When
+    /// omitted, the run stops on the first failure — the same behavior
+    /// as no flag at all. Mutually exclusive with `--continue-on-error`.
+    /// When combined with `--continue-on-warning`, only true failures
+    /// (non-warning non-zero exits) count toward `N`.
+    ///
+    /// In parallel mode this only stops NEW spawns; in-flight commands
+    /// run to completion. When `--parallel` is close to or exceeds the
+    /// total line count, every line may already be in flight by the
+    /// time the threshold trips, so the threshold has no visible effect.
+    /// Send SIGINT to cancel in-flight work.
+    #[arg(
+        long,
+        value_name = "N",
+        value_parser = clap::value_parser!(u64).range(1..),
+    )]
+    pub max_errors: Option<u64>,
+
+    /// Suppress the end-of-run summary line on stderr.
+    #[arg(long)]
+    pub no_summary: bool,
+
+    /// Suppress the live progress bar on stderr (the end-of-run summary
+    /// is still printed unless `--no-summary` is also set). Useful when
+    /// stderr is a TTY but you want machine-readable log output —
+    /// terminal multiplexers, `script(1)`, some CI runners. Has no
+    /// effect with `--streaming` or non-TTY stderr, which already
+    /// suppress the bar.
+    #[arg(long)]
+    pub no_progress: bool,
+
+    /// Only validate the script's format. Stops at the first
+    /// problematic line, reports it at error level, and exits 1 — no
+    /// command is executed. On success an info-level message is logged.
+    /// Verbosity is forced to at least info while this flag is set so
+    /// the success message is visible at the default warn level.
+    #[arg(long)]
+    pub check_format: bool,
+
+    // Tracing flags — same names as every other subcommand's tracing
+    // block. AWS auth/endpoint flags are intentionally NOT included
+    // (each per-line subcommand brings its own).
+    /// Show trace as json format.
+    #[arg(long, default_value_t = false, help_heading = "Tracing/Logging")]
+    pub json_tracing: bool,
+
+    /// Enable aws sdk tracing.
+    #[arg(long, default_value_t = false, help_heading = "Tracing/Logging")]
+    pub aws_sdk_tracing: bool,
+
+    /// Show span event tracing.
+    #[arg(long, default_value_t = false, help_heading = "Tracing/Logging")]
+    pub span_events_tracing: bool,
+
+    /// Disable ANSI terminal colors.
+    #[arg(long, default_value_t = false, help_heading = "Tracing/Logging")]
+    pub disable_color_tracing: bool,
+
+    #[command(flatten)]
+    pub verbosity: Verbosity<WarnLevel>,
 }
 
 #[derive(Subcommand, Clone, Debug)]
@@ -228,6 +327,10 @@ pub enum Cmd {
     PutBucketNotificationConfiguration(
         s3util_rs::config::args::PutBucketNotificationConfigurationArgs,
     ),
+
+    // Batch
+    /// Run s7cmd commands from a file (or - for stdin)
+    BatchRun(BatchRunArgs),
 }
 
 /// Build the s7cmd `Command` with `--auto-complete-shell` hidden on every
@@ -242,7 +345,11 @@ pub enum Cmd {
 /// users who want completions use the top-level `--auto-complete-shell`.
 #[allow(dead_code)] // used from main.rs; cli_routing integration test includes this file directly
 pub fn cli_command() -> clap::Command {
-    let mut cmd = Cli::command();
+    // Cap help-text wrap width so long flag descriptions stay readable on
+    // wide terminals (otherwise clap wraps at the detected terminal width
+    // and produces 200+ char lines). Requires the clap `wrap_help`
+    // feature for terminal-size detection. Propagates to subcommands.
+    let mut cmd = Cli::command().max_term_width(100);
     let names: Vec<String> = cmd
         .get_subcommands()
         .map(|s| s.get_name().to_string())

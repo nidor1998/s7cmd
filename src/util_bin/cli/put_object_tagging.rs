@@ -1,4 +1,4 @@
-// Vendored from s3util-rs@0.2.0
+// Vendored from s3util-rs@1.1.0
 //   src/bin/s3util/cli/put_object_tagging.rs
 // Adjustments: no tests stripped; rewrote crate::cli → super
 
@@ -29,6 +29,16 @@ pub async fn run_put_object_tagging(
     let tagging = Tagging::builder().set_tag_set(Some(tags)).build()?;
 
     let client = client_config.create_client().await;
+
+    if args.dry_run {
+        info!(
+            bucket = %bucket,
+            key = %key,
+            version_id = %args.source_version_id.as_deref().unwrap_or_default(),
+            "[dry-run] would put object tagging."
+        );
+        return Ok(());
+    }
 
     api::put_object_tagging(
         &client,

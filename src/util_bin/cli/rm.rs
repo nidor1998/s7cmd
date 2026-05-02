@@ -1,4 +1,4 @@
-// Vendored from s3util-rs@0.2.0
+// Vendored from s3util-rs@1.1.0
 //   src/bin/s3util/cli/rm.rs
 // Adjustments: stripped #[cfg(test)] mod tests; rewrote crate::cli → super
 
@@ -19,6 +19,16 @@ pub async fn run_rm(args: RmArgs, client_config: ClientConfig) -> Result<()> {
         .map_err(|e| anyhow::anyhow!("{}", e.trim_end()))?;
 
     let client = client_config.create_client().await;
+
+    if args.dry_run {
+        info!(
+            bucket = %bucket,
+            key = %key,
+            version_id = %args.source_version_id.as_deref().unwrap_or_default(),
+            "[dry-run] would delete object."
+        );
+        return Ok(());
+    }
 
     api::delete_object(&client, &bucket, &key, args.source_version_id.as_deref()).await?;
     info!(

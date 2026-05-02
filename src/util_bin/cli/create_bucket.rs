@@ -1,4 +1,4 @@
-// Vendored from s3util-rs@0.2.0
+// Vendored from s3util-rs@1.1.0
 //   src/bin/s3util/cli/create_bucket.rs
 // Adjustments: no tests stripped; rewrote crate::cli → super
 
@@ -27,14 +27,29 @@ pub async fn run_create_bucket(
     let bucket = args
         .bucket_name()
         .map_err(|e| anyhow::anyhow!("{}", e.trim_end()))?;
+
+    // Pre-parse tagging so dry-run validates user input before short-circuit.
+    let tagging = if let Some(raw_tagging) = args.tagging.as_deref() {
+        let tags = parse_tagging_to_tags(raw_tagging)?;
+        Some(Tagging::builder().set_tag_set(Some(tags)).build()?)
+    } else {
+        None
+    };
+
     let client = client_config.create_client().await;
+
+    if args.dry_run {
+        info!(bucket = %bucket, "[dry-run] would create bucket.");
+        if tagging.is_some() {
+            info!(bucket = %bucket, "[dry-run] would put bucket tagging.");
+        }
+        return Ok(ExitStatus::Success);
+    }
 
     api::create_bucket(&client, &bucket).await?;
     info!(bucket = %bucket, "Bucket created.");
 
-    if let Some(raw_tagging) = args.tagging.as_deref() {
-        let tags = parse_tagging_to_tags(raw_tagging)?;
-        let tagging = Tagging::builder().set_tag_set(Some(tags)).build()?;
+    if let Some(tagging) = tagging {
         if let Err(e) = api::put_bucket_tagging(&client, &bucket, tagging).await {
             tracing::warn!(
                 error = format!("{e:#}"),

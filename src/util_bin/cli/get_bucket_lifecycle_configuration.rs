@@ -34,11 +34,11 @@ pub async fn run_get_bucket_lifecycle_configuration(
             Ok(ExitStatus::Success)
         }
         Err(HeadError::BucketNotFound) => {
-            tracing::error!("bucket s3://{bucket} not found");
+            tracing::warn!("bucket s3://{bucket} not found");
             Ok(ExitStatus::NotFound)
         }
         Err(HeadError::NotFound) => {
-            tracing::error!("lifecycle configuration for s3://{bucket} not found");
+            tracing::warn!("lifecycle configuration for s3://{bucket} not found");
             Ok(ExitStatus::NotFound)
         }
         Err(HeadError::Other(e)) => Err(e),

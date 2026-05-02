@@ -34,11 +34,11 @@ pub async fn run_get_public_access_block(
             Ok(ExitStatus::Success)
         }
         Err(HeadError::BucketNotFound) => {
-            tracing::error!("bucket s3://{bucket} not found");
+            tracing::warn!("bucket s3://{bucket} not found");
             Ok(ExitStatus::NotFound)
         }
         Err(HeadError::NotFound) => {
-            tracing::error!("public access block configuration for s3://{bucket} not found");
+            tracing::warn!("public access block configuration for s3://{bucket} not found");
             Ok(ExitStatus::NotFound)
         }
         Err(HeadError::Other(e)) => Err(e),

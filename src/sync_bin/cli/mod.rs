@@ -1,6 +1,9 @@
 // Vendored from s3sync@1.58.6
 //   src/bin/s3sync/cli/mod.rs
-// Adjustments: stripped #[cfg(test)] mod tests
+// Adjustments: stripped #[cfg(test)] mod tests;
+//              run() now returns Result<i32> instead of calling
+//              std::process::exit (so it can be invoked from
+//              batch-run without killing the process mid-batch).
 
 use anyhow::{Result, anyhow};
 use s3sync::Config;
@@ -15,7 +18,6 @@ mod ctrl_c_handler;
 mod indicator;
 mod ui_config;
 
-#[allow(dead_code)]
 const EXIT_CODE_SUCCESS: i32 = 0;
 #[allow(dead_code)]
 const EXIT_CODE_ERROR: i32 = 1;
@@ -23,7 +25,7 @@ const EXIT_CODE_ERROR: i32 = 1;
 const EXIT_CODE_INVALID_ARGS: i32 = 2;
 const EXIT_CODE_WARNING: i32 = 3;
 
-pub async fn run(config: Config) -> Result<()> {
+pub async fn run(config: Config) -> Result<i32> {
     #[allow(unused_assignments)]
     let mut has_warning = false;
 
@@ -76,10 +78,10 @@ pub async fn run(config: Config) -> Result<()> {
     }
 
     if has_warning {
-        std::process::exit(EXIT_CODE_WARNING);
+        return Ok(EXIT_CODE_WARNING);
     }
 
-    Ok(())
+    Ok(EXIT_CODE_SUCCESS)
 }
 
 fn show_sync_report_summary(sync_stats_report: MutexGuard<'_, SyncStatsReport>) {
