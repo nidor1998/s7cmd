@@ -193,14 +193,15 @@ mod tests {
         assert_ne!(code, EXIT_CODE_ABNORMAL_TERMINATION);
     }
 
-    /// `--dry-run --force` against an unreachable endpoint: SafetyChecker
+    /// `--dry-run` against an unreachable endpoint: SafetyChecker
     /// short-circuits on dry-run, but the listing stage still records errors
     /// when the endpoint is unreachable. Confirms the error-arm path.
+    /// (`--force` is mutually exclusive with `--dry-run` as of s3rm-rs
+    /// 1.3.6 — dry-run already implies skipping the confirmation prompt.)
     #[tokio::test]
     async fn run_dry_run_against_fake_endpoint_returns_error_code() {
         let config = config_from_args(&[
             "s3rm",
-            "--force",
             "--dry-run",
             "--target-access-key",
             "dummy",
