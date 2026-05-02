@@ -1,7 +1,8 @@
 // s7cmd entry point. The per-subcommand dispatch table lives in
 // `dispatch.rs` so it can be reused by `batch_run`.
 
-use anyhow::Result;
+use std::process::ExitCode;
+
 use clap::FromArgMatches;
 use clap_complete::generate;
 
@@ -16,7 +17,7 @@ mod util_bin;
 use cli::{Cli, Cmd, cli_command};
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> ExitCode {
     let cli_args = match Cli::from_arg_matches(&cli_command().get_matches()) {
         Ok(c) => c,
         Err(e) => e.exit(),
@@ -29,7 +30,7 @@ async fn main() -> Result<()> {
     // `s7cmd <sub> --auto-complete-shell ...`).
     if let Some(shell) = cli_args.auto_complete_shell {
         generate(shell, &mut cli_command(), "s7cmd", &mut std::io::stdout());
-        return Ok(());
+        return ExitCode::SUCCESS;
     }
 
     // arg_required_else_help on the Cli ensures we always have a command
@@ -41,7 +42,7 @@ async fn main() -> Result<()> {
     init_tracing_for(&command);
 
     let exit_code = dispatch::dispatch(command).await;
-    std::process::exit(exit_code);
+    ExitCode::from(exit_code as u8)
 }
 
 /// Initialize the global tracing subscriber from whichever subcommand
