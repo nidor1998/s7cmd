@@ -35,7 +35,33 @@ pub fn validate(line_no: usize, raw: &str, cmd: &Cmd) -> Result<()> {
             ));
         }
     }
+    reject_per_line_stdin_config(line_no, raw, cmd)?;
     reject_per_line_tracing(line_no, raw, cmd)?;
+    Ok(())
+}
+
+/// The `put-bucket-*` family of subcommands takes a positional argument that
+/// is either a file path or `-` to read the configuration JSON from stdin.
+/// Inside batch-run, stdin (or the script file) is consumed by batch-run
+/// itself, so `-` would clash with the script reader. Reject those lines at
+/// validate time.
+fn reject_per_line_stdin_config(line_no: usize, raw: &str, cmd: &Cmd) -> Result<()> {
+    let stdin_arg = match cmd {
+        Cmd::PutBucketPolicy(a) => a.policy.as_deref(),
+        Cmd::PutBucketLifecycleConfiguration(a) => a.lifecycle_configuration.as_deref(),
+        Cmd::PutBucketEncryption(a) => a.server_side_encryption_configuration.as_deref(),
+        Cmd::PutBucketCors(a) => a.cors_configuration.as_deref(),
+        Cmd::PutPublicAccessBlock(a) => a.public_access_block_configuration.as_deref(),
+        Cmd::PutBucketWebsite(a) => a.website_configuration.as_deref(),
+        Cmd::PutBucketLogging(a) => a.bucket_logging_status.as_deref(),
+        Cmd::PutBucketNotificationConfiguration(a) => a.notification_configuration.as_deref(),
+        _ => return Ok(()),
+    };
+    if stdin_arg == Some("-") {
+        return Err(anyhow!(
+            "line {line_no}: stdin/stdout transfers are not allowed inside batch-run\n  > {raw}"
+        ));
+    }
     Ok(())
 }
 
@@ -224,6 +250,46 @@ mod tests {
         let cmd = parse_cmd(&["s7cmd", "cp", "--json-tracing", "s3://b/a", "s3://b/b"]);
         let err = validate(2, "cp --json-tracing s3://b/a s3://b/b", &cmd).unwrap_err();
         assert!(err.to_string().contains("tracing flags"));
+    }
+
+    /// Helper: parse argv, run `validate`, and assert the error mentions the
+    /// stdin/stdout-transfers rule.
+    fn assert_rejects_stdin_dash(argv: &[&str]) {
+        let cmd = parse_cmd(argv);
+        let raw = argv[1..].join(" ");
+        let err = validate(1, &raw, &cmd).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("stdin/stdout"),
+            "expected stdin/stdout error for argv {argv:?}, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn rejects_put_bucket_commands_reading_stdin_dash() {
+        // Each of these put-bucket-* commands takes a positional file path
+        // (or `-` for stdin). In batch-run, stdin is the script source, so
+        // `-` would clash. Reject at validate time.
+        let cases = [
+            "put-bucket-policy",
+            "put-bucket-lifecycle-configuration",
+            "put-bucket-encryption",
+            "put-bucket-cors",
+            "put-public-access-block",
+            "put-bucket-website",
+            "put-bucket-logging",
+            "put-bucket-notification-configuration",
+        ];
+        for sub in cases {
+            assert_rejects_stdin_dash(&["s7cmd", sub, "s3://b", "-"]);
+        }
+    }
+
+    #[test]
+    fn allows_put_bucket_policy_with_file_path() {
+        // A regular file path positional must still pass validation.
+        let cmd = parse_cmd(&["s7cmd", "put-bucket-policy", "s3://b", "/tmp/policy.json"]);
+        validate(1, "put-bucket-policy s3://b /tmp/policy.json", &cmd).unwrap();
     }
 
     #[test]
