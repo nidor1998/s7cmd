@@ -787,3 +787,187 @@ async fn batch_run_e2e_100_objects_parallel3() {
     helper.delete_bucket_with_cascade(&bucket).await;
     let _ = std::fs::remove_dir_all(&local_dir);
 }
+
+// ---- All-subcommands smoke test ----
+//
+// One large script that exercises every batch-run-able subcommand
+// end-to-end against real AWS. Read from a file with `--parallel 1`,
+// asserts only that the process exits 0 (per the user's "doesn't fail"
+// requirement). Bucket-level configurations (lifecycle, encryption,
+// CORS, public-access-block, website, logging, notification, policy)
+// reuse the JSON shapes from the per-config e2e files. Order matters:
+// put-bucket-policy lands before put-public-access-block, and the
+// teardown deletes them in the reverse-of-create order so each
+// subcommand operates on the state it expects.
+
+fn sample_cors_json_inline() -> &'static str {
+    r#"{"CORSRules":[{"ID":"r1","AllowedMethods":["GET","HEAD"],"AllowedOrigins":["*"],"AllowedHeaders":["*"],"MaxAgeSeconds":3000}]}"#
+}
+
+fn sample_encryption_json_inline() -> &'static str {
+    r#"{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}"#
+}
+
+fn sample_lifecycle_json_inline() -> &'static str {
+    r#"{"Rules":[{"ID":"r1","Status":"Enabled","Filter":{"Prefix":"logs/"},"Expiration":{"Days":365}}]}"#
+}
+
+fn sample_pab_json_inline() -> &'static str {
+    r#"{"BlockPublicAcls":true,"IgnorePublicAcls":true,"BlockPublicPolicy":true,"RestrictPublicBuckets":true}"#
+}
+
+fn sample_website_json_inline() -> &'static str {
+    r#"{"IndexDocument":{"Suffix":"index.html"}}"#
+}
+
+fn sample_policy_inline(bucket: &str) -> String {
+    format!(
+        r#"{{"Version":"2012-10-17","Statement":[{{"Sid":"DenyInsecureConnections","Effect":"Deny","Principal":"*","Action":"s3:*","Resource":["arn:aws:s3:::{bucket}","arn:aws:s3:::{bucket}/*"],"Condition":{{"Bool":{{"aws:SecureTransport":"false"}}}}}}]}}"#,
+    )
+}
+
+/// Smoke-test that every batch-run-able subcommand dispatches successfully
+/// from a single script. Reads from a file (positional `<FILE>` form),
+/// `--parallel 1`. Verifies process exit 0; the script's `delete-bucket`
+/// line is the last statement, so a 0 exit implies every step succeeded
+/// against real AWS.
+#[tokio::test]
+async fn batch_run_e2e_all_subcommands_via_file() {
+    let helper = TestHelper::new().await;
+    let bucket = generate_bucket_name();
+
+    let local_dir = create_temp_dir();
+    let payload = create_test_file(&local_dir, "payload.txt", b"hello all-subcommands");
+
+    // Sync source dir with two small files.
+    let sync_src = local_dir.join("sync-src");
+    std::fs::create_dir_all(&sync_src).expect("create sync-src");
+    create_test_file(&sync_src, "a.txt", b"a");
+    create_test_file(&sync_src, "b.txt", b"b");
+
+    // Bucket-level configuration JSON files.
+    let policy_path = create_test_file(
+        &local_dir,
+        "policy.json",
+        sample_policy_inline(&bucket).as_bytes(),
+    );
+    let lifecycle_path = create_test_file(
+        &local_dir,
+        "lifecycle.json",
+        sample_lifecycle_json_inline().as_bytes(),
+    );
+    let encryption_path = create_test_file(
+        &local_dir,
+        "encryption.json",
+        sample_encryption_json_inline().as_bytes(),
+    );
+    let cors_path = create_test_file(
+        &local_dir,
+        "cors.json",
+        sample_cors_json_inline().as_bytes(),
+    );
+    let pab_path = create_test_file(&local_dir, "pab.json", sample_pab_json_inline().as_bytes());
+    let website_path = create_test_file(
+        &local_dir,
+        "website.json",
+        sample_website_json_inline().as_bytes(),
+    );
+    // Empty `{}` is a valid no-op for both put-bucket-logging (disables
+    // logging) and put-bucket-notification-configuration (removes all
+    // notifications). Per s7cmd's help text, neither subcommand has a
+    // delete-* counterpart.
+    let logging_path = create_test_file(&local_dir, "logging.json", b"{}");
+    let notification_path = create_test_file(&local_dir, "notification.json", b"{}");
+
+    // Per-line auth flags. Most subcommands take target-only; mv
+    // s3://X → s3://X needs both source and target pairs.
+    let auth_target = format!("--target-profile s7cmd-e2e-test --target-region {REGION}");
+    let auth_both = format!(
+        "--source-profile s7cmd-e2e-test --source-region {REGION} \
+         --target-profile s7cmd-e2e-test --target-region {REGION}"
+    );
+
+    let payload_p = payload.to_str().unwrap();
+    let sync_p = sync_src.to_str().unwrap();
+    let policy_p = policy_path.to_str().unwrap();
+    let lifecycle_p = lifecycle_path.to_str().unwrap();
+    let encryption_p = encryption_path.to_str().unwrap();
+    let cors_p = cors_path.to_str().unwrap();
+    let pab_p = pab_path.to_str().unwrap();
+    let website_p = website_path.to_str().unwrap();
+    let logging_p = logging_path.to_str().unwrap();
+    let notification_p = notification_path.to_str().unwrap();
+
+    let script = format!(
+        "\
+# ---- create + configure ----
+create-bucket {auth_target} s3://{bucket}
+put-bucket-tagging {auth_target} --tagging \"team=data\" s3://{bucket}
+put-bucket-policy {auth_target} s3://{bucket} {policy_p}
+put-bucket-versioning {auth_target} --suspended s3://{bucket}
+put-bucket-lifecycle-configuration {auth_target} s3://{bucket} {lifecycle_p}
+put-bucket-encryption {auth_target} s3://{bucket} {encryption_p}
+put-bucket-cors {auth_target} s3://{bucket} {cors_p}
+put-public-access-block {auth_target} s3://{bucket} {pab_p}
+put-bucket-website {auth_target} s3://{bucket} {website_p}
+put-bucket-logging {auth_target} s3://{bucket} {logging_p}
+put-bucket-notification-configuration {auth_target} s3://{bucket} {notification_p}
+
+# ---- read everything back ----
+head-bucket {auth_target} s3://{bucket}
+get-bucket-tagging {auth_target} s3://{bucket}
+get-bucket-policy {auth_target} s3://{bucket}
+get-bucket-versioning {auth_target} s3://{bucket}
+get-bucket-lifecycle-configuration {auth_target} s3://{bucket}
+get-bucket-encryption {auth_target} s3://{bucket}
+get-bucket-cors {auth_target} s3://{bucket}
+get-public-access-block {auth_target} s3://{bucket}
+get-bucket-website {auth_target} s3://{bucket}
+get-bucket-logging {auth_target} s3://{bucket}
+get-bucket-notification-configuration {auth_target} s3://{bucket}
+
+# ---- object operations ----
+cp {auth_target} {payload_p} s3://{bucket}/object1
+head-object {auth_target} s3://{bucket}/object1
+put-object-tagging {auth_target} --tagging \"k=v\" s3://{bucket}/object1
+get-object-tagging {auth_target} s3://{bucket}/object1
+delete-object-tagging {auth_target} s3://{bucket}/object1
+ls {auth_target} s3://{bucket}
+sync {auth_target} {sync_p} s3://{bucket}/synced/
+mv {auth_both} s3://{bucket}/object1 s3://{bucket}/object1-moved
+rm {auth_target} s3://{bucket}/object1-moved
+clean --force {auth_target} s3://{bucket}
+
+# ---- tear down configuration ----
+delete-bucket-policy {auth_target} s3://{bucket}
+delete-public-access-block {auth_target} s3://{bucket}
+delete-bucket-tagging {auth_target} s3://{bucket}
+delete-bucket-lifecycle-configuration {auth_target} s3://{bucket}
+delete-bucket-encryption {auth_target} s3://{bucket}
+delete-bucket-cors {auth_target} s3://{bucket}
+delete-bucket-website {auth_target} s3://{bucket}
+
+# ---- final teardown ----
+delete-bucket {auth_target} s3://{bucket}
+"
+    );
+    let script_path = create_test_file(&local_dir, "script.txt", script.as_bytes());
+
+    let (code, _stdout, stderr) = run(s7cmd_cmd().args([
+        "batch-run",
+        "--parallel",
+        "1",
+        script_path.to_str().unwrap(),
+    ]));
+
+    assert_eq!(
+        code,
+        Some(0),
+        "all-subcommands script must exit 0; stderr={stderr}"
+    );
+
+    // Defensive cleanup in case any line failed before the final
+    // delete-bucket. delete_bucket_with_cascade is idempotent.
+    helper.delete_bucket_with_cascade(&bucket).await;
+    let _ = std::fs::remove_dir_all(&local_dir);
+}
