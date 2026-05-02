@@ -2862,9 +2862,9 @@ dependencies = [
 
 [[package]]
 name = "s3rm-rs"
-version = "1.3.5"
+version = "1.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce8689bb40190aa972bb7006a34eff61c2b7353b472936b44d2e3ec075d77c71"
+checksum = "d087bd242c7986a9c1a5077bccbba0e75d3919e94358e2a4e8f9a78dad2babf1"
 dependencies = [
  "anyhow",
  "async-channel",
