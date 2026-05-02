@@ -48,15 +48,21 @@ pub fn init_tracing(config: &TracingConfig) {
 
     let mut show_target = true;
     let tracing_level = config.tracing_level;
+    // batch-run installs this subscriber once at the top, then per-line
+    // dispatch into clean / ls / sync no-ops (try_init is already set).
+    // The filter must therefore include every subcommand crate's target,
+    // or per-line INFO events from those crates would be dropped.
     let event_filter = if config.aws_sdk_tracing {
         format!(
-            "s7cmd={tracing_level},s3util={tracing_level},s3util_rs={tracing_level},aws_smithy_runtime={tracing_level},aws_config={tracing_level},aws_sigv4={tracing_level}"
+            "s7cmd={tracing_level},s3util={tracing_level},s3util_rs={tracing_level},s3rm={tracing_level},s3rm_rs={tracing_level},s3ls={tracing_level},s3ls_rs={tracing_level},s3sync={tracing_level},aws_smithy_runtime={tracing_level},aws_config={tracing_level},aws_sigv4={tracing_level}"
         )
     } else if env::var(EVENT_FILTER_ENV_VAR).is_ok() {
         env::var(EVENT_FILTER_ENV_VAR).unwrap()
     } else {
         show_target = false;
-        format!("s7cmd={tracing_level},s3util={tracing_level},s3util_rs={tracing_level}")
+        format!(
+            "s7cmd={tracing_level},s3util={tracing_level},s3util_rs={tracing_level},s3rm={tracing_level},s3rm_rs={tracing_level},s3ls={tracing_level},s3ls_rs={tracing_level},s3sync={tracing_level}"
+        )
     };
 
     let subscriber_builder = subscriber_builder
@@ -101,13 +107,15 @@ mod tests {
         let tracing_level = config.tracing_level;
         let event_filter = if config.aws_sdk_tracing {
             format!(
-                "s7cmd={tracing_level},s3util={tracing_level},s3util_rs={tracing_level},aws_smithy_runtime={tracing_level},aws_config={tracing_level},aws_sigv4={tracing_level}"
+                "s7cmd={tracing_level},s3util={tracing_level},s3util_rs={tracing_level},s3rm={tracing_level},s3rm_rs={tracing_level},s3ls={tracing_level},s3ls_rs={tracing_level},s3sync={tracing_level},aws_smithy_runtime={tracing_level},aws_config={tracing_level},aws_sigv4={tracing_level}"
             )
         } else if std::env::var(EVENT_FILTER_ENV_VAR).is_ok() {
             std::env::var(EVENT_FILTER_ENV_VAR).unwrap()
         } else {
             show_target = false;
-            format!("s7cmd={tracing_level},s3util={tracing_level},s3util_rs={tracing_level}")
+            format!(
+                "s7cmd={tracing_level},s3util={tracing_level},s3util_rs={tracing_level},s3rm={tracing_level},s3rm_rs={tracing_level},s3ls={tracing_level},s3ls_rs={tracing_level},s3sync={tracing_level}"
+            )
         };
 
         let subscriber_builder = subscriber_builder
