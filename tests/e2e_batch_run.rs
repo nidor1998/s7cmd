@@ -20,6 +20,18 @@ use common::{
     REGION, TestHelper, create_temp_dir, create_test_file, generate_bucket_name, run, s7cmd_cmd,
 };
 use predicates::prelude::*;
+use std::path::Path;
+
+/// Convert a local path to a form safe to embed in a batch-run script.
+/// `batch-run` tokenizes lines with POSIX shlex, which treats `\` as an
+/// escape character — so a Windows path like `tmp_xxx\payload.txt` would
+/// be reduced to `tmp_xxxpayload.txt` and the file would not be found.
+/// Forward slashes are accepted by Windows filesystem APIs and have no
+/// special meaning in shlex, so converting on the way in is the simplest
+/// portable fix.
+fn shell_path(p: &Path) -> String {
+    p.to_str().unwrap().replace('\\', "/")
+}
 
 /// Test #1 — mixed-subcommand happy path.
 ///
@@ -44,7 +56,7 @@ async fn batch_run_e2e_mixed_workflow_succeeds() {
          head-object --target-profile s7cmd-e2e-test --target-region {REGION} {key_url}\n\
          clean --force --target-profile s7cmd-e2e-test --target-region {REGION} {bucket_url}\n\
          delete-bucket --target-profile s7cmd-e2e-test --target-region {REGION} {bucket_url}\n",
-        local = local_file.to_str().unwrap(),
+        local = shell_path(&local_file),
     );
 
     let assert = AssertCommand::cargo_bin("s7cmd")
@@ -89,7 +101,7 @@ async fn batch_run_e2e_reads_from_file() {
          head-object --target-profile s7cmd-e2e-test --target-region {REGION} {key_url}\n\
          clean --force --target-profile s7cmd-e2e-test --target-region {REGION} {bucket_url}\n\
          delete-bucket --target-profile s7cmd-e2e-test --target-region {REGION} {bucket_url}\n",
-        local = local_file.to_str().unwrap(),
+        local = shell_path(&local_file),
     );
     let script_path = create_test_file(&local_dir, "script.txt", script_body.as_bytes());
 
@@ -206,7 +218,7 @@ async fn batch_run_e2e_default_fails_fast_on_aws_error() {
         "cp --target-profile s7cmd-e2e-test --target-region {REGION} {local} \
          s3://{missing}/key\n\
          create-bucket --target-profile s7cmd-e2e-test --target-region {REGION} s3://{real}\n",
-        local = local_file.to_str().unwrap(),
+        local = shell_path(&local_file),
     );
 
     let assert = AssertCommand::cargo_bin("s7cmd")
@@ -249,7 +261,7 @@ async fn batch_run_e2e_continue_on_error_runs_all_lines() {
          s3://{missing_b}/key\n\
          create-bucket --target-profile s7cmd-e2e-test --target-region {REGION} s3://{real}\n\
          delete-bucket --target-profile s7cmd-e2e-test --target-region {REGION} s3://{real}\n",
-        local = local_file.to_str().unwrap(),
+        local = shell_path(&local_file),
     );
 
     let assert = AssertCommand::cargo_bin("s7cmd")
@@ -293,7 +305,7 @@ async fn batch_run_e2e_max_errors_two_stops_after_second_failure() {
          cp --target-profile s7cmd-e2e-test --target-region {REGION} {local} \
          s3://{missing_c}/key\n\
          create-bucket --target-profile s7cmd-e2e-test --target-region {REGION} s3://{real}\n",
-        local = local_file.to_str().unwrap(),
+        local = shell_path(&local_file),
     );
 
     let assert = AssertCommand::cargo_bin("s7cmd")
@@ -335,7 +347,7 @@ async fn batch_run_e2e_continue_on_warning_past_not_found() {
          s3://{bucket}/real-key\n\
          head-object --target-profile s7cmd-e2e-test --target-region {REGION} \
          s3://{bucket}/real-key\n",
-        local = local_file.to_str().unwrap(),
+        local = shell_path(&local_file),
     );
 
     let assert = AssertCommand::cargo_bin("s7cmd")
@@ -383,7 +395,7 @@ async fn batch_run_e2e_exit_code_is_worst_of() {
          s3://{bucket}/missing-key\n\
          cp --target-profile s7cmd-e2e-test --target-region {REGION} {local} \
          s3://{missing_bucket}/key\n",
-        local = local_file.to_str().unwrap(),
+        local = shell_path(&local_file),
     );
 
     let assert = AssertCommand::cargo_bin("s7cmd")
@@ -419,7 +431,7 @@ async fn batch_run_e2e_malformed_policy_failure_propagates() {
         "put-bucket-policy --target-profile s7cmd-e2e-test --target-region {REGION} \
          s3://{bucket} {policy}\n\
          delete-bucket --target-profile s7cmd-e2e-test --target-region {REGION} s3://{bucket}\n",
-        policy = policy_path.to_str().unwrap(),
+        policy = shell_path(&policy_path),
     );
 
     let assert = AssertCommand::cargo_bin("s7cmd")
@@ -473,7 +485,7 @@ async fn batch_run_e2e_json_tracing_summary_object() {
         "head-bucket --target-profile s7cmd-e2e-test --target-region {REGION} s3://{bucket}\n\
          cp --target-profile s7cmd-e2e-test --target-region {REGION} {local} \
          s3://{missing}/key\n",
-        local = local_file.to_str().unwrap(),
+        local = shell_path(&local_file),
     );
 
     let output = AssertCommand::cargo_bin("s7cmd")
@@ -558,7 +570,7 @@ async fn batch_run_e2e_sigint_marks_in_flight_skipped() {
     let script = format!(
         "cp --target-profile s7cmd-e2e-test --target-region {REGION} {p} s3://{bucket}/key1\n\
          cp --target-profile s7cmd-e2e-test --target-region {REGION} {p} s3://{bucket}/key2\n",
-        p = payload.to_str().unwrap(),
+        p = shell_path(&payload),
     );
 
     let mut child = s7cmd_cmd()
@@ -688,7 +700,7 @@ async fn batch_run_e2e_100_objects_via_file() {
 
     let local_dir = create_temp_dir();
     let payload = create_test_file(&local_dir, "payload.txt", b"x");
-    let script_body = build_100_object_script(&bucket, payload.to_str().unwrap());
+    let script_body = build_100_object_script(&bucket, &shell_path(&payload));
     let script_path = create_test_file(&local_dir, "script.txt", script_body.as_bytes());
 
     let (code, _stdout, stderr) =
@@ -715,7 +727,7 @@ async fn batch_run_e2e_100_objects_via_stdin() {
 
     let local_dir = create_temp_dir();
     let payload = create_test_file(&local_dir, "payload.txt", b"x");
-    let script = build_100_object_script(&bucket, payload.to_str().unwrap());
+    let script = build_100_object_script(&bucket, &shell_path(&payload));
 
     AssertCommand::cargo_bin("s7cmd")
         .unwrap()
@@ -742,7 +754,7 @@ async fn batch_run_e2e_100_objects_streaming() {
 
     let local_dir = create_temp_dir();
     let payload = create_test_file(&local_dir, "payload.txt", b"x");
-    let script = build_100_object_script(&bucket, payload.to_str().unwrap());
+    let script = build_100_object_script(&bucket, &shell_path(&payload));
 
     AssertCommand::cargo_bin("s7cmd")
         .unwrap()
@@ -770,7 +782,7 @@ async fn batch_run_e2e_100_objects_parallel3() {
 
     let local_dir = create_temp_dir();
     let payload = create_test_file(&local_dir, "payload.txt", b"x");
-    let script = build_100_object_script(&bucket, payload.to_str().unwrap());
+    let script = build_100_object_script(&bucket, &shell_path(&payload));
 
     AssertCommand::cargo_bin("s7cmd")
         .unwrap()
@@ -887,16 +899,16 @@ async fn batch_run_e2e_all_subcommands_via_file() {
          --target-profile s7cmd-e2e-test --target-region {REGION}"
     );
 
-    let payload_p = payload.to_str().unwrap();
-    let sync_p = sync_src.to_str().unwrap();
-    let policy_p = policy_path.to_str().unwrap();
-    let lifecycle_p = lifecycle_path.to_str().unwrap();
-    let encryption_p = encryption_path.to_str().unwrap();
-    let cors_p = cors_path.to_str().unwrap();
-    let pab_p = pab_path.to_str().unwrap();
-    let website_p = website_path.to_str().unwrap();
-    let logging_p = logging_path.to_str().unwrap();
-    let notification_p = notification_path.to_str().unwrap();
+    let payload_p = shell_path(&payload);
+    let sync_p = shell_path(&sync_src);
+    let policy_p = shell_path(&policy_path);
+    let lifecycle_p = shell_path(&lifecycle_path);
+    let encryption_p = shell_path(&encryption_path);
+    let cors_p = shell_path(&cors_path);
+    let pab_p = shell_path(&pab_path);
+    let website_p = shell_path(&website_path);
+    let logging_p = shell_path(&logging_path);
+    let notification_p = shell_path(&notification_path);
 
     // NOTE: `put-bucket-versioning --suspended` is intentionally placed
     // AFTER every DELETE-class object operation. On a Suspended bucket,
