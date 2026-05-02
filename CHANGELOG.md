@@ -25,11 +25,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     arguments) count the same as runtime failures, so
     `--max-errors 5` tolerates up to 5 broken lines anywhere.
 
-  The final exit code is the worst seen across the whole batch. A
-  trailing summary `N succeeded, N failed, N warnings, N skipped,
-  elapsed Ts` is written to stderr; suppress with `--no-summary`,
-  or pass `--json-tracing` to emit it as a single-line JSON object
-  instead.
+  The final exit code is the worst seen across the whole batch,
+  ranked by severity (`1` > `2` > `3` > `4` > any other non-zero >
+  `0`) rather than by numeric value, so an actionable error always
+  wins over a SIGINT skip or a "not found". A trailing summary
+  `N succeeded, N failed, N warnings, N skipped, elapsed Ts` is
+  written to stderr; suppress with `--no-summary`, or pass
+  `--json-tracing` to emit it as a single-line JSON object instead.
 - **Live progress bar in `batch-run`** drawn on TTY stderr in
   read-all mode while the run is in progress. Suppress with
   `--no-progress` (useful inside terminal multiplexers, `script(1)`,

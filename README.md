@@ -319,7 +319,11 @@ recorded — in-flight commands complete). Pass
 according to `--max-errors` (or the default first-failure stop).
 `--continue-on-error` is mutually exclusive with both
 `--max-errors` and `--continue-on-warning`. The process exit code
-is the worst (highest) seen across all executed commands.
+is the worst seen across all executed commands, ranked by severity
+rather than numeric value: `1` (error) > `2` (invalid args) > `3`
+(warning) > `4` (not found) > any other non-zero (e.g. `130`
+SIGINT) > `0`. So a run mixing exit `1` and exit `130` exits `1`,
+not `130`.
 
 Lines that can't be parsed or validated (quoting errors, unknown
 subcommands, missing or invalid arguments, empty commands) count as

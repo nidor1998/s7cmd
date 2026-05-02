@@ -370,10 +370,11 @@ async fn batch_run_e2e_continue_on_warning_past_not_found() {
 }
 
 /// Test #9 — pin the worst-of rule: exit codes (0, 4, 1) yield process
-/// exit 4 (numeric max, not "1 wins because it's an error"). With just
-/// `--continue-on-error` all three lines dispatch (the flag continues
-/// past warnings AND errors; it is mutually exclusive with
-/// `--continue-on-warning` at the clap level).
+/// exit 1. The worst-of is severity-ranked (1 > 2 > 3 > 4 > anything
+/// else > 0), not numeric `max`, so the actionable error outranks the
+/// "not found" warning. With just `--continue-on-error` all three lines
+/// dispatch (the flag continues past warnings AND errors; it is
+/// mutually exclusive with `--continue-on-warning` at the clap level).
 #[tokio::test]
 async fn batch_run_e2e_exit_code_is_worst_of() {
     let helper = TestHelper::new().await;
@@ -404,7 +405,7 @@ async fn batch_run_e2e_exit_code_is_worst_of() {
         .write_stdin(script)
         .assert();
 
-    assert.failure().code(4).stderr(predicate::str::contains(
+    assert.failure().code(1).stderr(predicate::str::contains(
         "1 succeeded, 1 failed, 1 warnings, 0 skipped",
     ));
 

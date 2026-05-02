@@ -141,6 +141,33 @@ fn is_stop_worthy(code: i32, continue_on_warning: bool) -> bool {
     }
 }
 
+/// Severity ranking for picking the "worst" exit code across a batch
+/// run. Higher = worse. Numeric `>` on the raw codes is wrong because
+/// 130 (SIGINT) and 4 (not found) would outrank 1 (general error),
+/// which is the most actionable failure. Ordering: 1 > 2 > 3 > 4 >
+/// any other non-zero (101, 130, …) > 0.
+fn severity_rank(code: i32) -> u32 {
+    match code {
+        0 => 0,
+        1 => 5,
+        2 => 4,
+        3 => 3,
+        4 => 2,
+        _ => 1,
+    }
+}
+
+/// Returns whichever of `a` / `b` ranks higher by `severity_rank`.
+/// Ties keep `a` (the existing accumulator), so callers can write
+/// `worst = worse_of(worst, code)` without surprises.
+fn worse_of(a: i32, b: i32) -> i32 {
+    if severity_rank(b) > severity_rank(a) {
+        b
+    } else {
+        a
+    }
+}
+
 /// Shared interrupt flag. Set by the SIGINT handler installed in
 /// `batch_run::run`; checked by both executors to stop spawning new
 /// commands. Per-subcommand cancellation tokens (registered inside
@@ -179,9 +206,7 @@ pub async fn run_sequential(
         let (_, code) = execute_line(line, &dispatch).await;
         progress.tick(code);
         summary.record(code);
-        if code > worst {
-            worst = code;
-        }
+        worst = worse_of(worst, code);
         if is_stop_worthy(code, opts.continue_on_warning) {
             fail_count += 1;
             if opts.error_threshold.is_some_and(|t| fail_count >= t) {
@@ -265,14 +290,12 @@ pub async fn run_parallel(
                 match joined {
                     Ok((_, code)) => {
                         summary.record(code);
-                        if code > worst {
-                            worst = code;
-                        }
+                        worst = worse_of(worst, code);
                     }
                     Err(e) => {
                         tracing::error!(error = format!("{e:#}"), "task panicked");
                         summary.record(1);
-                        worst = worst.max(1);
+                        worst = worse_of(worst, 1);
                     }
                 }
             }
@@ -325,9 +348,7 @@ pub async fn run_sequential_streaming(
         let (_, code) = execute_line(line, &dispatch).await;
         progress.tick(code);
         summary.record(code);
-        if code > worst {
-            worst = code;
-        }
+        worst = worse_of(worst, code);
         if is_stop_worthy(code, opts.continue_on_warning) {
             fail_count += 1;
             if opts.error_threshold.is_some_and(|t| fail_count >= t) {
@@ -421,14 +442,12 @@ pub async fn run_parallel_streaming(
                 match joined {
                     Ok((_, code)) => {
                         summary.record(code);
-                        if code > worst {
-                            worst = code;
-                        }
+                        worst = worse_of(worst, code);
                     }
                     Err(e) => {
                         tracing::error!(error = format!("{e:#}"), "task panicked");
                         summary.record(1);
-                        worst = worst.max(1);
+                        worst = worse_of(worst, 1);
                     }
                 }
             }
@@ -612,7 +631,7 @@ mod tests {
             no_interrupt(),
         )
         .await;
-        assert_eq!(code, 4);
+        assert_eq!(code, 1); // exit 1 outranks exit 4 by severity
         assert_eq!(summary.ok, 2);
         assert_eq!(summary.failed, 1); // exit 1
         assert_eq!(summary.warning, 1); // exit 4
@@ -679,6 +698,26 @@ mod tests {
         assert_eq!(resolve_workers(8), 8);
     }
 
+    #[test]
+    fn worse_of_orders_codes_by_severity_not_numeric_value() {
+        // 1 is the most severe outcome.
+        assert_eq!(worse_of(0, 1), 1);
+        assert_eq!(worse_of(1, 130), 1);
+        assert_eq!(worse_of(130, 1), 1);
+        assert_eq!(worse_of(1, 4), 1);
+        assert_eq!(worse_of(4, 1), 1);
+        // 1 > 2 > 3 > 4.
+        assert_eq!(worse_of(2, 4), 2);
+        assert_eq!(worse_of(3, 4), 3);
+        // Any other non-zero (e.g. 130, 101) outranks success but not 1-4.
+        assert_eq!(worse_of(0, 130), 130);
+        assert_eq!(worse_of(4, 130), 4);
+        assert_eq!(worse_of(101, 4), 4);
+        // Identity / ties keep the accumulator (left arg).
+        assert_eq!(worse_of(0, 0), 0);
+        assert_eq!(worse_of(1, 1), 1);
+    }
+
     // ---- streaming variants ----
 
     #[tokio::test]
@@ -735,7 +774,7 @@ mod tests {
             no_interrupt(),
         )
         .await;
-        assert_eq!(code, 4);
+        assert_eq!(code, 1); // exit 1 outranks exit 4 by severity
         assert_eq!(summary.ok, 2);
         assert_eq!(summary.failed, 1); // exit 1
         assert_eq!(summary.warning, 1); // exit 4
@@ -920,7 +959,8 @@ mod tests {
 
     /// `--continue-on-warning` with default threshold (`Some(1)`):
     /// warnings (3, 4) are skipped over and the run completes; the worst
-    /// exit code is still propagated.
+    /// exit code is still propagated. Severity ranks 3 above 4, so the
+    /// worst surfaced is 3.
     #[tokio::test]
     async fn sequential_continue_on_warning_skips_warnings() {
         let lines = make_lines(4);
@@ -931,7 +971,7 @@ mod tests {
             no_interrupt(),
         )
         .await;
-        assert_eq!(code, 4); // worst exit code surfaces
+        assert_eq!(code, 3); // worst exit code surfaces (3 outranks 4)
         assert_eq!(summary.ok, 2);
         assert_eq!(summary.warning, 2); // exits 3 and 4
         assert_eq!(summary.failed, 0);
@@ -951,7 +991,7 @@ mod tests {
             no_interrupt(),
         )
         .await;
-        assert_eq!(code, 4); // worst is 4, not 1, since 4 > 1
+        assert_eq!(code, 1); // exit 1 outranks the warnings (severity rule)
         assert_eq!(summary.ok, 0);
         assert_eq!(summary.warning, 2); // exits 3 and 4
         assert_eq!(summary.failed, 1); // exit 1
@@ -970,7 +1010,7 @@ mod tests {
             no_interrupt(),
         )
         .await;
-        assert_eq!(code, 4);
+        assert_eq!(code, 1); // exit 1 is the highest-severity outcome
         assert_eq!(summary.failed, 2); // exits 1, 1
         assert_eq!(summary.warning, 2); // exits 3, 4
         assert_eq!(summary.skipped, 2); // lines 5 and 6 skipped after second failure
@@ -991,7 +1031,7 @@ mod tests {
             no_interrupt(),
         )
         .await;
-        assert_eq!(code, 4);
+        assert_eq!(code, 3);
         assert_eq!(summary.ok, 2);
         assert_eq!(summary.warning, 2);
         assert_eq!(summary.failed, 0);
@@ -1010,7 +1050,7 @@ mod tests {
             no_interrupt(),
         )
         .await;
-        assert_eq!(code, 4);
+        assert_eq!(code, 3);
         // No spawn-loop stop expected: nothing skipped.
         assert_eq!(summary.skipped, 0);
         assert_eq!(summary.warning, 3); // exits 3, 4, 3
@@ -1032,7 +1072,7 @@ mod tests {
             no_interrupt(),
         )
         .await;
-        assert_eq!(code, 4);
+        assert_eq!(code, 3);
         assert_eq!(summary.skipped, 0);
         assert_eq!(summary.warning, 3);
         assert_eq!(summary.failed, 0);
@@ -1124,9 +1164,10 @@ mod tests {
     //
     // Per-line exit 130 (returned by per-subcommand cancellation
     // handlers when the user hits Ctrl-C) is bucketed as `skipped`,
-    // not `failed`, and does NOT count toward `--max-errors`. The
-    // overall `worst` exit code still surfaces 130 so the process
-    // exit reflects the SIGINT.
+    // not `failed`, and does NOT count toward `--max-errors`. When
+    // 130 is the only non-zero outcome the process exit surfaces 130;
+    // when a real failure is also present, severity ranking puts the
+    // failure ahead of the SIGINT.
 
     #[tokio::test]
     async fn sequential_exit_130_buckets_as_skipped_and_does_not_trip_threshold() {
@@ -1178,7 +1219,7 @@ mod tests {
             no_interrupt(),
         )
         .await;
-        assert_eq!(code, 130); // worst: max(130, 1) = 130
+        assert_eq!(code, 1); // exit 1 outranks 130 by severity
         assert_eq!(summary.ok, 0);
         assert_eq!(summary.failed, 1); // line 2
         assert_eq!(summary.skipped, 1 + 3); // line 1 (130) + lines 3,4,5 (never run)
