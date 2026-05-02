@@ -194,15 +194,19 @@ pub struct BatchRunArgs {
     // Tracing flags — same names as every other subcommand's tracing
     // block. AWS auth/endpoint flags are intentionally NOT included
     // (each per-line subcommand brings its own).
+    /// Show trace as json format.
     #[arg(long, default_value_t = false, help_heading = "Tracing/Logging")]
     pub json_tracing: bool,
 
+    /// Enable aws sdk tracing.
     #[arg(long, default_value_t = false, help_heading = "Tracing/Logging")]
     pub aws_sdk_tracing: bool,
 
+    /// Show span event tracing.
     #[arg(long, default_value_t = false, help_heading = "Tracing/Logging")]
     pub span_events_tracing: bool,
 
+    /// Disable ANSI terminal colors.
     #[arg(long, default_value_t = false, help_heading = "Tracing/Logging")]
     pub disable_color_tracing: bool,
 
