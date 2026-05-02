@@ -772,6 +772,36 @@ async fn batch_run_e2e_100_objects_streaming() {
     let _ = std::fs::remove_dir_all(&local_dir);
 }
 
+/// 100 objects via a script file with `--streaming` (executes lines as
+/// read; the file is the source rather than stdin). Covers the
+/// `--streaming <FILE>` combination that the per-mode tests above leave
+/// unexercised at the dispatch level.
+#[tokio::test]
+async fn batch_run_e2e_100_objects_streaming_via_file() {
+    let helper = TestHelper::new().await;
+    let bucket = generate_bucket_name();
+    helper.create_bucket(&bucket, REGION).await;
+
+    let local_dir = create_temp_dir();
+    let payload = create_test_file(&local_dir, "payload.txt", b"x");
+    let script_body = build_100_object_script(&bucket, &shell_path(&payload));
+    let script_path = create_test_file(&local_dir, "script.txt", script_body.as_bytes());
+
+    let (code, _stdout, stderr) =
+        run(s7cmd_cmd().args(["batch-run", "--streaming", script_path.to_str().unwrap()]));
+
+    assert_eq!(code, Some(0), "expected exit 0; stderr={stderr}");
+    assert!(
+        stderr.contains("100 succeeded, 0 failed, 0 warnings, 0 skipped"),
+        "summary mismatch; stderr={stderr}"
+    );
+
+    verify_100_keys_present(&helper, &bucket).await;
+
+    helper.delete_bucket_with_cascade(&bucket).await;
+    let _ = std::fs::remove_dir_all(&local_dir);
+}
+
 /// 100 objects via stdin pipe with `--parallel 3` (3 concurrent dispatches;
 /// completion order is not preserved, but every key must land exactly once).
 #[tokio::test]
