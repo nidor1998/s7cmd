@@ -30,7 +30,7 @@ completeness: data engineering pipelines, ML training data
 preparation, multi-account bucket governance, and integrity-critical
 migrations.
 
-## Why s7cmd?
+## Features highlights
 
 - **Single binary, full coverage.** Object transfer, bulk delete, and
   every common bucket-level configuration in one tool.
