@@ -54,10 +54,11 @@ pub async fn run(args: BatchRunArgs) -> i32 {
 /// parsed because by the time we drain we've already decided to exit
 /// with an error.
 ///
-/// Skipped when the script source is `-` (we've already consumed
-/// stdin in the normal code path).
+/// Skipped when the script source is a file: stdin isn't the producer
+/// in that case, and a real `std::io::copy` would block on a stdin
+/// that happens to be connected to something (`< /dev/zero`, etc.).
 fn drain_stdin_on_error_exit(args: &BatchRunArgs) {
-    if args.script == "-" {
+    if args.script != "-" {
         return;
     }
     let _ = std::io::copy(&mut std::io::stdin().lock(), &mut std::io::sink());
