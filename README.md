@@ -134,6 +134,15 @@ regardless of demand:
   niche or one-off requirements that can be straightforwardly
   handled by combining the AWS SDK, shell pipelines, or existing
   tools fall outside its scope.
+- Changes to flag names, subcommand names, default values, output
+  formats, log formats, or exit code assignments based on subjective
+  preference. Such interfaces are stabilized once shipped; breaking
+  changes are made only when required by an underlying library, an
+  upstream SDK, or a clear correctness bug.
+- Additional platform targets, distribution channels, or package
+  manager registrations beyond those listed in Requirements and
+  Installation. Community-maintained packages are welcome but will
+  not be officially endorsed or supported.
 
 Issues and pull requests requesting any of the above will be closed.
 
@@ -508,6 +517,8 @@ No human wrote a single line of source code in this project. Every line of s7cmd
 Human verification is a permanent policy, not a one-time event applied only to the initial build. Human engineers authored the requirements, design specifications, and s3sync reference architecture, and continue to review and verify every change to the design, source code, and tests. Every release is manually tested by humans before it ships, and all E2E test scenarios are verified against live AWS S3. No AI-generated change is released without human review and testing — this applies equally to the initial build and to all future updates, including dependency bumps, bug fixes, and new features. The development follows a spec-driven process: requirements and design documents are written first, and the AI generates code to match those specifications under continuous human oversight.
 
 Every underlying library maintains 96%+ automated test coverage. This serves a dual purpose: it verifies that AI-generated code meets its specifications, and it ensures the project remains maintainable by hand — whether because AI tooling becomes unavailable, or because a future maintainer prefers to work without AI assistance. Combined with the modular library design and Apache-2.0 licensing, this means s7cmd can be safely forked and maintained without AI assistance if the need arises.
+
+Discussions about the legitimacy, licensing, or ethics of AI-generated code in general are out of scope for this issue tracker. Issues opened on those grounds — without a concrete, reproducible defect in s7cmd's behavior — will be closed.
 
 ## License
 
