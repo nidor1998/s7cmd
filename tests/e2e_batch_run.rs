@@ -42,7 +42,7 @@ async fn batch_run_e2e_mixed_workflow_succeeds() {
          --tagging \"team=data\" {bucket_url}\n\
          cp --target-profile s7cmd-e2e-test --target-region {REGION} {local} {key_url}\n\
          head-object --target-profile s7cmd-e2e-test --target-region {REGION} {key_url}\n\
-         clean --target-profile s7cmd-e2e-test --target-region {REGION} {bucket_url}\n\
+         clean --force --target-profile s7cmd-e2e-test --target-region {REGION} {bucket_url}\n\
          delete-bucket --target-profile s7cmd-e2e-test --target-region {REGION} {bucket_url}\n",
         local = local_file.to_str().unwrap(),
     );
@@ -87,7 +87,7 @@ async fn batch_run_e2e_reads_from_file() {
          --tagging \"team=data\" {bucket_url}\n\
          cp --target-profile s7cmd-e2e-test --target-region {REGION} {local} {key_url}\n\
          head-object --target-profile s7cmd-e2e-test --target-region {REGION} {key_url}\n\
-         clean --target-profile s7cmd-e2e-test --target-region {REGION} {bucket_url}\n\
+         clean --force --target-profile s7cmd-e2e-test --target-region {REGION} {bucket_url}\n\
          delete-bucket --target-profile s7cmd-e2e-test --target-region {REGION} {bucket_url}\n",
         local = local_file.to_str().unwrap(),
     );
@@ -188,18 +188,25 @@ async fn batch_run_e2e_parallel_two_workers_succeeds() {
     helper.delete_bucket_with_cascade(&bucket).await;
 }
 
-/// Test #5 — default fail-fast: a head-bucket on a never-created bucket
-/// fails (NoSuchBucket → exit 1), the second line never dispatches, the
-/// real bucket is never created.
+/// Test #5 — default fail-fast: a `cp` to a never-created bucket fails
+/// (NoSuchBucket → exit 1), the second line never dispatches, the real
+/// bucket is never created. We use `cp` (not `head-bucket`) because the
+/// HEAD-class subcommands map NoSuchBucket to EXIT_CODE_NOT_FOUND (4), a
+/// warning — `cp` returns the true error class (1).
 #[tokio::test]
 async fn batch_run_e2e_default_fails_fast_on_aws_error() {
     let helper = TestHelper::new().await;
     let missing = generate_bucket_name();
     let real = generate_bucket_name();
 
+    let local_dir = create_temp_dir();
+    let local_file = create_test_file(&local_dir, "payload.txt", b"hello");
+
     let script = format!(
-        "head-bucket --target-profile s7cmd-e2e-test --target-region {REGION} s3://{missing}\n\
+        "cp --target-profile s7cmd-e2e-test --target-region {REGION} {local} \
+         s3://{missing}/key\n\
          create-bucket --target-profile s7cmd-e2e-test --target-region {REGION} s3://{real}\n",
+        local = local_file.to_str().unwrap(),
     );
 
     let assert = AssertCommand::cargo_bin("s7cmd")
@@ -219,11 +226,12 @@ async fn batch_run_e2e_default_fails_fast_on_aws_error() {
 
     // Cleanup is no-op for both names (neither was created).
     helper.delete_bucket_with_cascade(&real).await;
+    let _ = std::fs::remove_dir_all(&local_dir);
 }
 
 /// Test #6 — `--continue-on-error` keeps running past failures. Two
-/// missing-bucket head-bucket lines fail; create-bucket then delete-bucket
-/// succeed. Worst-of exit code is 1.
+/// `cp` lines targeting never-created buckets fail; create-bucket then
+/// delete-bucket succeed. Worst-of exit code is 1.
 #[tokio::test]
 async fn batch_run_e2e_continue_on_error_runs_all_lines() {
     let helper = TestHelper::new().await;
@@ -231,11 +239,17 @@ async fn batch_run_e2e_continue_on_error_runs_all_lines() {
     let missing_b = generate_bucket_name();
     let real = generate_bucket_name();
 
+    let local_dir = create_temp_dir();
+    let local_file = create_test_file(&local_dir, "payload.txt", b"hello");
+
     let script = format!(
-        "head-bucket --target-profile s7cmd-e2e-test --target-region {REGION} s3://{missing_a}\n\
-         head-bucket --target-profile s7cmd-e2e-test --target-region {REGION} s3://{missing_b}\n\
+        "cp --target-profile s7cmd-e2e-test --target-region {REGION} {local} \
+         s3://{missing_a}/key\n\
+         cp --target-profile s7cmd-e2e-test --target-region {REGION} {local} \
+         s3://{missing_b}/key\n\
          create-bucket --target-profile s7cmd-e2e-test --target-region {REGION} s3://{real}\n\
          delete-bucket --target-profile s7cmd-e2e-test --target-region {REGION} s3://{real}\n",
+        local = local_file.to_str().unwrap(),
     );
 
     let assert = AssertCommand::cargo_bin("s7cmd")
@@ -254,6 +268,7 @@ async fn batch_run_e2e_continue_on_error_runs_all_lines() {
     );
 
     helper.delete_bucket_with_cascade(&real).await;
+    let _ = std::fs::remove_dir_all(&local_dir);
 }
 
 /// Test #7 — `--max-errors 2`: three missing-bucket lines + one
@@ -267,11 +282,18 @@ async fn batch_run_e2e_max_errors_two_stops_after_second_failure() {
     let missing_c = generate_bucket_name();
     let real = generate_bucket_name();
 
+    let local_dir = create_temp_dir();
+    let local_file = create_test_file(&local_dir, "payload.txt", b"hello");
+
     let script = format!(
-        "head-bucket --target-profile s7cmd-e2e-test --target-region {REGION} s3://{missing_a}\n\
-         head-bucket --target-profile s7cmd-e2e-test --target-region {REGION} s3://{missing_b}\n\
-         head-bucket --target-profile s7cmd-e2e-test --target-region {REGION} s3://{missing_c}\n\
+        "cp --target-profile s7cmd-e2e-test --target-region {REGION} {local} \
+         s3://{missing_a}/key\n\
+         cp --target-profile s7cmd-e2e-test --target-region {REGION} {local} \
+         s3://{missing_b}/key\n\
+         cp --target-profile s7cmd-e2e-test --target-region {REGION} {local} \
+         s3://{missing_c}/key\n\
          create-bucket --target-profile s7cmd-e2e-test --target-region {REGION} s3://{real}\n",
+        local = local_file.to_str().unwrap(),
     );
 
     let assert = AssertCommand::cargo_bin("s7cmd")
@@ -290,6 +312,7 @@ async fn batch_run_e2e_max_errors_two_stops_after_second_failure() {
     );
 
     helper.delete_bucket_with_cascade(&real).await;
+    let _ = std::fs::remove_dir_all(&local_dir);
 }
 
 /// Test #8 — `--continue-on-warning`: head-object on a missing key
@@ -335,9 +358,10 @@ async fn batch_run_e2e_continue_on_warning_past_not_found() {
 }
 
 /// Test #9 — pin the worst-of rule: exit codes (0, 4, 1) yield process
-/// exit 4 (numeric max, not "1 wins because it's an error"). Requires
-/// both `--continue-on-error` and `--continue-on-warning` so all three
-/// lines dispatch.
+/// exit 4 (numeric max, not "1 wins because it's an error"). With just
+/// `--continue-on-error` all three lines dispatch (the flag continues
+/// past warnings AND errors; it is mutually exclusive with
+/// `--continue-on-warning` at the clap level).
 #[tokio::test]
 async fn batch_run_e2e_exit_code_is_worst_of() {
     let helper = TestHelper::new().await;
@@ -349,23 +373,22 @@ async fn batch_run_e2e_exit_code_is_worst_of() {
 
     let missing_bucket = generate_bucket_name();
 
+    let local_dir = create_temp_dir();
+    let local_file = create_test_file(&local_dir, "payload.txt", b"hello");
+
     let script = format!(
         "head-object --target-profile s7cmd-e2e-test --target-region {REGION} \
          s3://{bucket}/real-key\n\
          head-object --target-profile s7cmd-e2e-test --target-region {REGION} \
          s3://{bucket}/missing-key\n\
-         head-bucket --target-profile s7cmd-e2e-test --target-region {REGION} \
-         s3://{missing_bucket}\n",
+         cp --target-profile s7cmd-e2e-test --target-region {REGION} {local} \
+         s3://{missing_bucket}/key\n",
+        local = local_file.to_str().unwrap(),
     );
 
     let assert = AssertCommand::cargo_bin("s7cmd")
         .unwrap()
-        .args([
-            "batch-run",
-            "--continue-on-error",
-            "--continue-on-warning",
-            "-",
-        ])
+        .args(["batch-run", "--continue-on-error", "-"])
         .write_stdin(script)
         .assert();
 
@@ -374,6 +397,7 @@ async fn batch_run_e2e_exit_code_is_worst_of() {
     ));
 
     helper.delete_bucket_with_cascade(&bucket).await;
+    let _ = std::fs::remove_dir_all(&local_dir);
 }
 
 /// Test #10 — non-NoSuchBucket failure (`MalformedPolicy`, 400-class)
@@ -385,10 +409,17 @@ async fn batch_run_e2e_malformed_policy_failure_propagates() {
     let bucket = generate_bucket_name();
     helper.create_bucket(&bucket, REGION).await;
 
+    // put-bucket-policy takes a positional [POLICY] which is a path to a
+    // file containing the policy JSON (or `-` for stdin). Write the
+    // malformed body to a temp file and reference it by path.
+    let local_dir = create_temp_dir();
+    let policy_path = create_test_file(&local_dir, "bad-policy.json", b"{not valid json");
+
     let script = format!(
         "put-bucket-policy --target-profile s7cmd-e2e-test --target-region {REGION} \
-         --policy '{{not valid json' s3://{bucket}\n\
+         s3://{bucket} {policy}\n\
          delete-bucket --target-profile s7cmd-e2e-test --target-region {REGION} s3://{bucket}\n",
+        policy = policy_path.to_str().unwrap(),
     );
 
     let assert = AssertCommand::cargo_bin("s7cmd")
@@ -401,12 +432,20 @@ async fn batch_run_e2e_malformed_policy_failure_propagates() {
         "1 succeeded, 1 failed, 0 warnings, 0 skipped",
     ));
 
+    // The original `helper`'s aws-sdk-s3 Client caches bucket-region /
+    // endpoint metadata after `create_bucket`, so a HeadBucket from that
+    // client can erroneously report the bucket as still present even after
+    // a different process (the batch-run subprocess) has deleted it. Use
+    // a fresh client so the post-script existence check reflects S3's
+    // actual state.
+    let verifier = TestHelper::new().await;
     assert!(
-        !helper.is_bucket_exist(&bucket).await,
+        !verifier.is_bucket_exist(&bucket).await,
         "delete-bucket should have removed the bucket on the second line"
     );
 
     helper.delete_bucket_with_cascade(&bucket).await;
+    let _ = std::fs::remove_dir_all(&local_dir);
 }
 
 /// Test #11 — `--json-tracing` emits a single-line JSON summary object on
@@ -424,9 +463,17 @@ async fn batch_run_e2e_json_tracing_summary_object() {
 
     let missing = generate_bucket_name();
 
+    let local_dir = create_temp_dir();
+    let local_file = create_test_file(&local_dir, "payload.txt", b"hello");
+
+    // Line 1: head-bucket on a real bucket → exit 0.
+    // Line 2: cp to a never-created bucket → exit 1 (NoSuchBucket on the
+    // PUT path is mapped to EXIT_CODE_ERROR, not the head-class warning).
     let script = format!(
         "head-bucket --target-profile s7cmd-e2e-test --target-region {REGION} s3://{bucket}\n\
-         head-bucket --target-profile s7cmd-e2e-test --target-region {REGION} s3://{missing}\n",
+         cp --target-profile s7cmd-e2e-test --target-region {REGION} {local} \
+         s3://{missing}/key\n",
+        local = local_file.to_str().unwrap(),
     );
 
     let output = AssertCommand::cargo_bin("s7cmd")
@@ -439,9 +486,12 @@ async fn batch_run_e2e_json_tracing_summary_object() {
     assert_eq!(output.status.code(), Some(1), "expected exit 1");
 
     let stderr_text = String::from_utf8_lossy(&output.stderr);
+    // The summary line is a JSON object with alphabetically-sorted keys, so
+    // it does not start with `{"summary"`. Match by the unique
+    // `"summary":"batch-run"` field-presence marker instead.
     let summary_line = stderr_text
         .lines()
-        .find(|l| l.trim_start().starts_with(r#"{"summary""#))
+        .find(|l| l.contains(r#""summary":"batch-run""#))
         .unwrap_or_else(|| panic!("no JSON summary line in stderr; stderr={stderr_text}"));
 
     let parsed: serde_json::Value =
@@ -458,6 +508,7 @@ async fn batch_run_e2e_json_tracing_summary_object() {
     );
 
     helper.delete_bucket_with_cascade(&bucket).await;
+    let _ = std::fs::remove_dir_all(&local_dir);
 }
 
 /// Test #12 — `--no-summary` suppresses the summary line even on a real
