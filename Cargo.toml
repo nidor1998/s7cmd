@@ -35,7 +35,7 @@ aws-smithy-types       = "1.4"
 
 # CLI / runtime
 anyhow       = "1"
-clap         = { version = "4.6", features = ["derive", "env", "cargo", "string"] }
+clap         = { version = "4.6", features = ["derive", "env", "cargo", "string", "wrap_help"] }
 clap_complete = "4.6"
 # Used by the new batch_run module (line tokenization).
 shlex = "1"

@@ -341,7 +341,11 @@ pub enum Cmd {
 /// users who want completions use the top-level `--auto-complete-shell`.
 #[allow(dead_code)] // used from main.rs; cli_routing integration test includes this file directly
 pub fn cli_command() -> clap::Command {
-    let mut cmd = Cli::command();
+    // Cap help-text wrap width so long flag descriptions stay readable on
+    // wide terminals (otherwise clap wraps at the detected terminal width
+    // and produces 200+ char lines). Requires the clap `wrap_help`
+    // feature for terminal-size detection. Propagates to subcommands.
+    let mut cmd = Cli::command().max_term_width(100);
     let names: Vec<String> = cmd
         .get_subcommands()
         .map(|s| s.get_name().to_string())
