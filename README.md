@@ -284,9 +284,18 @@ freely combined:
 |------|--------|
 | (default) | Read the whole script first, validate every line, then execute. Catches bad lines before any line runs. Shows a progress bar when stderr is a TTY. |
 | `--streaming` | Execute commands as they are read. No progress bar. Use for unbounded or pipelined input where buffering the whole script is undesirable. |
-| `--parallel 1` (default) | Sequential execution. |
-| `--parallel N` | Run up to *N* commands concurrently. |
-| `--parallel 0` | Use all logical CPUs. |
+| `--parallel 1` (default) | Sequential execution. Lines run in script order. |
+| `--parallel N` | Run up to *N* commands concurrently. Completion order is not guaranteed. |
+| `--parallel 0` | Use all logical CPUs. Completion order is not guaranteed. |
+
+Script order is preserved only with `--parallel 1`. With
+`--parallel N` (or `--parallel 0`), commands may complete in any
+order; do not rely on later lines observing the effects of earlier
+ones.
+
+Default mode loads the entire script into memory, so very large
+scripts will use proportional memory. Use `--streaming` to execute
+lines as they are read.
 
 **Failure handling.** By default, the first failing command stops
 sequential execution and prevents new spawns in parallel
