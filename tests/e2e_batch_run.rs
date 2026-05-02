@@ -898,13 +898,20 @@ async fn batch_run_e2e_all_subcommands_via_file() {
     let logging_p = logging_path.to_str().unwrap();
     let notification_p = notification_path.to_str().unwrap();
 
+    // NOTE: `put-bucket-versioning --suspended` is intentionally placed
+    // AFTER every DELETE-class object operation. On a Suspended bucket,
+    // DELETEs create delete-markers (special "versions") that
+    // `list_objects_v2` does not enumerate, so `clean --force` would
+    // leave them behind and the final `delete-bucket` would fail with
+    // BucketNotEmpty. By keeping versioning untouched until after
+    // `clean`, every object operation runs on a plain non-versioned
+    // bucket and `clean` truly empties it.
     let script = format!(
         "\
-# ---- create + configure ----
+# ---- create + configure (versioning intentionally deferred) ----
 create-bucket {auth_target} s3://{bucket}
 put-bucket-tagging {auth_target} --tagging \"team=data\" s3://{bucket}
 put-bucket-policy {auth_target} s3://{bucket} {policy_p}
-put-bucket-versioning {auth_target} --suspended s3://{bucket}
 put-bucket-lifecycle-configuration {auth_target} s3://{bucket} {lifecycle_p}
 put-bucket-encryption {auth_target} s3://{bucket} {encryption_p}
 put-bucket-cors {auth_target} s3://{bucket} {cors_p}
@@ -913,11 +920,10 @@ put-bucket-website {auth_target} s3://{bucket} {website_p}
 put-bucket-logging {auth_target} s3://{bucket} {logging_p}
 put-bucket-notification-configuration {auth_target} s3://{bucket} {notification_p}
 
-# ---- read everything back ----
+# ---- read everything back (versioning later) ----
 head-bucket {auth_target} s3://{bucket}
 get-bucket-tagging {auth_target} s3://{bucket}
 get-bucket-policy {auth_target} s3://{bucket}
-get-bucket-versioning {auth_target} s3://{bucket}
 get-bucket-lifecycle-configuration {auth_target} s3://{bucket}
 get-bucket-encryption {auth_target} s3://{bucket}
 get-bucket-cors {auth_target} s3://{bucket}
@@ -926,7 +932,7 @@ get-bucket-website {auth_target} s3://{bucket}
 get-bucket-logging {auth_target} s3://{bucket}
 get-bucket-notification-configuration {auth_target} s3://{bucket}
 
-# ---- object operations ----
+# ---- object operations (bucket is still non-versioned here) ----
 cp {auth_target} {payload_p} s3://{bucket}/object1
 head-object {auth_target} s3://{bucket}/object1
 put-object-tagging {auth_target} --tagging \"k=v\" s3://{bucket}/object1
@@ -937,6 +943,10 @@ sync {auth_target} {sync_p} s3://{bucket}/synced/
 mv {auth_both} s3://{bucket}/object1 s3://{bucket}/object1-moved
 rm {auth_target} s3://{bucket}/object1-moved
 clean --force {auth_target} s3://{bucket}
+
+# ---- versioning subcommand pair, on the now-empty bucket ----
+put-bucket-versioning {auth_target} --suspended s3://{bucket}
+get-bucket-versioning {auth_target} s3://{bucket}
 
 # ---- tear down configuration ----
 delete-bucket-policy {auth_target} s3://{bucket}
