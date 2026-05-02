@@ -628,3 +628,162 @@ async fn batch_run_e2e_sigint_marks_in_flight_skipped() {
     helper.delete_bucket_with_cascade(&bucket).await;
     let _ = std::fs::remove_dir_all(&local_dir);
 }
+
+// ---- 100-object batch-run tests (file / stdin / streaming / parallel 3) ----
+//
+// Each of the four tests below uploads exactly 100 objects keyed
+// `k-000`…`k-099` via batch-run, then verifies the same 100 keys are
+// present on S3 by listing the bucket. The four tests differ only in how
+// the script reaches batch-run and which execution mode is exercised.
+
+const OBJECT_COUNT_100: usize = 100;
+
+fn build_100_object_script(bucket: &str, payload_path: &str) -> String {
+    (0..OBJECT_COUNT_100)
+        .map(|n| {
+            format!(
+                "cp --target-profile s7cmd-e2e-test --target-region {REGION} \
+                 {payload_path} s3://{bucket}/k-{n:03}\n"
+            )
+        })
+        .collect()
+}
+
+async fn verify_100_keys_present(helper: &TestHelper, bucket: &str) {
+    let out = helper
+        .client
+        .list_objects_v2()
+        .bucket(bucket)
+        .send()
+        .await
+        .expect("list_objects_v2");
+    assert!(
+        !matches!(out.is_truncated(), Some(true)),
+        "list_objects_v2 truncated for {bucket}; default MaxKeys should fit 100"
+    );
+    let mut keys: Vec<String> = out
+        .contents()
+        .iter()
+        .filter_map(|o| o.key().map(str::to_string))
+        .collect();
+    keys.sort();
+    assert_eq!(
+        keys.len(),
+        OBJECT_COUNT_100,
+        "expected {OBJECT_COUNT_100} objects in {bucket}, got {}",
+        keys.len()
+    );
+    for (i, key) in keys.iter().enumerate() {
+        let expected = format!("k-{i:03}");
+        assert_eq!(key, &expected, "object index {i} key mismatch in {bucket}");
+    }
+}
+
+/// 100 objects via a script file (default read-all, sequential).
+#[tokio::test]
+async fn batch_run_e2e_100_objects_via_file() {
+    let helper = TestHelper::new().await;
+    let bucket = generate_bucket_name();
+    helper.create_bucket(&bucket, REGION).await;
+
+    let local_dir = create_temp_dir();
+    let payload = create_test_file(&local_dir, "payload.txt", b"x");
+    let script_body = build_100_object_script(&bucket, payload.to_str().unwrap());
+    let script_path = create_test_file(&local_dir, "script.txt", script_body.as_bytes());
+
+    let (code, _stdout, stderr) =
+        run(s7cmd_cmd().args(["batch-run", script_path.to_str().unwrap()]));
+
+    assert_eq!(code, Some(0), "expected exit 0; stderr={stderr}");
+    assert!(
+        stderr.contains("100 succeeded, 0 failed, 0 warnings, 0 skipped"),
+        "summary mismatch; stderr={stderr}"
+    );
+
+    verify_100_keys_present(&helper, &bucket).await;
+
+    helper.delete_bucket_with_cascade(&bucket).await;
+    let _ = std::fs::remove_dir_all(&local_dir);
+}
+
+/// 100 objects via stdin pipe (default read-all, sequential).
+#[tokio::test]
+async fn batch_run_e2e_100_objects_via_stdin() {
+    let helper = TestHelper::new().await;
+    let bucket = generate_bucket_name();
+    helper.create_bucket(&bucket, REGION).await;
+
+    let local_dir = create_temp_dir();
+    let payload = create_test_file(&local_dir, "payload.txt", b"x");
+    let script = build_100_object_script(&bucket, payload.to_str().unwrap());
+
+    AssertCommand::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["batch-run", "-"])
+        .write_stdin(script)
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "100 succeeded, 0 failed, 0 warnings, 0 skipped",
+        ));
+
+    verify_100_keys_present(&helper, &bucket).await;
+
+    helper.delete_bucket_with_cascade(&bucket).await;
+    let _ = std::fs::remove_dir_all(&local_dir);
+}
+
+/// 100 objects via stdin pipe with `--streaming` (executes lines as read).
+#[tokio::test]
+async fn batch_run_e2e_100_objects_streaming() {
+    let helper = TestHelper::new().await;
+    let bucket = generate_bucket_name();
+    helper.create_bucket(&bucket, REGION).await;
+
+    let local_dir = create_temp_dir();
+    let payload = create_test_file(&local_dir, "payload.txt", b"x");
+    let script = build_100_object_script(&bucket, payload.to_str().unwrap());
+
+    AssertCommand::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["batch-run", "--streaming", "-"])
+        .write_stdin(script)
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "100 succeeded, 0 failed, 0 warnings, 0 skipped",
+        ));
+
+    verify_100_keys_present(&helper, &bucket).await;
+
+    helper.delete_bucket_with_cascade(&bucket).await;
+    let _ = std::fs::remove_dir_all(&local_dir);
+}
+
+/// 100 objects via stdin pipe with `--parallel 3` (3 concurrent dispatches;
+/// completion order is not preserved, but every key must land exactly once).
+#[tokio::test]
+async fn batch_run_e2e_100_objects_parallel3() {
+    let helper = TestHelper::new().await;
+    let bucket = generate_bucket_name();
+    helper.create_bucket(&bucket, REGION).await;
+
+    let local_dir = create_temp_dir();
+    let payload = create_test_file(&local_dir, "payload.txt", b"x");
+    let script = build_100_object_script(&bucket, payload.to_str().unwrap());
+
+    AssertCommand::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["batch-run", "--parallel", "3", "-"])
+        .write_stdin(script)
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "100 succeeded, 0 failed, 0 warnings, 0 skipped",
+        ));
+
+    verify_100_keys_present(&helper, &bucket).await;
+
+    helper.delete_bucket_with_cascade(&bucket).await;
+    let _ = std::fs::remove_dir_all(&local_dir);
+}
