@@ -153,6 +153,30 @@ critical bug fixes are applied on a best-effort basis. New features
 are not actively solicited. If you need guaranteed enterprise
 support, this is not the tool for you.
 
+### Intended Audience and Issue Tracker Scope
+
+s7cmd assumes operational familiarity with Amazon S3 and the AWS
+SDK. It is aimed at engineers who already run S3 workloads — not
+at learners or general AWS users.
+
+The issue tracker accepts:
+
+- Reproducible defects in s7cmd's own behavior (with version,
+  exact command, and observed vs. expected output).
+- Scope-aligned feature discussion, subject to the Non-Goals
+  section above.
+
+The issue tracker does **not** accept:
+
+- General questions about S3, IAM, AWS credentials, or AWS
+  account configuration. See the [AWS documentation](https://docs.aws.amazon.com/s3/).
+- Usage questions about other S3 clients.
+- Help with user shell scripts, pipelines, or CI configurations
+  that do not isolate an s7cmd-specific defect.
+- Tutorials or design consulting.
+
+Out-of-scope issues will be closed without further discussion.
+
 ### About the name
 
 The name follows the `s3cmd` / `s4cmd` / `s5cmd` / `s6cmd` lineage,
