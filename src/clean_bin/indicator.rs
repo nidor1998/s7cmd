@@ -106,8 +106,13 @@ pub fn show_indicator(
                         objects_per_sec = 0;
                     }
 
+                    let summary_message = if dry_run {
+                        "[dry-run] deletion summary"
+                    } else {
+                        "deletion summary"
+                    };
                     info!(
-                        message = "deletion summary",
+                        message = summary_message,
                         deleted_bytes = total_delete_bytes,
                         deleted_objects = total_delete_count,
                         deleted_objects_per_sec = objects_per_sec,
