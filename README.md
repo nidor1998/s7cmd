@@ -483,6 +483,16 @@ automatically (the bar would interleave with JSON output).
 `--no-progress` and `--no-summary` are independent — each controls
 only its own visual element; pass both for fully clean output.
 
+## Proxy support
+
+s7cmd respects the standard proxy environment variables
+(`HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`) automatically.
+No flags are required — set the variables in your shell and every
+subcommand routes its S3 traffic through the proxy.
+
+Proxy authentication is supported via the URL form
+`http(s)://user:password@proxy:port`.
+
 ## Documentation
 
 Each subcommand is documented in the README of its underlying
