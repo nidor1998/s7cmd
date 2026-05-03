@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > **Preview.** s7cmd is in an early/preview phase (0.x). The CLI surface, flag names, output formats, and exit codes may change between minor versions until 1.0.0.
 
+## [0.3.0] - 2026-05-03
+
+### Added
+
+- **`cp --skip-existing`**: when the target object or file already
+  exists, skip the copy instead of overwriting. Lets you resume
+  partial bulk transfers (uploads, downloads, S3-to-S3) without
+  re-sending objects that already landed at the destination.
+  Combine with `--dry-run` to preview which objects would be
+  skipped before running for real.
+- **`create-bucket --if-not-exists`**: if the bucket already exists
+  (and you own it), exit 0 without re-creating. Makes provisioning
+  scripts idempotent — re-running the same
+  `create-bucket --if-not-exists s3://my-bucket` is safe whether
+  or not the bucket is already there. When combined with
+  `--tagging`, the tagging step is also skipped on the
+  existing-bucket path.
+
+### Changed
+
+- Bumped `s3util-rs` from 1.1 to 1.2 (vendored CLI sources synced
+  to match) — this is what brings the two new flags above.
+- Expanded the README's *Intended Audience and Issue Tracker Scope*
+  section: questions about concurrency-induced performance or
+  resource exhaustion, and questions that belong with AWS, with
+  the operator of an S3-compatible storage service, or with the
+  operating system vendor, are now explicitly out of scope for
+  the issue tracker.
+- Added a note in the `batch-run` section of the README clarifying
+  that while batch-run avoids per-command process startup, it
+  still constructs a fresh AWS client (credential, region, HTTP
+  client setup) per command — so it is not intended for
+  high-throughput parallel processing of large workloads.
+
+### Underlying libraries
+
+This release pins the following exact versions of the underlying
+libraries:
+
+```toml
+s3sync     = "=1.58.6"
+s3util-rs  = "=1.2.0"
+s3rm-rs    = "=1.3.6"
+s3ls-rs    = "=1.0.0"
+```
+
 ## [0.2.0] - 2026-05-02
 
 ### Added
