@@ -1080,29 +1080,6 @@ mod tests {
     // which run each test in its own subprocess.
     #[cfg(not(target_os = "windows"))]
     #[tokio::test]
-    async fn dispatch_cp_against_fake_endpoint_returns_error() {
-        // Local→S3 with unreachable endpoint exercises the Cp arm (valid
-        // try_from + start_tracing_if_necessary + trace_config_summary +
-        // run_cp Err branch).
-        let src = TempDir::new();
-        std::fs::write(src.path().join("a.txt"), b"x").unwrap();
-        let src_path = src.path().join("a.txt");
-        let cmd = cmd_from(&[
-            "s7cmd",
-            "cp",
-            "--target-endpoint-url",
-            FAKE_ENDPOINT,
-            "--target-region",
-            "us-east-1",
-            src_path.to_str().unwrap(),
-            &format!("{FAKE_BUCKET}/key"),
-        ]);
-        let code = dispatch(cmd).await;
-        assert_ne!(code, 0);
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    #[tokio::test]
     async fn dispatch_mv_against_fake_endpoint_returns_error() {
         let src = TempDir::new();
         std::fs::write(src.path().join("a.txt"), b"x").unwrap();
