@@ -329,6 +329,7 @@ mod tests {
             is_stdio_source: false,
             is_stdio_target: false,
             no_fail_on_verify_error: false,
+            skip_existing: false,
             dry_run: false,
         }
     }

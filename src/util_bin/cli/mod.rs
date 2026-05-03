@@ -527,7 +527,7 @@ fn get_path_strings(source: &StoragePath, target: &StoragePath) -> (String, Stri
 /// Extract the full path as the key for each side.
 /// For cp, the full path is always passed to get_object/put_object.
 /// Storage instances are created with empty base paths.
-fn extract_keys(config: &Config) -> Result<(String, String)> {
+pub(super) fn extract_keys(config: &Config) -> Result<(String, String)> {
     let source_key = match &config.source {
         StoragePath::S3 { prefix, .. } => {
             if prefix.is_empty() {
