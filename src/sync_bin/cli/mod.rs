@@ -205,4 +205,28 @@ mod tests {
 
         let _ = run(config).await;
     }
+
+    /// `--report-sync-status` exercises the `if config.report_sync_status`
+    /// arm in `run()` that hands the locked stats report to
+    /// `show_sync_report_summary`. Local-to-local keeps the test
+    /// off the network; we don't assert on exit code.
+    #[tokio::test]
+    async fn run_pipeline_local_to_local_report_sync_status() {
+        let src_dir = TempDir::new();
+        let tgt_dir = TempDir::new();
+        std::fs::write(src_dir.path().join("file.txt"), b"x").unwrap();
+
+        let src = format!("{}/", src_dir.path().to_string_lossy());
+        let tgt = format!("{}/", tgt_dir.path().to_string_lossy());
+        let args = vec![
+            "s3sync",
+            "--allow-both-local-storage",
+            "--report-sync-status",
+            src.as_str(),
+            tgt.as_str(),
+        ];
+        let config = Config::try_from(parse_from_args(args).unwrap()).unwrap();
+
+        let _ = run(config).await;
+    }
 }

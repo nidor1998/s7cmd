@@ -1013,6 +1013,29 @@ mod tests {
         assert_eq!(code, 2);
     }
 
+    /// `--report-sync-status` triggers the dispatch arm's
+    /// `config.dry_run = true` override, regardless of what the user
+    /// passed for `--dry-run`. Routing through the arm with a local
+    /// source+target (so Config::try_from succeeds without S3) is
+    /// enough — we don't assert on exit code.
+    #[tokio::test]
+    async fn dispatch_sync_with_report_sync_status_routes_through_arm() {
+        let src = TempDir::new();
+        let dst = TempDir::new();
+        std::fs::write(src.path().join("a.txt"), b"x").unwrap();
+        let src_str = format!("{}/", src.path().to_string_lossy());
+        let dst_str = format!("{}/", dst.path().to_string_lossy());
+        let cmd = cmd_from(&[
+            "s7cmd",
+            "sync",
+            "--allow-both-local-storage",
+            "--report-sync-status",
+            &src_str,
+            &dst_str,
+        ]);
+        let _ = dispatch(cmd).await;
+    }
+
     #[tokio::test]
     async fn dispatch_ls_against_fake_endpoint_returns_error() {
         let cmd = cmd_from(&[

@@ -216,4 +216,58 @@ mod tests {
         // Should succeed since stderr is open in test runner.
         writer.flush().expect("flush must succeed");
     }
+
+    /// Tests that exercise the *production* `init_tracing` body. The mirror
+    /// helper above intentionally duplicates the production logic so the
+    /// global subscriber install can fail safely on repeat calls — but as a
+    /// side effect, the production function's own branches (`FmtSpan::NEW |
+    /// CLOSE`, the AWS-SDK filter format, the `RUST_LOG` env-var branch)
+    /// would otherwise never be exercised in coverage. Calling
+    /// `super::init_tracing` here runs the body to completion; only the
+    /// `try_init` install at the tail short-circuits if a subscriber is
+    /// already set, so these are safe to interleave with the mirror tests.
+
+    #[test]
+    fn production_init_span_events_tracing() {
+        super::init_tracing(&TracingConfig {
+            tracing_level: log::Level::Info,
+            json_tracing: false,
+            aws_sdk_tracing: false,
+            span_events_tracing: true,
+            disable_color_tracing: false,
+        });
+    }
+
+    #[test]
+    fn production_init_aws_sdk_tracing() {
+        super::init_tracing(&TracingConfig {
+            tracing_level: log::Level::Info,
+            json_tracing: false,
+            aws_sdk_tracing: true,
+            span_events_tracing: false,
+            disable_color_tracing: false,
+        });
+    }
+
+    #[test]
+    fn production_init_disable_color_tracing() {
+        super::init_tracing(&TracingConfig {
+            tracing_level: log::Level::Info,
+            json_tracing: false,
+            aws_sdk_tracing: false,
+            span_events_tracing: false,
+            disable_color_tracing: true,
+        });
+    }
+
+    #[test]
+    fn production_init_json_tracing() {
+        super::init_tracing(&TracingConfig {
+            tracing_level: log::Level::Info,
+            json_tracing: true,
+            aws_sdk_tracing: false,
+            span_events_tracing: false,
+            disable_color_tracing: true,
+        });
+    }
 }

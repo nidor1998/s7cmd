@@ -205,4 +205,54 @@ mod tests {
         let mut writer = PipeSafeWriter;
         writer.flush().expect("flush must succeed");
     }
+
+    /// Tests that exercise the *production* `init_tracing` body. See the
+    /// matching block in `util_bin::tracing_init` for the full rationale —
+    /// in short, the mirror's existence prevents production-side branches
+    /// from being recorded in coverage. These calls run the full body and
+    /// no-op only at the final `try_init` step.
+
+    #[test]
+    fn production_init_span_events_tracing() {
+        super::init_tracing(&TracingConfig {
+            tracing_level: log::Level::Info,
+            json_tracing: false,
+            aws_sdk_tracing: false,
+            span_events_tracing: true,
+            disable_color_tracing: false,
+        });
+    }
+
+    #[test]
+    fn production_init_aws_sdk_tracing() {
+        super::init_tracing(&TracingConfig {
+            tracing_level: log::Level::Info,
+            json_tracing: false,
+            aws_sdk_tracing: true,
+            span_events_tracing: false,
+            disable_color_tracing: false,
+        });
+    }
+
+    #[test]
+    fn production_init_disable_color_tracing() {
+        super::init_tracing(&TracingConfig {
+            tracing_level: log::Level::Info,
+            json_tracing: false,
+            aws_sdk_tracing: false,
+            span_events_tracing: false,
+            disable_color_tracing: true,
+        });
+    }
+
+    #[test]
+    fn production_init_json_tracing() {
+        super::init_tracing(&TracingConfig {
+            tracing_level: log::Level::Info,
+            json_tracing: true,
+            aws_sdk_tracing: false,
+            span_events_tracing: false,
+            disable_color_tracing: true,
+        });
+    }
 }

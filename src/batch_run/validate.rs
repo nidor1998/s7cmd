@@ -236,6 +236,28 @@ mod tests {
     }
 
     #[test]
+    fn rejects_mv_with_stdio_target() {
+        let cmd = parse_cmd(&["s7cmd", "mv", "s3://b/k", "-"]);
+        let err = validate(4, "mv s3://b/k -", &cmd).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("stdin/stdout"), "msg: {msg}");
+        assert!(msg.contains("line 4"), "msg: {msg}");
+    }
+
+    #[test]
+    fn rejects_mv_with_stdio_source() {
+        let cmd = parse_cmd(&["s7cmd", "mv", "-", "s3://b/k"]);
+        let err = validate(2, "mv - s3://b/k", &cmd).unwrap_err();
+        assert!(err.to_string().contains("stdin/stdout"));
+    }
+
+    #[test]
+    fn allows_normal_mv() {
+        let cmd = parse_cmd(&["s7cmd", "mv", "s3://b/a", "s3://b/b"]);
+        validate(1, "mv s3://b/a s3://b/b", &cmd).unwrap();
+    }
+
+    #[test]
     fn rejects_per_line_aws_sdk_tracing() {
         let cmd = parse_cmd(&["s7cmd", "head-bucket", "--aws-sdk-tracing", "s3://b"]);
         let err = validate(2, "head-bucket --aws-sdk-tracing s3://b", &cmd).unwrap_err();

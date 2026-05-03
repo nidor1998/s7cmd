@@ -94,4 +94,29 @@ mod tests {
         assert_eq!(tags[0].key(), "k");
         assert_eq!(tags[0].value(), "a=b=c");
     }
+
+    /// `%FF%FF` decodes to bytes 0xFF 0xFF, which is not valid UTF-8 — the
+    /// `urlencoding::decode` call surfaces that as `Err(FromUtf8Error)` and
+    /// we wrap it with our own `invalid percent-encoding` message. Both
+    /// the key and value paths must surface a friendly error.
+
+    #[test]
+    fn invalid_percent_encoding_in_key_is_rejected() {
+        let err = parse_tagging_to_tags("%FF%FF=v").unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("invalid percent-encoding in tag key"),
+            "msg: {msg}"
+        );
+    }
+
+    #[test]
+    fn invalid_percent_encoding_in_value_is_rejected() {
+        let err = parse_tagging_to_tags("k=%FF%FF").unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("invalid percent-encoding in tag value"),
+            "msg: {msg}"
+        );
+    }
 }
