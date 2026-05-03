@@ -296,6 +296,13 @@ process startup.) It is the recommended way to drive thousands of
 small operations (per-object tagging, mixed bucket-config edits,
 etc.) without spawning a process per command.
 
+Note that although batch-run avoids launching a separate process
+for each command, it still initializes a new AWS client per
+command. This incurs per-command overhead such as credential
+resolution, region resolution, and HTTP client setup, so batch-run
+is not intended for high-throughput parallel processing of large
+workloads.
+
 ```text
 Usage: s7cmd batch-run [OPTIONS] <FILE>
 ```
