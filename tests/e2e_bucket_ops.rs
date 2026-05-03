@@ -63,6 +63,175 @@ async fn create_bucket_dispatch_with_tagging() {
     helper.delete_bucket_with_cascade(&bucket).await;
 }
 
+// ---- create-bucket --if-not-exists (s3util-rs 1.2.0 idempotency flag) ----
+
+#[tokio::test]
+async fn create_bucket_if_not_exists_with_existing_bucket_skips() {
+    // Bucket already exists → HeadBucket pre-flight reports OK → skip
+    // branch returns ExitStatus::Success without issuing CreateBucket.
+    // Bucket remains intact (no rename, no error, idempotent re-run).
+    let helper = TestHelper::new().await;
+    let bucket = generate_bucket_name();
+    helper.create_bucket(&bucket, REGION).await;
+    assert!(helper.is_bucket_exist(&bucket).await);
+
+    let target = format!("s3://{bucket}");
+    let (code, stdout, stderr) = run(s7cmd_cmd().args([
+        "create-bucket",
+        "--if-not-exists",
+        "--target-profile",
+        "s7cmd-e2e-test",
+        "--target-region",
+        REGION,
+        &target,
+    ]));
+
+    assert_eq!(
+        code,
+        Some(0),
+        "create-bucket --if-not-exists on existing bucket must exit 0; stdout={stdout}\nstderr={stderr}"
+    );
+    assert!(
+        helper.is_bucket_exist(&bucket).await,
+        "bucket must still exist after the no-op create"
+    );
+
+    helper.delete_bucket_with_cascade(&bucket).await;
+}
+
+#[tokio::test]
+async fn create_bucket_if_not_exists_with_missing_bucket_creates() {
+    // Bucket doesn't exist → HeadBucket returns BucketNotFound → falls
+    // through to the normal CreateBucket flow and the bucket is created.
+    //
+    // Pre-flight `assert!(!helper.is_bucket_exist(...))` is intentionally
+    // omitted: `generate_bucket_name()` is UUID-unique so the bucket
+    // genuinely cannot exist beforehand, and a pre-flight HeadBucket on
+    // the test's persistent SDK client primes S3's bucket-NotFound
+    // negative cache, causing the post-create HeadBucket to read stale
+    // and return false even though CreateBucket succeeded.
+    let helper = TestHelper::new().await;
+    let bucket = generate_bucket_name();
+
+    let target = format!("s3://{bucket}");
+    let (code, stdout, stderr) = run(s7cmd_cmd().args([
+        "create-bucket",
+        "--if-not-exists",
+        "--target-profile",
+        "s7cmd-e2e-test",
+        "--target-region",
+        REGION,
+        &target,
+    ]));
+
+    assert_eq!(
+        code,
+        Some(0),
+        "create-bucket --if-not-exists on missing bucket must exit 0; stdout={stdout}\nstderr={stderr}"
+    );
+    assert!(
+        helper.is_bucket_exist(&bucket).await,
+        "bucket must exist after fall-through CreateBucket"
+    );
+
+    helper.delete_bucket_with_cascade(&bucket).await;
+}
+
+#[tokio::test]
+async fn create_bucket_if_not_exists_skips_tagging_on_existing_bucket() {
+    // Per the upstream rationale: when the bucket already exists, the
+    // --tagging branch is intentionally skipped. We do not retroactively
+    // tag a bucket this invocation didn't create. Verified by issuing
+    // create-bucket --if-not-exists --tagging against a pre-existing,
+    // un-tagged bucket and then asserting (via `s7cmd get-bucket-tagging`)
+    // that no tag set was added — exit code 4 = NotFound = NoSuchTagSet.
+    let helper = TestHelper::new().await;
+    let bucket = generate_bucket_name();
+    helper.create_bucket(&bucket, REGION).await;
+
+    let target = format!("s3://{bucket}");
+    let (code, stdout, stderr) = run(s7cmd_cmd().args([
+        "create-bucket",
+        "--if-not-exists",
+        "--tagging",
+        "owner=team-a&env=test",
+        "--target-profile",
+        "s7cmd-e2e-test",
+        "--target-region",
+        REGION,
+        &target,
+    ]));
+    assert_eq!(
+        code,
+        Some(0),
+        "create-bucket --if-not-exists --tagging on existing bucket must exit 0; stdout={stdout}\nstderr={stderr}"
+    );
+
+    let (tag_code, _stdout, _stderr) = run(s7cmd_cmd().args([
+        "get-bucket-tagging",
+        "--target-profile",
+        "s7cmd-e2e-test",
+        "--target-region",
+        REGION,
+        &target,
+    ]));
+    assert_eq!(
+        tag_code,
+        Some(4),
+        "get-bucket-tagging must report NotFound (4): the existing bucket must not have been retroactively tagged"
+    );
+
+    helper.delete_bucket_with_cascade(&bucket).await;
+}
+
+#[tokio::test]
+async fn create_bucket_if_not_exists_with_missing_bucket_applies_tagging() {
+    // Counterpart to the skip-tagging test: when the bucket is freshly
+    // created (i.e. the fall-through CreateBucket path runs), --tagging
+    // IS applied as usual. (Pre-flight existence check skipped — see
+    // the notes on create_bucket_if_not_exists_with_missing_bucket_creates.)
+    let helper = TestHelper::new().await;
+    let bucket = generate_bucket_name();
+
+    let target = format!("s3://{bucket}");
+    let (code, stdout, stderr) = run(s7cmd_cmd().args([
+        "create-bucket",
+        "--if-not-exists",
+        "--tagging",
+        "stage=fresh&team=sre",
+        "--target-profile",
+        "s7cmd-e2e-test",
+        "--target-region",
+        REGION,
+        &target,
+    ]));
+    assert_eq!(
+        code,
+        Some(0),
+        "create-bucket --if-not-exists --tagging on missing bucket must exit 0; stdout={stdout}\nstderr={stderr}"
+    );
+
+    let (tag_code, tag_stdout, _stderr) = run(s7cmd_cmd().args([
+        "get-bucket-tagging",
+        "--target-profile",
+        "s7cmd-e2e-test",
+        "--target-region",
+        REGION,
+        &target,
+    ]));
+    assert_eq!(
+        tag_code,
+        Some(0),
+        "get-bucket-tagging must succeed on the freshly-created bucket"
+    );
+    assert!(
+        tag_stdout.contains("stage") && tag_stdout.contains("fresh"),
+        "expected seeded tag in get-bucket-tagging output: {tag_stdout}"
+    );
+
+    helper.delete_bucket_with_cascade(&bucket).await;
+}
+
 // ---- head-bucket ----
 
 #[tokio::test]

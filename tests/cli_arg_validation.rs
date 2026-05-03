@@ -93,6 +93,47 @@ fn mv_missing_target_exits_2() {
     assert!(!stderr.is_empty());
 }
 
+// ---- cp --skip-existing validation (s3util-rs 1.2.0) ----
+
+#[test]
+fn cp_skip_existing_with_stdio_target_rejected() {
+    // s3util-rs 1.2.0 rejects --skip-existing with a stdout target at
+    // Config::try_from. s7cmd surfaces the message via dispatch and
+    // returns 2 (clap ValueValidation).
+    let (code, _stdout, stderr) = run(s7cmd_cmd().args(["cp", "--skip-existing", "s3://b/k", "-"]));
+    assert_eq!(
+        code,
+        Some(2),
+        "cp --skip-existing with stdout target must exit 2; stderr={stderr}"
+    );
+    assert!(
+        stderr.contains("stdout target"),
+        "expected stdout target error.\n--- stderr ---\n{stderr}"
+    );
+}
+
+#[test]
+fn cp_skip_existing_with_if_none_match_rejected() {
+    // --skip-existing (skip-if-exists) is the inverse of --if-none-match
+    // (fail-if-exists). s3util-rs 1.2.0 rejects the combination.
+    let (code, _stdout, stderr) = run(s7cmd_cmd().args([
+        "cp",
+        "--skip-existing",
+        "--if-none-match",
+        "/tmp/a",
+        "s3://b/k",
+    ]));
+    assert_eq!(
+        code,
+        Some(2),
+        "cp --skip-existing --if-none-match must exit 2; stderr={stderr}"
+    );
+    assert!(
+        stderr.contains("--if-none-match"),
+        "expected --if-none-match error.\n--- stderr ---\n{stderr}"
+    );
+}
+
 // ---- rm ----
 
 #[test]

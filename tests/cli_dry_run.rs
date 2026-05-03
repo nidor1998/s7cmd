@@ -62,6 +62,91 @@ fn mv_dry_run_exits_zero_and_logs_messages() {
     assert!(stderr.contains("would delete source object"));
 }
 
+// ---------- cp --skip-existing under --dry-run (no AWS — local target) ----------
+
+#[test]
+fn cp_dry_run_skip_existing_with_existing_local_target_logs_skip() {
+    // Existing local target → target_exists returns true → skip branch
+    // logs "[dry-run] would skip: target exists." and exits 0. The skip
+    // branch returns before any AWS traffic is initiated, so this runs
+    // with no credentials. Verbosity is bumped to -v so the info-level
+    // skip log line is captured (default verbosity drops info events).
+    let dst = tempfile::NamedTempFile::new().unwrap();
+    let (ok, _stdout, stderr, code) = run(s7cmd().args([
+        "cp",
+        "-v",
+        "--dry-run",
+        "--skip-existing",
+        &format!("{FAKE_BUCKET}/key"),
+        dst.path().to_str().unwrap(),
+    ]));
+    assert!(
+        ok,
+        "cp --dry-run --skip-existing must exit 0; stderr={stderr}"
+    );
+    assert_eq!(code, Some(0));
+    assert!(
+        stderr.contains("[dry-run] would skip"),
+        "missing '[dry-run] would skip' in stderr: {stderr}"
+    );
+}
+
+#[test]
+fn cp_dry_run_skip_existing_with_missing_local_target_logs_would_copy() {
+    // Missing local target → target_exists returns false → skip branch
+    // does not fire → existing dry-run "would copy" line is logged. -v
+    // makes both branches' info events visible.
+    let dir = tempfile::tempdir().unwrap();
+    let dst = dir.path().join("missing-target.dat");
+    let (ok, _stdout, stderr, code) = run(s7cmd().args([
+        "cp",
+        "-v",
+        "--dry-run",
+        "--skip-existing",
+        &format!("{FAKE_BUCKET}/key"),
+        dst.to_str().unwrap(),
+    ]));
+    assert!(
+        ok,
+        "cp --dry-run --skip-existing must exit 0; stderr={stderr}"
+    );
+    assert_eq!(code, Some(0));
+    assert!(
+        stderr.contains("[dry-run]"),
+        "missing [dry-run] marker in stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("would copy"),
+        "missing 'would copy' in stderr: {stderr}"
+    );
+    assert!(
+        !stderr.contains("would skip"),
+        "missing-target case must not emit 'would skip': {stderr}"
+    );
+}
+
+#[test]
+fn cp_skip_existing_with_existing_local_target_no_dry_run_short_circuits() {
+    // Same scenario as the dry-run skip test but without --dry-run: the
+    // non-dry-run log ("Target exists; skipping copy.") and exit 0 are
+    // expected. Confirms the skip branch fires identically off the
+    // dry-run path. -v surfaces the info-level message.
+    let dst = tempfile::NamedTempFile::new().unwrap();
+    let (ok, _stdout, stderr, code) = run(s7cmd().args([
+        "cp",
+        "-v",
+        "--skip-existing",
+        &format!("{FAKE_BUCKET}/key"),
+        dst.path().to_str().unwrap(),
+    ]));
+    assert!(ok, "cp --skip-existing must exit 0; stderr={stderr}");
+    assert_eq!(code, Some(0));
+    assert!(
+        stderr.contains("Target exists; skipping copy."),
+        "missing 'Target exists; skipping copy.' in stderr: {stderr}"
+    );
+}
+
 // ---------- rm (CommonClientArgs path) ----------
 
 #[test]
@@ -466,6 +551,26 @@ fn cp_help_lists_dry_run() {
     let (ok, stdout, _stderr, _code) = run(s7cmd().args(["cp", "--help"]));
     assert!(ok);
     assert!(stdout.contains("--dry-run"), "cp --help missing --dry-run");
+}
+
+#[test]
+fn cp_help_lists_skip_existing() {
+    let (ok, stdout, _stderr, _code) = run(s7cmd().args(["cp", "--help"]));
+    assert!(ok);
+    assert!(
+        stdout.contains("--skip-existing"),
+        "cp --help missing --skip-existing"
+    );
+}
+
+#[test]
+fn create_bucket_help_lists_if_not_exists() {
+    let (ok, stdout, _stderr, _code) = run(s7cmd().args(["create-bucket", "--help"]));
+    assert!(ok);
+    assert!(
+        stdout.contains("--if-not-exists"),
+        "create-bucket --help missing --if-not-exists"
+    );
 }
 
 #[test]

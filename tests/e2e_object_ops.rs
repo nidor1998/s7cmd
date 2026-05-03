@@ -274,6 +274,169 @@ async fn cp_dispatch_error_source_missing() {
     let _ = std::fs::remove_dir_all(&local_dir);
 }
 
+// ---- cp --skip-existing (s3util-rs 1.2.0 idempotency flag) ----
+
+#[tokio::test]
+async fn cp_skip_existing_s3_target_present_skips_and_preserves_body() {
+    // Seed an S3 object with a known body, then cp --skip-existing a file
+    // with a DIFFERENT body to the same key. The HeadObject pre-flight
+    // sees the existing key, the run_cp wrapper short-circuits to exit 0
+    // without uploading, and the original body remains.
+    let helper = TestHelper::new().await;
+    let bucket = generate_bucket_name();
+    helper.create_bucket(&bucket, REGION).await;
+    let original = b"original body".to_vec();
+    helper
+        .put_object(&bucket, "skip.txt", original.clone())
+        .await;
+
+    let local_dir = create_temp_dir();
+    let src = create_test_file(&local_dir, "skip.txt", b"new body would overwrite");
+    let target = format!("s3://{bucket}/skip.txt");
+
+    let (code, stdout, stderr) = run(s7cmd_cmd().args([
+        "cp",
+        "--skip-existing",
+        "--target-profile",
+        "s7cmd-e2e-test",
+        "--target-region",
+        REGION,
+        src.to_str().unwrap(),
+        &target,
+    ]));
+
+    assert_eq!(
+        code,
+        Some(0),
+        "cp --skip-existing with present S3 target must exit 0; stdout={stdout}\nstderr={stderr}"
+    );
+    let now = helper.get_object_bytes(&bucket, "skip.txt", None).await;
+    assert_eq!(
+        now, original,
+        "S3 object body must be unchanged after --skip-existing short-circuit"
+    );
+
+    helper.delete_bucket_with_cascade(&bucket).await;
+    let _ = std::fs::remove_dir_all(&local_dir);
+}
+
+#[tokio::test]
+async fn cp_skip_existing_s3_target_absent_uploads() {
+    // Target key does not exist yet → HeadObject reports NotFound →
+    // skip branch does not fire → upload proceeds normally.
+    let helper = TestHelper::new().await;
+    let bucket = generate_bucket_name();
+    helper.create_bucket(&bucket, REGION).await;
+
+    let local_dir = create_temp_dir();
+    let body = b"freshly uploaded";
+    let src = create_test_file(&local_dir, "fresh.txt", body);
+    let target = format!("s3://{bucket}/fresh.txt");
+
+    let (code, stdout, stderr) = run(s7cmd_cmd().args([
+        "cp",
+        "--skip-existing",
+        "--target-profile",
+        "s7cmd-e2e-test",
+        "--target-region",
+        REGION,
+        src.to_str().unwrap(),
+        &target,
+    ]));
+
+    assert_eq!(
+        code,
+        Some(0),
+        "cp --skip-existing with absent S3 target must exit 0; stdout={stdout}\nstderr={stderr}"
+    );
+    let uploaded = helper.get_object_bytes(&bucket, "fresh.txt", None).await;
+    assert_eq!(uploaded, body, "object body must match the uploaded source");
+
+    helper.delete_bucket_with_cascade(&bucket).await;
+    let _ = std::fs::remove_dir_all(&local_dir);
+}
+
+#[tokio::test]
+async fn cp_skip_existing_local_target_present_skips_and_preserves_body() {
+    // Local target file already exists with a known body; cp's
+    // --skip-existing pre-flight is a tokio::fs::try_exists check and
+    // short-circuits before any S3 GET. Resulting local body unchanged.
+    let helper = TestHelper::new().await;
+    let bucket = generate_bucket_name();
+    helper.create_bucket(&bucket, REGION).await;
+    helper
+        .put_object(&bucket, "remote.txt", b"remote body".to_vec())
+        .await;
+
+    let local_dir = create_temp_dir();
+    let original_local = b"local original";
+    let dst = create_test_file(&local_dir, "remote.txt", original_local);
+    let source = format!("s3://{bucket}/remote.txt");
+
+    let (code, stdout, stderr) = run(s7cmd_cmd().args([
+        "cp",
+        "--skip-existing",
+        "--source-profile",
+        "s7cmd-e2e-test",
+        "--source-region",
+        REGION,
+        &source,
+        dst.to_str().unwrap(),
+    ]));
+
+    assert_eq!(
+        code,
+        Some(0),
+        "cp --skip-existing with present local target must exit 0; stdout={stdout}\nstderr={stderr}"
+    );
+    let now = std::fs::read(&dst).unwrap();
+    assert_eq!(
+        now, original_local,
+        "local file body must be unchanged after --skip-existing short-circuit"
+    );
+
+    helper.delete_bucket_with_cascade(&bucket).await;
+    let _ = std::fs::remove_dir_all(&local_dir);
+}
+
+#[tokio::test]
+async fn cp_skip_existing_local_target_absent_downloads() {
+    // Local target path does not exist → tokio::fs::try_exists returns
+    // false → skip branch does not fire → S3 GET proceeds and writes
+    // the file with the remote body.
+    let helper = TestHelper::new().await;
+    let bucket = generate_bucket_name();
+    helper.create_bucket(&bucket, REGION).await;
+    let body = b"download me".to_vec();
+    helper.put_object(&bucket, "remote.txt", body.clone()).await;
+
+    let local_dir = create_temp_dir();
+    let dst = local_dir.join("downloaded.txt");
+    let source = format!("s3://{bucket}/remote.txt");
+
+    let (code, stdout, stderr) = run(s7cmd_cmd().args([
+        "cp",
+        "--skip-existing",
+        "--source-profile",
+        "s7cmd-e2e-test",
+        "--source-region",
+        REGION,
+        &source,
+        dst.to_str().unwrap(),
+    ]));
+
+    assert_eq!(
+        code,
+        Some(0),
+        "cp --skip-existing with absent local target must exit 0; stdout={stdout}\nstderr={stderr}"
+    );
+    let downloaded = std::fs::read(&dst).unwrap();
+    assert_eq!(downloaded, body, "downloaded body must match S3 object");
+
+    helper.delete_bucket_with_cascade(&bucket).await;
+    let _ = std::fs::remove_dir_all(&local_dir);
+}
+
 // ---- mv ----
 
 #[tokio::test]

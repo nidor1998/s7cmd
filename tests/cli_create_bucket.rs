@@ -44,6 +44,16 @@ fn help_mentions_tagging_option() {
 }
 
 #[test]
+fn help_mentions_if_not_exists_option() {
+    let (ok, stdout, _stderr, _code) = run(s7cmd().args(["create-bucket", "--help"]));
+    assert!(ok);
+    assert!(
+        stdout.contains("--if-not-exists"),
+        "expected --if-not-exists in help output: {stdout}"
+    );
+}
+
+#[test]
 fn missing_target_exits_non_zero() {
     let (ok, _stdout, stderr, code) = run(s7cmd().arg("create-bucket"));
     assert!(!ok);
