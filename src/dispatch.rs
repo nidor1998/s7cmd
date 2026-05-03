@@ -1069,35 +1069,6 @@ mod tests {
         let _ = dispatch(cmd).await;
     }
 
-    // The Cp / Mv dispatch arms route into `run_copy_phase`, whose
-    // 6-way direction match × multiple `.await`s per arm produces a
-    // multi-megabyte compiled future in debug builds. The persistent
-    // state is heap-boxed in `dispatch.rs`, but transient construction
-    // plus the AWS credential-chain setup still exceeds Windows'
-    // ~1 MB libtest worker stack. Linux/macOS workers (~2 MB / ~8 MB)
-    // tolerate it. Coverage for the Cp/Mv arms' end-to-end behaviour is
-    // provided by the process-level integration suites under `tests/`,
-    // which run each test in its own subprocess.
-    #[cfg(not(target_os = "windows"))]
-    #[tokio::test]
-    async fn dispatch_mv_against_fake_endpoint_returns_error() {
-        let src = TempDir::new();
-        std::fs::write(src.path().join("a.txt"), b"x").unwrap();
-        let src_path = src.path().join("a.txt");
-        let cmd = cmd_from(&[
-            "s7cmd",
-            "mv",
-            "--target-endpoint-url",
-            FAKE_ENDPOINT,
-            "--target-region",
-            "us-east-1",
-            src_path.to_str().unwrap(),
-            &format!("{FAKE_BUCKET}/key"),
-        ]);
-        let code = dispatch(cmd).await;
-        assert_ne!(code, 0);
-    }
-
     // NOTE: a `dispatch_batch_run_*` test would have to drive `dispatch(Cmd::BatchRun(_))`,
     // which calls `batch_run::run(...)` and reads from `tokio::io::stdin()`.
     // Under interactive `cargo test`, stdin is the terminal (not EOF), so
