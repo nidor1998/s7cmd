@@ -174,6 +174,23 @@ The issue tracker does **not** accept:
 - Help with user shell scripts, pipelines, or CI configurations
   that do not isolate an s7cmd-specific defect.
 - Tutorials or design consulting.
+- Diagnosing or fixing performance degradation, resource exhaustion,
+  or errors caused by raising concurrency settings.
+- Questions and issues that belong with AWS, with the operator
+  of an S3-compatible storage service, or with the operating
+  system vendor rather than with s7cmd — including general S3,
+  IAM, KMS, networking, and account-configuration questions;
+  S3 (or S3-compatible) service behavior such as request rate
+  limits, 503 SlowDown, consistency semantics, or regional
+  availability; operating-system configuration and behavior such
+  as `ulimit` and file-descriptor limits, kernel networking
+  parameters, filesystem quirks, shell quoting, path-length
+  limits, code signing, or antivirus interference; and anything
+  that reproduces with the AWS CLI, the AWS SDK, or the vendor's
+  own client directly. Refer to the [AWS documentation](https://docs.aws.amazon.com/s3/),
+  AWS Support, your storage vendor's documentation, or your OS
+  vendor's documentation. If the issue is not specific to s7cmd's
+  own code, it belongs there, not here.
 
 Out-of-scope issues will be closed without further discussion.
 
