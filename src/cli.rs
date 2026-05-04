@@ -1,6 +1,7 @@
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::shells::Shell;
 use clap_verbosity_flag::{Verbosity, WarnLevel};
+use std::sync::LazyLock;
 
 #[cfg(feature = "version")]
 use shadow_rs::shadow;
@@ -345,6 +346,18 @@ pub enum Cmd {
 /// users who want completions use the top-level `--auto-complete-shell`.
 #[allow(dead_code)] // used from main.rs; cli_routing integration test includes this file directly
 pub fn cli_command() -> clap::Command {
+    // The clap `Command` tree is large (~40 subcommands embedding sizable
+    // upstream arg structs from s3sync, s3util_rs, etc.) and rebuilding
+    // it on every call dominates `batch-run` startup at scale: phase 2 of
+    // `run_read_all` calls this once per script line on a single thread,
+    // serially, before any AWS work begins. Cache and clone instead — the
+    // mutations below are idempotent and don't depend on inputs, so the
+    // cached tree is reusable across all callers.
+    static CACHED: LazyLock<clap::Command> = LazyLock::new(build_cli_command);
+    CACHED.clone()
+}
+
+fn build_cli_command() -> clap::Command {
     // Cap help-text wrap width so long flag descriptions stay readable on
     // wide terminals (otherwise clap wraps at the detected terminal width
     // and produces 200+ char lines). Requires the clap `wrap_help`
@@ -369,4 +382,113 @@ pub fn cli_command() -> clap::Command {
         });
     }
     cmd
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `cli_command()` is now backed by a `LazyLock` cache that returns a
+    /// clone per call. This test guards the most basic correctness
+    /// invariant after that change: parsing the same argv twice through
+    /// successive calls must succeed and produce the same matched
+    /// subcommand. A regression here (e.g. accidentally returning a
+    /// shared `Arc<Command>` and consuming it) would surface as the
+    /// second call failing or giving stale state.
+    #[test]
+    fn cli_command_repeat_calls_parse_identically() {
+        let argv = ["s7cmd", "head-bucket", "s3://b"];
+        let m1 = cli_command().try_get_matches_from(argv).unwrap();
+        let m2 = cli_command().try_get_matches_from(argv).unwrap();
+        assert_eq!(m1.subcommand_name(), Some("head-bucket"));
+        assert_eq!(m2.subcommand_name(), Some("head-bucket"));
+    }
+
+    /// Each `cli_command()` call returns an independent clone of the
+    /// cached tree. `try_get_matches_from` consumes the `Command`, so if
+    /// the cache were ever reused as a borrow rather than cloned, the
+    /// second call would see a half-consumed tree. Drive both happy and
+    /// error paths in close succession to catch a stateful regression.
+    #[test]
+    fn cli_command_clones_are_independent_across_calls() {
+        // First call: a parse error (unknown subcommand). Must not poison
+        // the cache for the next caller.
+        let err = cli_command()
+            .try_get_matches_from(["s7cmd", "no-such-command"])
+            .unwrap_err();
+        assert!(err.kind() == clap::error::ErrorKind::InvalidSubcommand);
+        // Second call: a clean parse, fresh clone.
+        let m = cli_command()
+            .try_get_matches_from(["s7cmd", "head-bucket", "s3://b"])
+            .unwrap();
+        assert_eq!(m.subcommand_name(), Some("head-bucket"));
+    }
+
+    /// `parse_and_validate`'s `thread::scope` fan-out calls
+    /// `cli_command()` from many worker threads concurrently. `LazyLock`
+    /// guarantees synchronized initialization, but the test fixes the
+    /// invariant in code so accidental migration to a non-thread-safe
+    /// primitive (e.g. `OnceCell`) breaks here, not at runtime under load.
+    #[test]
+    fn cli_command_concurrent_calls_succeed() {
+        let argv: [&str; 3] = ["s7cmd", "head-bucket", "s3://b"];
+        std::thread::scope(|s| {
+            let handles: Vec<_> = (0..16)
+                .map(|_| {
+                    s.spawn(move || {
+                        let m = cli_command().try_get_matches_from(argv).unwrap();
+                        assert_eq!(m.subcommand_name(), Some("head-bucket"));
+                    })
+                })
+                .collect();
+            for h in handles {
+                h.join().expect("worker panicked");
+            }
+        });
+    }
+
+    /// The post-build mutations applied inside `build_cli_command` strip
+    /// the long form of `--auto-complete-shell` on every subcommand and
+    /// hide it from `--help`. With the `LazyLock` cache those mutations
+    /// happen exactly once and must persist on every clone — verify
+    /// directly via clap introspection so a regression surfaces here
+    /// rather than as an unexpected acceptance of `cp
+    /// --auto-complete-shell <SHELL>` at runtime. Spot-check a few
+    /// representative subcommands rather than every one — the build is
+    /// uniform so coverage of the loop body is what matters.
+    #[test]
+    fn cli_command_subcommand_auto_complete_shell_long_form_is_cleared() {
+        let cmd = cli_command();
+        for name in ["cp", "mv", "sync", "head-bucket"] {
+            let sub = cmd
+                .find_subcommand(name)
+                .unwrap_or_else(|| panic!("subcommand `{name}` missing"));
+            let arg = sub
+                .get_arguments()
+                .find(|a| a.get_id().as_str() == "auto_complete_shell")
+                .unwrap_or_else(|| panic!("`{name}` lost its `auto_complete_shell` arg"));
+            assert!(
+                arg.get_long().is_none(),
+                "`{name}` still exposes a long form for --auto-complete-shell",
+            );
+            assert!(
+                arg.is_hide_set(),
+                "`{name}` does not hide --auto-complete-shell from --help",
+            );
+        }
+    }
+
+    /// The top-level `--auto-complete-shell` is intentionally left alone
+    /// (only the per-subcommand inherited copies are stripped). Guard
+    /// that the mutation loop didn't accidentally affect the Cli
+    /// root-level arg of the same id.
+    #[test]
+    fn cli_command_top_level_auto_complete_shell_long_form_preserved() {
+        let cmd = cli_command();
+        let arg = cmd
+            .get_arguments()
+            .find(|a| a.get_id().as_str() == "auto_complete_shell")
+            .expect("top-level --auto-complete-shell is missing");
+        assert_eq!(arg.get_long(), Some("auto-complete-shell"));
+    }
 }

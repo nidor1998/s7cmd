@@ -552,8 +552,50 @@ fn build_prepared_kind(
     Ok(executor::PreparedLineKind::Cmd(Box::new(cmd)))
 }
 
+/// Phase 2 of `run_read_all`. CPU-bound and embarrassingly parallel:
+/// every line goes through clap parsing + validation independently, and
+/// the executor cannot start AWS work until the whole Vec is prepared,
+/// so this stage was the last serial bottleneck before dispatch. Above a
+/// threshold we fan out across `available_parallelism` threads via
+/// `thread::scope`; below it the spawn overhead would dominate, so stay
+/// sequential. Order is preserved (chunks are merged in submission order)
+/// — downstream code keys off `line_no`, but `--max-errors` still wants
+/// stable iteration so the user-visible failures correspond to the first
+/// failing lines in script order.
 fn parse_and_validate(parsed: Vec<parser::ParsedLine>) -> Vec<PreparedLine> {
-    parsed.into_iter().map(try_prepare).collect()
+    const PARALLEL_THRESHOLD: usize = 256;
+    let total = parsed.len();
+    if total < PARALLEL_THRESHOLD {
+        return parsed.into_iter().map(try_prepare).collect();
+    }
+    let workers = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1)
+        .min(total);
+    if workers <= 1 {
+        return parsed.into_iter().map(try_prepare).collect();
+    }
+    let chunk_size = total.div_ceil(workers);
+    let mut iter = parsed.into_iter();
+    let chunks: Vec<Vec<parser::ParsedLine>> = (0..workers)
+        .map(|_| iter.by_ref().take(chunk_size).collect())
+        .filter(|c: &Vec<_>| !c.is_empty())
+        .collect();
+
+    std::thread::scope(|s| {
+        let handles: Vec<_> = chunks
+            .into_iter()
+            .map(|chunk| s.spawn(move || chunk.into_iter().map(try_prepare).collect::<Vec<_>>()))
+            .collect();
+        let mut out = Vec::with_capacity(total);
+        for h in handles {
+            // `join()` returns the worker's `Result`. A panic inside
+            // `try_prepare` would surface here — propagate it so the
+            // caller sees the same failure mode the sequential path has.
+            out.extend(h.join().expect("parse_and_validate worker panicked"));
+        }
+        out
+    })
 }
 
 #[cfg(test)]
@@ -714,6 +756,193 @@ mod tests {
         assert_eq!(out.len(), 2);
         assert_cmd(&out[0]);
         assert_invalid(&out[1], &["line 2", "nested batch-run"]);
+    }
+
+    /// `parse_and_validate` switches to a `thread::scope` fan-out above
+    /// `PARALLEL_THRESHOLD` (256) lines. This test sizes the input above
+    /// that threshold and mixes `Cmd` and `Invalid` outcomes on alternating
+    /// lines, so a regression in either chunk ordering or cross-thread
+    /// classification surfaces as a wrong-`line_no` or wrong-variant in the
+    /// output. Order preservation is the load-bearing invariant — log
+    /// messages and `--max-errors` semantics depend on lines surfacing in
+    /// script order.
+    #[test]
+    fn parse_and_validate_parallel_path_preserves_order_and_results() {
+        let n = 300; // > PARALLEL_THRESHOLD (256)
+        let parsed: Vec<ParsedLine> = (0..n)
+            .map(|i: usize| {
+                if i.is_multiple_of(3) {
+                    pl(i + 1, "no-such-command", &["s7cmd", "no-such-command"])
+                } else {
+                    pl(
+                        i + 1,
+                        "head-bucket s3://b",
+                        &["s7cmd", "head-bucket", "s3://b"],
+                    )
+                }
+            })
+            .collect();
+        let out = parse_and_validate(parsed);
+        assert_eq!(out.len(), n);
+        for (i, p) in out.iter().enumerate() {
+            assert_eq!(p.line_no, i + 1, "line_no must match input order");
+            if i.is_multiple_of(3) {
+                assert_invalid(p, &["no-such-command"]);
+            } else {
+                assert_cmd(p);
+            }
+        }
+    }
+
+    /// All-Cmd input above the parallel threshold. Variant of the mixed
+    /// test that excludes `Invalid` lines — guards a regression where a
+    /// worker that happens to hit only `Cmd` lines fails (e.g. a chunk
+    /// wholly inside the all-Cmd region behaves differently from a chunk
+    /// straddling a mix). Asserts every output is `Cmd` and `line_no`
+    /// is monotonic.
+    #[test]
+    fn parse_and_validate_parallel_path_all_cmd() {
+        let n = 280; // > PARALLEL_THRESHOLD
+        let parsed: Vec<ParsedLine> = (0..n)
+            .map(|i: usize| {
+                pl(
+                    i + 1,
+                    "head-bucket s3://b",
+                    &["s7cmd", "head-bucket", "s3://b"],
+                )
+            })
+            .collect();
+        let out = parse_and_validate(parsed);
+        assert_eq!(out.len(), n);
+        for (i, p) in out.iter().enumerate() {
+            assert_eq!(p.line_no, i + 1);
+            assert_cmd(p);
+        }
+    }
+
+    /// All-Invalid input above the parallel threshold. Mirror of the
+    /// all-Cmd test for the failure-classification path. A regression
+    /// where the worker thread mishandles `parse_line_argv`'s `Err`
+    /// branch (e.g. panics on a clap error) would surface here as a
+    /// thread join failure rather than the test silently passing.
+    #[test]
+    fn parse_and_validate_parallel_path_all_invalid() {
+        let n = 280;
+        let parsed: Vec<ParsedLine> = (0..n)
+            .map(|i: usize| pl(i + 1, "no-such-command", &["s7cmd", "no-such-command"]))
+            .collect();
+        let out = parse_and_validate(parsed);
+        assert_eq!(out.len(), n);
+        for (i, p) in out.iter().enumerate() {
+            assert_eq!(p.line_no, i + 1);
+            assert_invalid(p, &["parse error", "no-such-command"]);
+        }
+    }
+
+    /// `TokenizeError` ParsedLineKind passes straight through to
+    /// `Invalid` without going through `parse_line_argv`. This test
+    /// makes sure the parallel path preserves that passthrough — a
+    /// chunk dominated by tokenize errors should not pull every line
+    /// through the clap parser. The exact chunk dispatch is racy but
+    /// the per-line outcome is deterministic.
+    #[test]
+    fn parse_and_validate_parallel_path_with_tokenize_errors() {
+        let n = 270;
+        let parsed: Vec<ParsedLine> = (0..n)
+            .map(|i: usize| {
+                if i.is_multiple_of(2) {
+                    pl_tokenize_err(
+                        i + 1,
+                        "cp \"unterminated",
+                        &format!(
+                            "line {}: parse error: malformed quoting: cp \"unterminated",
+                            i + 1
+                        ),
+                    )
+                } else {
+                    pl(
+                        i + 1,
+                        "head-bucket s3://b",
+                        &["s7cmd", "head-bucket", "s3://b"],
+                    )
+                }
+            })
+            .collect();
+        let out = parse_and_validate(parsed);
+        assert_eq!(out.len(), n);
+        for (i, p) in out.iter().enumerate() {
+            assert_eq!(p.line_no, i + 1);
+            if i.is_multiple_of(2) {
+                // Tokenize-error message comes through verbatim from
+                // ParsedLineKind::TokenizeError; verify the
+                // characteristic "malformed quoting" substring survived
+                // the cross-thread move.
+                assert_invalid(p, &["malformed quoting"]);
+            } else {
+                assert_cmd(p);
+            }
+        }
+    }
+
+    /// Boundary-case sentinel: exactly `PARALLEL_THRESHOLD` lines hits
+    /// the parallel path (the guard is `total < PARALLEL_THRESHOLD`),
+    /// so this is the smallest input that exercises `thread::scope`.
+    /// Pinning the count to a literal mirrors the constant — if someone
+    /// raises the threshold without updating this test it will stop
+    /// covering the parallel boundary, which is exactly when a follow-up
+    /// review should look at it.
+    #[test]
+    fn parse_and_validate_at_parallel_threshold_boundary() {
+        let n = 256; // == PARALLEL_THRESHOLD
+        let parsed: Vec<ParsedLine> = (0..n)
+            .map(|i: usize| {
+                pl(
+                    i + 1,
+                    "head-bucket s3://b",
+                    &["s7cmd", "head-bucket", "s3://b"],
+                )
+            })
+            .collect();
+        let out = parse_and_validate(parsed);
+        assert_eq!(out.len(), n);
+        for (i, p) in out.iter().enumerate() {
+            assert_eq!(p.line_no, i + 1);
+            assert_cmd(p);
+        }
+    }
+
+    /// Below the threshold the function stays sequential — covered by
+    /// the smaller-input tests above, but a 255-line case is the direct
+    /// neighbor of the boundary test and the one most at risk of an
+    /// off-by-one in a future threshold tweak.
+    #[test]
+    fn parse_and_validate_just_below_parallel_threshold_sequential_path() {
+        let n = 255; // < PARALLEL_THRESHOLD
+        let parsed: Vec<ParsedLine> = (0..n)
+            .map(|i: usize| {
+                pl(
+                    i + 1,
+                    "head-bucket s3://b",
+                    &["s7cmd", "head-bucket", "s3://b"],
+                )
+            })
+            .collect();
+        let out = parse_and_validate(parsed);
+        assert_eq!(out.len(), n);
+        for (i, p) in out.iter().enumerate() {
+            assert_eq!(p.line_no, i + 1);
+            assert_cmd(p);
+        }
+    }
+
+    /// Empty input takes the sequential-path early-return (`total <
+    /// PARALLEL_THRESHOLD`); guard that the parallel path's chunk-split
+    /// math wasn't accidentally wired into the empty case (which would
+    /// produce zero non-empty chunks and try to spawn zero workers).
+    #[test]
+    fn parse_and_validate_empty_input_does_not_panic_in_parallel_path() {
+        let out = parse_and_validate(Vec::new());
+        assert!(out.is_empty());
     }
 
     #[test]
