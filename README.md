@@ -88,7 +88,7 @@ succession or compatibility.
 The following are explicitly out of scope and will not be added,
 regardless of demand:
 
-- Official support, testing, or guaranteed compatibility for any
+- Support, testing, or guaranteed compatibility for any
   storage service other than Amazon S3. S3-compatible storage may
   work on a best-effort basis as described in the Scope section
   above, but adding dedicated code paths, provider-specific
@@ -142,7 +142,7 @@ regardless of demand:
 - Additional platform targets, distribution channels, or package
   manager registrations beyond those listed in Requirements and
   Installation. Community-maintained packages are welcome but will
-  not be officially endorsed or supported.
+  not be endorsed or supported.
 
 Issues and pull requests requesting any of the above will be closed.
 
@@ -296,12 +296,12 @@ process startup.) It is the recommended way to drive thousands of
 small operations (per-object tagging, mixed bucket-config edits,
 etc.) without spawning a process per command.
 
-Note that although batch-run avoids launching a separate process
-for each command, it still initializes a new AWS client per
-command. This incurs per-command overhead such as credential
-resolution, region resolution, and HTTP client setup, so batch-run
-is not intended for high-throughput parallel processing of large
-workloads.
+> Note that although batch-run avoids launching a separate process
+> for each command, it still initializes a new AWS client per
+> command. This incurs per-command overhead such as credential
+> resolution, region resolution, and HTTP client setup, so batch-run
+> is not intended for high-throughput parallel processing of large
+> workloads.
 
 ```text
 Usage: s7cmd batch-run [OPTIONS] <FILE>
@@ -418,6 +418,10 @@ installed once, at the top of the run).
   system. It consumes CPU, memory, file descriptors, and other
   resources — pick a value the host and the target service can
   absorb.
+- On EC2 instances using an IAM instance profile, setting
+  `--parallel` too high is likely to trigger IMDS-related errors
+  (credential resolution hits the instance metadata service per
+  command, and IMDS will throttle under heavy concurrent load).
 - The failure threshold in parallel mode is "stop spawning new
   commands", not "cancel in-flight commands." When `--parallel N`
   is close to or exceeds the number of script lines, every line may
@@ -582,6 +586,19 @@ Every underlying library maintains 96%+ automated test coverage. This serves a d
 
 Discussions about the legitimacy, licensing, or ethics of AI-generated code in general are out of scope for this issue tracker. Issues opened on those grounds — without a concrete, reproducible defect in s7cmd's behavior — will be closed.
 
+## Contributing
+
+- Bug reports are welcome, but responses are not guaranteed.
+- Since this project is considered functionally complete, I will not accept any feature requests.
+- If you find this project useful, feel free to fork and modify it as you wish.
+
+🔒 I consider this project “complete” and will maintain it only minimally going forward.
+However, I intend to keep the AWS SDK for Rust and other dependencies up to date monthly.
+
+**Issue and PR lifecycle**
+
+To keep the tracker focused, an issue or PR with no activity for 30 days is labeled `stale` and closed 7 days later unless a new comment (or, for PRs, a new commit) is added. Items labeled `pinned` or `security` are exempt; PRs are also exempt from `pinned`. Closed items can always be reopened.
+
 ## License
 
-Apache-2.0. See `LICENSE`.
+Apache-2.0.
