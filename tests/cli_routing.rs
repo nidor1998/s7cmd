@@ -381,6 +381,102 @@ fn parses_put_bucket_notification_configuration() {
 }
 
 #[test]
+fn parses_get_bucket_replication() {
+    let cli = Cli::try_parse_from(["s7cmd", "get-bucket-replication", "s3://bucket"])
+        .expect("get-bucket-replication should parse");
+    assert!(matches!(cli.command, Some(Cmd::GetBucketReplication(_))));
+}
+
+#[test]
+fn parses_put_bucket_replication() {
+    let cli = Cli::try_parse_from([
+        "s7cmd",
+        "put-bucket-replication",
+        "s3://bucket",
+        "/tmp/rep.json",
+    ])
+    .expect("put-bucket-replication should parse");
+    assert!(matches!(cli.command, Some(Cmd::PutBucketReplication(_))));
+}
+
+#[test]
+fn parses_delete_bucket_replication() {
+    let cli = Cli::try_parse_from(["s7cmd", "delete-bucket-replication", "s3://bucket"])
+        .expect("delete-bucket-replication should parse");
+    assert!(matches!(cli.command, Some(Cmd::DeleteBucketReplication(_))));
+}
+
+#[test]
+fn parses_get_bucket_accelerate_configuration() {
+    let cli = Cli::try_parse_from([
+        "s7cmd",
+        "get-bucket-accelerate-configuration",
+        "s3://bucket",
+    ])
+    .expect("get-bucket-accelerate-configuration should parse");
+    assert!(matches!(
+        cli.command,
+        Some(Cmd::GetBucketAccelerateConfiguration(_))
+    ));
+}
+
+#[test]
+fn parses_put_bucket_accelerate_configuration() {
+    let cli = Cli::try_parse_from([
+        "s7cmd",
+        "put-bucket-accelerate-configuration",
+        "s3://bucket",
+        "--enabled",
+    ])
+    .expect("put-bucket-accelerate-configuration should parse");
+    assert!(matches!(
+        cli.command,
+        Some(Cmd::PutBucketAccelerateConfiguration(_))
+    ));
+}
+
+#[test]
+fn parses_get_bucket_request_payment() {
+    let cli = Cli::try_parse_from(["s7cmd", "get-bucket-request-payment", "s3://bucket"])
+        .expect("get-bucket-request-payment should parse");
+    assert!(matches!(cli.command, Some(Cmd::GetBucketRequestPayment(_))));
+}
+
+#[test]
+fn parses_put_bucket_request_payment() {
+    let cli = Cli::try_parse_from([
+        "s7cmd",
+        "put-bucket-request-payment",
+        "s3://bucket",
+        "--requester",
+    ])
+    .expect("put-bucket-request-payment should parse");
+    assert!(matches!(cli.command, Some(Cmd::PutBucketRequestPayment(_))));
+}
+
+#[test]
+fn parses_get_bucket_policy_status() {
+    let cli = Cli::try_parse_from(["s7cmd", "get-bucket-policy-status", "s3://bucket"])
+        .expect("get-bucket-policy-status should parse");
+    assert!(matches!(cli.command, Some(Cmd::GetBucketPolicyStatus(_))));
+}
+
+#[test]
+fn parses_restore_object() {
+    let cli = Cli::try_parse_from([
+        "s7cmd",
+        "restore-object",
+        "s3://bucket/key",
+        "--days",
+        "1",
+        "--tier",
+        "Standard",
+    ])
+    .expect("restore-object should parse");
+    assert!(matches!(cli.command, Some(Cmd::RestoreObject(_))));
+}
+
+#[test]
 fn parses_batch_run_with_stdin_dash() {
     let cli = Cli::try_parse_from(["s7cmd", "batch-run", "-"]).expect("batch-run - should parse");
     let Some(Cmd::BatchRun(args)) = cli.command else {

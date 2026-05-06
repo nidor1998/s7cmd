@@ -963,10 +963,19 @@ put-bucket-website {auth_target} s3://{bucket} {website_p}
 put-bucket-logging {auth_target} s3://{bucket} {logging_p}
 put-bucket-notification-configuration {auth_target} s3://{bucket} {notification_p}
 
+# ---- v1.3.0 bucket-level configuration (Transfer Acceleration,
+# ---- Request Payment). Replication is intentionally NOT included
+# ---- here: it requires versioning enabled on both source and
+# ---- destination buckets plus an IAM role, which is out of scope
+# ---- for a self-contained smoke test.
+put-bucket-accelerate-configuration {auth_target} --enabled s3://{bucket}
+put-bucket-request-payment {auth_target} --requester s3://{bucket}
+
 # ---- read everything back (versioning later) ----
 head-bucket {auth_target} s3://{bucket}
 get-bucket-tagging {auth_target} s3://{bucket}
 get-bucket-policy {auth_target} s3://{bucket}
+get-bucket-policy-status {auth_target} s3://{bucket}
 get-bucket-lifecycle-configuration {auth_target} s3://{bucket}
 get-bucket-encryption {auth_target} s3://{bucket}
 get-bucket-cors {auth_target} s3://{bucket}
@@ -974,6 +983,8 @@ get-public-access-block {auth_target} s3://{bucket}
 get-bucket-website {auth_target} s3://{bucket}
 get-bucket-logging {auth_target} s3://{bucket}
 get-bucket-notification-configuration {auth_target} s3://{bucket}
+get-bucket-accelerate-configuration {auth_target} s3://{bucket}
+get-bucket-request-payment {auth_target} s3://{bucket}
 
 # ---- object operations (bucket is still non-versioned here) ----
 cp {auth_target} {payload_p} s3://{bucket}/object1
@@ -999,6 +1010,7 @@ delete-bucket-lifecycle-configuration {auth_target} s3://{bucket}
 delete-bucket-encryption {auth_target} s3://{bucket}
 delete-bucket-cors {auth_target} s3://{bucket}
 delete-bucket-website {auth_target} s3://{bucket}
+delete-bucket-replication {auth_target} s3://{bucket}
 
 # ---- final teardown ----
 delete-bucket {auth_target} s3://{bucket}

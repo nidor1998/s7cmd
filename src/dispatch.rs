@@ -305,6 +305,51 @@ pub async fn dispatch(cmd: Cmd) -> i32 {
                 util_bin::cli::run_put_bucket_notification_configuration(args, client_config).await,
             )
         }
+
+        Cmd::GetBucketReplication(args) => {
+            let client_config = args.common.build_client_config();
+            status_to_exit(util_bin::cli::run_get_bucket_replication(args, client_config).await)
+        }
+        Cmd::PutBucketReplication(args) => {
+            let client_config = args.common.build_client_config();
+            unit_to_exit(util_bin::cli::run_put_bucket_replication(args, client_config).await)
+        }
+        Cmd::DeleteBucketReplication(args) => {
+            let client_config = args.common.build_client_config();
+            unit_to_exit(util_bin::cli::run_delete_bucket_replication(args, client_config).await)
+        }
+
+        Cmd::GetBucketAccelerateConfiguration(args) => {
+            let client_config = args.common.build_client_config();
+            status_to_exit(
+                util_bin::cli::run_get_bucket_accelerate_configuration(args, client_config).await,
+            )
+        }
+        Cmd::PutBucketAccelerateConfiguration(args) => {
+            let client_config = args.common.build_client_config();
+            unit_to_exit(
+                util_bin::cli::run_put_bucket_accelerate_configuration(args, client_config).await,
+            )
+        }
+
+        Cmd::GetBucketRequestPayment(args) => {
+            let client_config = args.common.build_client_config();
+            status_to_exit(util_bin::cli::run_get_bucket_request_payment(args, client_config).await)
+        }
+        Cmd::PutBucketRequestPayment(args) => {
+            let client_config = args.common.build_client_config();
+            unit_to_exit(util_bin::cli::run_put_bucket_request_payment(args, client_config).await)
+        }
+
+        Cmd::GetBucketPolicyStatus(args) => {
+            let client_config = args.common.build_client_config();
+            status_to_exit(util_bin::cli::run_get_bucket_policy_status(args, client_config).await)
+        }
+
+        Cmd::RestoreObject(args) => {
+            let client_config = args.common.build_client_config();
+            status_to_exit(util_bin::cli::run_restore_object(args, client_config).await)
+        }
     }
 }
 
@@ -754,6 +799,81 @@ mod tests {
         assert_eq!(code, 0);
     }
 
+    #[tokio::test]
+    async fn dispatch_put_bucket_replication_dry_run_succeeds() {
+        let tmp =
+            std::env::temp_dir().join(format!("s7cmd_dispatch_repl_{}.json", uuid::Uuid::new_v4()));
+        std::fs::write(
+            &tmp,
+            br#"{"Role":"arn:aws:iam::000000000000:role/r","Rules":[]}"#,
+        )
+        .unwrap();
+        let cmd = cmd_from(&[
+            "s7cmd",
+            "put-bucket-replication",
+            "--dry-run",
+            FAKE_BUCKET,
+            tmp.to_str().unwrap(),
+        ]);
+        let code = dispatch(cmd).await;
+        let _ = std::fs::remove_file(&tmp);
+        assert_eq!(code, 0);
+    }
+
+    #[tokio::test]
+    async fn dispatch_delete_bucket_replication_dry_run_succeeds() {
+        let cmd = cmd_from(&[
+            "s7cmd",
+            "delete-bucket-replication",
+            "--dry-run",
+            FAKE_BUCKET,
+        ]);
+        let code = dispatch(cmd).await;
+        assert_eq!(code, 0);
+    }
+
+    #[tokio::test]
+    async fn dispatch_put_bucket_accelerate_configuration_dry_run_succeeds() {
+        let cmd = cmd_from(&[
+            "s7cmd",
+            "put-bucket-accelerate-configuration",
+            "--dry-run",
+            "--enabled",
+            FAKE_BUCKET,
+        ]);
+        let code = dispatch(cmd).await;
+        assert_eq!(code, 0);
+    }
+
+    #[tokio::test]
+    async fn dispatch_put_bucket_request_payment_dry_run_succeeds() {
+        let cmd = cmd_from(&[
+            "s7cmd",
+            "put-bucket-request-payment",
+            "--dry-run",
+            "--requester",
+            FAKE_BUCKET,
+        ]);
+        let code = dispatch(cmd).await;
+        assert_eq!(code, 0);
+    }
+
+    #[tokio::test]
+    async fn dispatch_restore_object_dry_run_succeeds() {
+        let cmd = cmd_from(&[
+            "s7cmd",
+            "restore-object",
+            "--dry-run",
+            "--days",
+            "1",
+            "--tier",
+            "Standard",
+            &format!("{FAKE_BUCKET}/key"),
+        ]);
+        let code = dispatch(cmd).await;
+        assert_eq!(code, 0);
+    }
+
     // ---------- Get / Head arms (no --dry-run; aim a fake endpoint) ----------
     //
     // These hit the unreachable endpoint (127.0.0.1:1) so the SDK call
@@ -944,6 +1064,66 @@ mod tests {
         let cmd = cmd_from(&[
             "s7cmd",
             "get-bucket-notification-configuration",
+            "--target-endpoint-url",
+            FAKE_ENDPOINT,
+            "--target-region",
+            "us-east-1",
+            FAKE_BUCKET,
+        ]);
+        let code = dispatch(cmd).await;
+        assert_ne!(code, 0);
+    }
+
+    #[tokio::test]
+    async fn dispatch_get_bucket_replication_against_fake_endpoint_returns_error() {
+        let cmd = cmd_from(&[
+            "s7cmd",
+            "get-bucket-replication",
+            "--target-endpoint-url",
+            FAKE_ENDPOINT,
+            "--target-region",
+            "us-east-1",
+            FAKE_BUCKET,
+        ]);
+        let code = dispatch(cmd).await;
+        assert_ne!(code, 0);
+    }
+
+    #[tokio::test]
+    async fn dispatch_get_bucket_accelerate_configuration_against_fake_endpoint_returns_error() {
+        let cmd = cmd_from(&[
+            "s7cmd",
+            "get-bucket-accelerate-configuration",
+            "--target-endpoint-url",
+            FAKE_ENDPOINT,
+            "--target-region",
+            "us-east-1",
+            FAKE_BUCKET,
+        ]);
+        let code = dispatch(cmd).await;
+        assert_ne!(code, 0);
+    }
+
+    #[tokio::test]
+    async fn dispatch_get_bucket_request_payment_against_fake_endpoint_returns_error() {
+        let cmd = cmd_from(&[
+            "s7cmd",
+            "get-bucket-request-payment",
+            "--target-endpoint-url",
+            FAKE_ENDPOINT,
+            "--target-region",
+            "us-east-1",
+            FAKE_BUCKET,
+        ]);
+        let code = dispatch(cmd).await;
+        assert_ne!(code, 0);
+    }
+
+    #[tokio::test]
+    async fn dispatch_get_bucket_policy_status_against_fake_endpoint_returns_error() {
+        let cmd = cmd_from(&[
+            "s7cmd",
+            "get-bucket-policy-status",
             "--target-endpoint-url",
             FAKE_ENDPOINT,
             "--target-region",

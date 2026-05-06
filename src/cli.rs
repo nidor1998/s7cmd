@@ -99,6 +99,25 @@ Bucket Notification:
   get-bucket-notification-configuration Get a bucket's notification configuration
   put-bucket-notification-configuration Put a bucket notification configuration
 
+Bucket Replication:
+  get-bucket-replication                Get a bucket's replication configuration
+  put-bucket-replication                Put a bucket replication configuration
+  delete-bucket-replication             Delete a bucket's replication configuration
+
+Bucket Transfer Acceleration:
+  get-bucket-accelerate-configuration   Get a bucket's transfer acceleration configuration
+  put-bucket-accelerate-configuration   Put a bucket transfer acceleration configuration
+
+Bucket Request Payment:
+  get-bucket-request-payment            Get a bucket's request payment configuration
+  put-bucket-request-payment            Put a bucket request payment configuration
+
+Bucket Policy Status:
+  get-bucket-policy-status              Get a bucket's policy status (whether it is public)
+
+Object Restore:
+  restore-object                        Restore an archived S3 object
+
 Batch:
   batch-run                             Run s7cmd commands from a file (or - for stdin)
 
@@ -328,6 +347,34 @@ pub enum Cmd {
     PutBucketNotificationConfiguration(
         s3util_rs::config::args::PutBucketNotificationConfigurationArgs,
     ),
+
+    // Bucket Replication
+    /// Get a bucket's replication configuration
+    GetBucketReplication(s3util_rs::config::args::GetBucketReplicationArgs),
+    /// Put a bucket replication configuration
+    PutBucketReplication(s3util_rs::config::args::PutBucketReplicationArgs),
+    /// Delete a bucket's replication configuration
+    DeleteBucketReplication(s3util_rs::config::args::DeleteBucketReplicationArgs),
+
+    // Bucket Transfer Acceleration
+    /// Get a bucket's transfer acceleration configuration
+    GetBucketAccelerateConfiguration(s3util_rs::config::args::GetBucketAccelerateConfigurationArgs),
+    /// Put a bucket transfer acceleration configuration
+    PutBucketAccelerateConfiguration(s3util_rs::config::args::PutBucketAccelerateConfigurationArgs),
+
+    // Bucket Request Payment
+    /// Get a bucket's request payment configuration
+    GetBucketRequestPayment(s3util_rs::config::args::GetBucketRequestPaymentArgs),
+    /// Put a bucket request payment configuration
+    PutBucketRequestPayment(s3util_rs::config::args::PutBucketRequestPaymentArgs),
+
+    // Bucket Policy Status
+    /// Get a bucket's policy status (whether the policy makes the bucket public)
+    GetBucketPolicyStatus(s3util_rs::config::args::GetBucketPolicyStatusArgs),
+
+    // Object Restore
+    /// Restore an archived S3 object
+    RestoreObject(s3util_rs::config::args::RestoreObjectArgs),
 
     // Batch
     /// Run s7cmd commands from a file (or - for stdin)

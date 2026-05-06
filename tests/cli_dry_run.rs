@@ -515,6 +515,115 @@ fn rm_dry_run_with_version_id_includes_version_field() {
     );
 }
 
+// v1.3.0 mutating subcommands (s3util-rs 1.3.0)
+
+#[test]
+fn delete_bucket_replication_dry_run_smoke() {
+    let (ok, _, stderr, code) =
+        run(s7cmd().args(["delete-bucket-replication", "--dry-run", FAKE_BUCKET]));
+    assert_dry_run(&stderr, ok, code, "would delete bucket replication");
+}
+
+#[test]
+fn put_bucket_replication_dry_run_smoke() {
+    let cfg = write_json(r#"{"Role":"arn:aws:iam::000000000000:role/r","Rules":[]}"#);
+    let (ok, _, stderr, code) = run(s7cmd().args([
+        "put-bucket-replication",
+        "--dry-run",
+        FAKE_BUCKET,
+        cfg.path().to_str().unwrap(),
+    ]));
+    assert_dry_run(&stderr, ok, code, "would put bucket replication");
+}
+
+#[test]
+fn put_bucket_accelerate_configuration_enabled_dry_run_smoke() {
+    let (ok, _, stderr, code) = run(s7cmd().args([
+        "put-bucket-accelerate-configuration",
+        "--dry-run",
+        "--enabled",
+        FAKE_BUCKET,
+    ]));
+    assert_dry_run(
+        &stderr,
+        ok,
+        code,
+        "would put bucket accelerate configuration",
+    );
+    assert!(stderr.contains("Enabled"), "stderr: {stderr}");
+}
+
+#[test]
+fn put_bucket_accelerate_configuration_suspended_dry_run_smoke() {
+    let (ok, _, stderr, code) = run(s7cmd().args([
+        "put-bucket-accelerate-configuration",
+        "--dry-run",
+        "--suspended",
+        FAKE_BUCKET,
+    ]));
+    assert_dry_run(
+        &stderr,
+        ok,
+        code,
+        "would put bucket accelerate configuration",
+    );
+    assert!(stderr.contains("Suspended"), "stderr: {stderr}");
+}
+
+#[test]
+fn put_bucket_request_payment_requester_dry_run_smoke() {
+    let (ok, _, stderr, code) = run(s7cmd().args([
+        "put-bucket-request-payment",
+        "--dry-run",
+        "--requester",
+        FAKE_BUCKET,
+    ]));
+    assert_dry_run(&stderr, ok, code, "would put bucket request payment");
+    assert!(stderr.contains("Requester"), "stderr: {stderr}");
+}
+
+#[test]
+fn put_bucket_request_payment_bucket_owner_dry_run_smoke() {
+    let (ok, _, stderr, code) = run(s7cmd().args([
+        "put-bucket-request-payment",
+        "--dry-run",
+        "--bucket-owner",
+        FAKE_BUCKET,
+    ]));
+    assert_dry_run(&stderr, ok, code, "would put bucket request payment");
+    assert!(stderr.contains("BucketOwner"), "stderr: {stderr}");
+}
+
+#[test]
+fn restore_object_dry_run_smoke() {
+    let (ok, _, stderr, code) = run(s7cmd().args([
+        "restore-object",
+        "--dry-run",
+        "--days",
+        "7",
+        "--tier",
+        "Standard",
+        FAKE_OBJECT,
+    ]));
+    assert_dry_run(&stderr, ok, code, "would restore object");
+}
+
+#[test]
+fn restore_object_dry_run_with_version_id_includes_version_field() {
+    let (ok, _, stderr, code) = run(s7cmd().args([
+        "restore-object",
+        "--dry-run",
+        "--source-version-id",
+        "v9",
+        FAKE_OBJECT,
+    ]));
+    assert_dry_run(&stderr, ok, code, "would restore object");
+    assert!(
+        stderr.contains("v9"),
+        "version_id must appear in dry-run log: {stderr}"
+    );
+}
+
 // ---------- read-only commands must NOT expose --dry-run ----------
 
 #[test]
@@ -583,6 +692,81 @@ fn rm_help_lists_dry_run() {
 #[test]
 fn delete_bucket_help_lists_dry_run() {
     let (ok, stdout, _stderr, _code) = run(s7cmd().args(["delete-bucket", "--help"]));
+    assert!(ok);
+    assert!(stdout.contains("--dry-run"));
+}
+
+// v1.3.0 read-only subcommands must NOT expose --dry-run
+
+#[test]
+fn get_bucket_replication_help_does_not_expose_dry_run() {
+    let (ok, stdout, _stderr, _code) = run(s7cmd().args(["get-bucket-replication", "--help"]));
+    assert!(ok);
+    assert!(
+        !stdout.contains("--dry-run"),
+        "get-* must not expose --dry-run; help: {stdout}"
+    );
+}
+
+#[test]
+fn get_bucket_accelerate_configuration_help_does_not_expose_dry_run() {
+    let (ok, stdout, _stderr, _code) =
+        run(s7cmd().args(["get-bucket-accelerate-configuration", "--help"]));
+    assert!(ok);
+    assert!(
+        !stdout.contains("--dry-run"),
+        "get-* must not expose --dry-run; help: {stdout}"
+    );
+}
+
+#[test]
+fn get_bucket_request_payment_help_does_not_expose_dry_run() {
+    let (ok, stdout, _stderr, _code) = run(s7cmd().args(["get-bucket-request-payment", "--help"]));
+    assert!(ok);
+    assert!(!stdout.contains("--dry-run"));
+}
+
+#[test]
+fn get_bucket_policy_status_help_does_not_expose_dry_run() {
+    let (ok, stdout, _stderr, _code) = run(s7cmd().args(["get-bucket-policy-status", "--help"]));
+    assert!(ok);
+    assert!(!stdout.contains("--dry-run"));
+}
+
+// v1.3.0 mutating subcommands DO expose --dry-run
+
+#[test]
+fn delete_bucket_replication_help_lists_dry_run() {
+    let (ok, stdout, _stderr, _code) = run(s7cmd().args(["delete-bucket-replication", "--help"]));
+    assert!(ok);
+    assert!(stdout.contains("--dry-run"));
+}
+
+#[test]
+fn put_bucket_replication_help_lists_dry_run() {
+    let (ok, stdout, _stderr, _code) = run(s7cmd().args(["put-bucket-replication", "--help"]));
+    assert!(ok);
+    assert!(stdout.contains("--dry-run"));
+}
+
+#[test]
+fn put_bucket_accelerate_configuration_help_lists_dry_run() {
+    let (ok, stdout, _stderr, _code) =
+        run(s7cmd().args(["put-bucket-accelerate-configuration", "--help"]));
+    assert!(ok);
+    assert!(stdout.contains("--dry-run"));
+}
+
+#[test]
+fn put_bucket_request_payment_help_lists_dry_run() {
+    let (ok, stdout, _stderr, _code) = run(s7cmd().args(["put-bucket-request-payment", "--help"]));
+    assert!(ok);
+    assert!(stdout.contains("--dry-run"));
+}
+
+#[test]
+fn restore_object_help_lists_dry_run() {
+    let (ok, stdout, _stderr, _code) = run(s7cmd().args(["restore-object", "--help"]));
     assert!(ok);
     assert!(stdout.contains("--dry-run"));
 }
