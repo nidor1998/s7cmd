@@ -70,11 +70,11 @@ pub async fn run_restore_object(
             Ok(ExitStatus::Success)
         }
         Err(HeadError::BucketNotFound) => {
-            tracing::error!("bucket s3://{bucket} not found");
+            tracing::warn!("bucket s3://{bucket} not found");
             Ok(ExitStatus::NotFound)
         }
         Err(HeadError::NotFound) => {
-            tracing::error!("object s3://{bucket}/{key} not found");
+            tracing::warn!("object s3://{bucket}/{key} not found");
             Ok(ExitStatus::NotFound)
         }
         Err(HeadError::Other(e)) => Err(e),
