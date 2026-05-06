@@ -353,6 +353,79 @@ fn put_bucket_notification_configuration_help_works() {
 }
 
 #[test]
+fn get_bucket_replication_help_works() {
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["get-bucket-replication", "--help"])
+        .assert()
+        .success();
+}
+#[test]
+fn put_bucket_replication_help_works() {
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["put-bucket-replication", "--help"])
+        .assert()
+        .success();
+}
+#[test]
+fn delete_bucket_replication_help_works() {
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["delete-bucket-replication", "--help"])
+        .assert()
+        .success();
+}
+#[test]
+fn get_bucket_accelerate_configuration_help_works() {
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["get-bucket-accelerate-configuration", "--help"])
+        .assert()
+        .success();
+}
+#[test]
+fn put_bucket_accelerate_configuration_help_works() {
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["put-bucket-accelerate-configuration", "--help"])
+        .assert()
+        .success();
+}
+#[test]
+fn get_bucket_request_payment_help_works() {
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["get-bucket-request-payment", "--help"])
+        .assert()
+        .success();
+}
+#[test]
+fn put_bucket_request_payment_help_works() {
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["put-bucket-request-payment", "--help"])
+        .assert()
+        .success();
+}
+#[test]
+fn get_bucket_policy_status_help_works() {
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["get-bucket-policy-status", "--help"])
+        .assert()
+        .success();
+}
+#[test]
+fn restore_object_help_works() {
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["restore-object", "--help"])
+        .assert()
+        .success();
+}
+
+#[test]
 fn top_level_help_lists_new_bucket_subcommands() {
     Command::cargo_bin("s7cmd")
         .unwrap()
@@ -370,6 +443,28 @@ fn top_level_help_lists_new_bucket_subcommands() {
         .stdout(predicate::str::contains(
             "get-bucket-notification-configuration",
         ));
+}
+
+#[test]
+fn top_level_help_lists_v1_3_subcommands() {
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("get-bucket-replication"))
+        .stdout(predicate::str::contains("put-bucket-replication"))
+        .stdout(predicate::str::contains("delete-bucket-replication"))
+        .stdout(predicate::str::contains(
+            "get-bucket-accelerate-configuration",
+        ))
+        .stdout(predicate::str::contains(
+            "put-bucket-accelerate-configuration",
+        ))
+        .stdout(predicate::str::contains("get-bucket-request-payment"))
+        .stdout(predicate::str::contains("put-bucket-request-payment"))
+        .stdout(predicate::str::contains("get-bucket-policy-status"))
+        .stdout(predicate::str::contains("restore-object"));
 }
 
 #[test]

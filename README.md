@@ -48,10 +48,12 @@ migrations.
 s7cmd is designed to cover **Amazon S3 object operations and bucket
 management** — listing (`ls`), single- and bulk-object transfers
 (`cp` / `mv` / `rm`), recursive synchronization (`sync`), bulk delete
-(`clean`), and the common bucket-level configurations (tagging,
-versioning, policy, lifecycle, encryption, CORS,
-public-access-block, website, logging, notification). For any S3 use
-case outside that scope, use a more comprehensive tool such as the
+(`clean`), archive restoration (`restore-object`), and the common
+bucket-level configurations (tagging, versioning, policy,
+policy-status, lifecycle, encryption, CORS, public-access-block,
+website, logging, notification, replication, transfer acceleration,
+request payment). For any S3 use case outside that scope, use a more
+comprehensive tool such as the
 [AWS CLI](https://aws.amazon.com/cli/) (`aws s3api`).
 
 s7cmd targets **Amazon S3** as its primary supported platform.
@@ -271,6 +273,25 @@ Bucket Logging:
 Bucket Notification:
   get-bucket-notification-configuration Get a bucket's notification configuration
   put-bucket-notification-configuration Put a bucket notification configuration
+
+Bucket Replication:
+  get-bucket-replication                Get a bucket's replication configuration
+  put-bucket-replication                Put a bucket replication configuration
+  delete-bucket-replication             Delete a bucket's replication configuration
+
+Bucket Transfer Acceleration:
+  get-bucket-accelerate-configuration   Get a bucket's transfer acceleration configuration
+  put-bucket-accelerate-configuration   Put a bucket transfer acceleration configuration
+
+Bucket Request Payment:
+  get-bucket-request-payment            Get a bucket's request payment configuration
+  put-bucket-request-payment            Put a bucket request payment configuration
+
+Bucket Policy Status:
+  get-bucket-policy-status              Get a bucket's policy status (whether it is public)
+
+Object Restore:
+  restore-object                        Restore an archived S3 object
 
 Batch:
   batch-run                             Run s7cmd commands from a file (or - for stdin)

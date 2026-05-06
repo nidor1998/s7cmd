@@ -110,6 +110,21 @@ fn init_tracing_for(cmd: &Cmd) {
         Cmd::PutBucketNotificationConfiguration(args) => {
             args.common.build_tracing_config_dry_run(args.dry_run)
         }
+        Cmd::GetBucketReplication(args) => args.common.build_tracing_config(),
+        Cmd::PutBucketReplication(args) => args.common.build_tracing_config_dry_run(args.dry_run),
+        Cmd::DeleteBucketReplication(args) => {
+            args.common.build_tracing_config_dry_run(args.dry_run)
+        }
+        Cmd::GetBucketAccelerateConfiguration(args) => args.common.build_tracing_config(),
+        Cmd::PutBucketAccelerateConfiguration(args) => {
+            args.common.build_tracing_config_dry_run(args.dry_run)
+        }
+        Cmd::GetBucketRequestPayment(args) => args.common.build_tracing_config(),
+        Cmd::PutBucketRequestPayment(args) => {
+            args.common.build_tracing_config_dry_run(args.dry_run)
+        }
+        Cmd::GetBucketPolicyStatus(args) => args.common.build_tracing_config(),
+        Cmd::RestoreObject(args) => args.common.build_tracing_config_dry_run(args.dry_run),
     };
 
     if let Some(tc) = tc {

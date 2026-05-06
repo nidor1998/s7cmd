@@ -55,6 +55,7 @@ fn reject_per_line_stdin_config(line_no: usize, raw: &str, cmd: &Cmd) -> Result<
         Cmd::PutBucketWebsite(a) => a.website_configuration.as_deref(),
         Cmd::PutBucketLogging(a) => a.bucket_logging_status.as_deref(),
         Cmd::PutBucketNotificationConfiguration(a) => a.notification_configuration.as_deref(),
+        Cmd::PutBucketReplication(a) => a.replication_configuration.as_deref(),
         _ => return Ok(()),
     };
     if stdin_arg == Some("-") {
@@ -185,6 +186,15 @@ fn reject_per_line_tracing(line_no: usize, raw: &str, cmd: &Cmd) -> Result<()> {
         Cmd::PutBucketLogging(a) => check_common!(a),
         Cmd::GetBucketNotificationConfiguration(a) => check_common!(a),
         Cmd::PutBucketNotificationConfiguration(a) => check_common!(a),
+        Cmd::GetBucketReplication(a) => check_common!(a),
+        Cmd::PutBucketReplication(a) => check_common!(a),
+        Cmd::DeleteBucketReplication(a) => check_common!(a),
+        Cmd::GetBucketAccelerateConfiguration(a) => check_common!(a),
+        Cmd::PutBucketAccelerateConfiguration(a) => check_common!(a),
+        Cmd::GetBucketRequestPayment(a) => check_common!(a),
+        Cmd::PutBucketRequestPayment(a) => check_common!(a),
+        Cmd::GetBucketPolicyStatus(a) => check_common!(a),
+        Cmd::RestoreObject(a) => check_common!(a),
     }
     Ok(())
 }
@@ -301,6 +311,7 @@ mod tests {
             "put-bucket-website",
             "put-bucket-logging",
             "put-bucket-notification-configuration",
+            "put-bucket-replication",
         ];
         for sub in cases {
             assert_rejects_stdin_dash(&["s7cmd", sub, "s3://b", "-"]);
@@ -479,6 +490,11 @@ mod tests {
             "delete-bucket-website",
             "get-bucket-logging",
             "get-bucket-notification-configuration",
+            "get-bucket-replication",
+            "delete-bucket-replication",
+            "get-bucket-accelerate-configuration",
+            "get-bucket-request-payment",
+            "get-bucket-policy-status",
         ];
         for sub in bucket_only {
             // `rm` requires a key, otherwise `s3://b` is enough.
@@ -487,7 +503,12 @@ mod tests {
         }
 
         // Variants whose required positionals are `<bucket>/<key>`.
-        let object_keyed = ["head-object", "get-object-tagging", "delete-object-tagging"];
+        let object_keyed = [
+            "head-object",
+            "get-object-tagging",
+            "delete-object-tagging",
+            "restore-object",
+        ];
         for sub in object_keyed {
             assert_rejects_tracing(&["s7cmd", sub, "--json-tracing", "s3://b/k"]);
         }
@@ -501,6 +522,27 @@ mod tests {
             "put-bucket-versioning",
             "--json-tracing",
             "--enabled",
+            "s3://b",
+        ]);
+
+        // `put-bucket-accelerate-configuration` follows the same flag-style
+        // pattern as `put-bucket-versioning` (mutually exclusive
+        // `--enabled` / `--suspended`).
+        assert_rejects_tracing(&[
+            "s7cmd",
+            "put-bucket-accelerate-configuration",
+            "--json-tracing",
+            "--enabled",
+            "s3://b",
+        ]);
+
+        // `put-bucket-request-payment` uses mutually exclusive
+        // `--requester` / `--bucket-owner` flags.
+        assert_rejects_tracing(&[
+            "s7cmd",
+            "put-bucket-request-payment",
+            "--json-tracing",
+            "--requester",
             "s3://b",
         ]);
 
@@ -537,6 +579,7 @@ mod tests {
             "put-bucket-website",
             "put-bucket-logging",
             "put-bucket-notification-configuration",
+            "put-bucket-replication",
         ];
         for sub in put_with_file {
             assert_rejects_tracing(&["s7cmd", sub, "--json-tracing", "s3://b", "/dev/null"]);

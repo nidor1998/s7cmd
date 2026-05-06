@@ -1229,3 +1229,394 @@ async fn put_bucket_notification_configuration_dry_run_does_not_apply() {
          applied the marker config; get stdout: {stdout}"
     );
 }
+
+// ---------------------------------------------------------------
+// v1.3.0 dry-run end-to-end coverage
+// ---------------------------------------------------------------
+
+#[tokio::test]
+async fn put_bucket_replication_dry_run_does_not_apply() {
+    let helper = TestHelper::new().await;
+    let bucket = generate_bucket_name();
+    helper.create_bucket(&bucket, REGION).await;
+
+    let dest = generate_bucket_name();
+    let cfg_body = format!(
+        r#"{{
+            "Role": "arn:aws:iam::000000000000:role/s3-replication-test",
+            "Rules": [
+                {{
+                    "ID": "rule-1",
+                    "Priority": 1,
+                    "Filter": {{}},
+                    "Status": "Enabled",
+                    "DeleteMarkerReplication": {{ "Status": "Disabled" }},
+                    "Destination": {{ "Bucket": "arn:aws:s3:::{dest}" }}
+                }}
+            ]
+        }}"#
+    );
+    let tmp_dir = create_temp_dir();
+    let cfg = create_test_file(&tmp_dir, "rep.json", cfg_body.as_bytes());
+
+    let bucket_arg = format!("s3://{bucket}");
+    let output = run_s7cmd(&[
+        "put-bucket-replication",
+        "--dry-run",
+        "--target-profile",
+        "s7cmd-e2e-test",
+        &bucket_arg,
+        cfg.to_str().unwrap(),
+    ]);
+    assert_dry_run_success(&output, "would put bucket replication");
+
+    // Confirm replication was NOT applied — get-bucket-replication on a
+    // bucket without replication returns 4 (NoSuchReplicationConfiguration).
+    let get_out = run_s7cmd(&[
+        "get-bucket-replication",
+        "--target-profile",
+        "s7cmd-e2e-test",
+        &bucket_arg,
+    ]);
+
+    helper.delete_bucket_with_cascade(&bucket).await;
+
+    assert_eq!(
+        get_out.status.code(),
+        Some(4),
+        "put-bucket-replication --dry-run must NOT have applied replication"
+    );
+}
+
+/// Verify `delete-bucket-replication --dry-run` does NOT remove an existing
+/// replication configuration. Requires `S7CMD_E2E_REPLICATION_ROLE_ARN` to
+/// point at an IAM role whose trust policy allows `s3.amazonaws.com` to
+/// AssumeRole, and the e2e profile must have `iam:PassRole` on it.
+/// Without the env var, the test is skipped (return) rather than failed.
+#[tokio::test]
+async fn delete_bucket_replication_dry_run_does_not_change_state() {
+    use aws_sdk_s3::types::{
+        DeleteMarkerReplication, DeleteMarkerReplicationStatus, Destination,
+        ReplicationConfiguration, ReplicationRule, ReplicationRuleFilter, ReplicationRuleStatus,
+    };
+
+    let Ok(role_arn) = std::env::var("S7CMD_E2E_REPLICATION_ROLE_ARN") else {
+        eprintln!(
+            "skipping delete_bucket_replication_dry_run_does_not_change_state: \
+             S7CMD_E2E_REPLICATION_ROLE_ARN is not set"
+        );
+        return;
+    };
+
+    let helper = TestHelper::new().await;
+    let bucket = generate_bucket_name();
+    let dest_bucket = generate_bucket_name();
+    helper.create_bucket(&bucket, REGION).await;
+    helper.create_bucket(&dest_bucket, REGION).await;
+    helper.enable_bucket_versioning(&bucket).await;
+    helper.enable_bucket_versioning(&dest_bucket).await;
+
+    // Set up replication via the SDK directly (not via s7cmd) so the
+    // dry-run delete has real, observable state to preserve.
+    let cfg = ReplicationConfiguration::builder()
+        .role(&role_arn)
+        .rules(
+            ReplicationRule::builder()
+                .id("dry-run-marker")
+                .priority(1)
+                .filter(ReplicationRuleFilter::builder().build())
+                .status(ReplicationRuleStatus::Enabled)
+                .delete_marker_replication(
+                    DeleteMarkerReplication::builder()
+                        .status(DeleteMarkerReplicationStatus::Disabled)
+                        .build(),
+                )
+                .destination(
+                    Destination::builder()
+                        .bucket(format!("arn:aws:s3:::{dest_bucket}"))
+                        .build()
+                        .unwrap(),
+                )
+                .build()
+                .unwrap(),
+        )
+        .build()
+        .unwrap();
+
+    helper
+        .client
+        .put_bucket_replication()
+        .bucket(&bucket)
+        .replication_configuration(cfg)
+        .send()
+        .await
+        .expect("PutBucketReplication setup must succeed");
+
+    let bucket_arg = format!("s3://{bucket}");
+    let output = run_s7cmd(&[
+        "delete-bucket-replication",
+        "--dry-run",
+        "--target-profile",
+        "s7cmd-e2e-test",
+        &bucket_arg,
+    ]);
+    assert_dry_run_success(&output, "would delete bucket replication");
+
+    // Replication must still be present — if the dry-run had really
+    // issued DeleteBucketReplication, get would return NotFound (4).
+    let get_after = run_s7cmd(&[
+        "get-bucket-replication",
+        "--target-profile",
+        "s7cmd-e2e-test",
+        &bucket_arg,
+    ]);
+    let get_succeeded = get_after.status.success();
+    let get_stdout = String::from_utf8_lossy(&get_after.stdout).to_string();
+
+    helper.delete_bucket_with_cascade(&bucket).await;
+    helper.delete_bucket_with_cascade(&dest_bucket).await;
+
+    assert!(
+        get_succeeded,
+        "delete-bucket-replication --dry-run must NOT have deleted replication; \
+         get exit code: {:?}",
+        get_after.status.code()
+    );
+    assert!(
+        get_stdout.contains("dry-run-marker"),
+        "replication rule (id=dry-run-marker) must still be present after \
+         dry-run delete; get stdout: {get_stdout}"
+    );
+}
+
+#[tokio::test]
+async fn put_bucket_accelerate_configuration_enabled_dry_run_does_not_apply() {
+    let helper = TestHelper::new().await;
+    let bucket = generate_bucket_name();
+    helper.create_bucket(&bucket, REGION).await;
+
+    let bucket_arg = format!("s3://{bucket}");
+    let output = run_s7cmd(&[
+        "put-bucket-accelerate-configuration",
+        "--dry-run",
+        "--enabled",
+        "--target-profile",
+        "s7cmd-e2e-test",
+        &bucket_arg,
+    ]);
+    assert_dry_run_success(&output, "would put bucket accelerate configuration");
+
+    let get_out = run_s7cmd(&[
+        "get-bucket-accelerate-configuration",
+        "--target-profile",
+        "s7cmd-e2e-test",
+        &bucket_arg,
+    ]);
+    let stdout = String::from_utf8_lossy(&get_out.stdout).to_string();
+    helper.delete_bucket_with_cascade(&bucket).await;
+
+    assert!(
+        get_out.status.success(),
+        "get-bucket-accelerate-configuration must succeed; stderr: {}",
+        String::from_utf8_lossy(&get_out.stderr)
+    );
+    // Fresh bucket has no Status set; if the put had actually been
+    // issued, get would now show Status=Enabled.
+    assert!(
+        !stdout.contains("\"Enabled\""),
+        "put-bucket-accelerate --dry-run --enabled must NOT have enabled \
+         acceleration; get stdout: {stdout}"
+    );
+}
+
+#[tokio::test]
+async fn put_bucket_accelerate_configuration_suspended_dry_run_does_not_apply() {
+    let helper = TestHelper::new().await;
+    let bucket = generate_bucket_name();
+    helper.create_bucket(&bucket, REGION).await;
+
+    let bucket_arg = format!("s3://{bucket}");
+    let output = run_s7cmd(&[
+        "put-bucket-accelerate-configuration",
+        "--dry-run",
+        "--suspended",
+        "--target-profile",
+        "s7cmd-e2e-test",
+        &bucket_arg,
+    ]);
+    assert_dry_run_success(&output, "would put bucket accelerate configuration");
+
+    let get_out = run_s7cmd(&[
+        "get-bucket-accelerate-configuration",
+        "--target-profile",
+        "s7cmd-e2e-test",
+        &bucket_arg,
+    ]);
+    let stdout = String::from_utf8_lossy(&get_out.stdout).to_string();
+    helper.delete_bucket_with_cascade(&bucket).await;
+
+    assert!(get_out.status.success());
+    // Fresh bucket has no Status set; if the put had been issued, get
+    // would show Status=Suspended.
+    assert!(
+        !stdout.contains("\"Suspended\""),
+        "put-bucket-accelerate --dry-run --suspended must NOT have applied \
+         Suspended; get stdout: {stdout}"
+    );
+}
+
+#[tokio::test]
+async fn put_bucket_request_payment_requester_dry_run_does_not_apply() {
+    let helper = TestHelper::new().await;
+    let bucket = generate_bucket_name();
+    helper.create_bucket(&bucket, REGION).await;
+
+    let bucket_arg = format!("s3://{bucket}");
+    let output = run_s7cmd(&[
+        "put-bucket-request-payment",
+        "--dry-run",
+        "--requester",
+        "--target-profile",
+        "s7cmd-e2e-test",
+        &bucket_arg,
+    ]);
+    assert_dry_run_success(&output, "would put bucket request payment");
+
+    let get_out = run_s7cmd(&[
+        "get-bucket-request-payment",
+        "--target-profile",
+        "s7cmd-e2e-test",
+        &bucket_arg,
+    ]);
+    let stdout = String::from_utf8_lossy(&get_out.stdout).to_string();
+    helper.delete_bucket_with_cascade(&bucket).await;
+
+    assert!(get_out.status.success());
+    assert!(
+        stdout.contains("\"BucketOwner\""),
+        "put-bucket-request-payment --dry-run --requester must NOT have \
+         flipped Payer; expected default BucketOwner; got: {stdout}"
+    );
+    assert!(
+        !stdout.contains("\"Requester\""),
+        "put-bucket-request-payment --dry-run --requester must NOT have \
+         applied Requester; got: {stdout}"
+    );
+}
+
+#[tokio::test]
+async fn put_bucket_request_payment_bucket_owner_dry_run_does_not_apply() {
+    let helper = TestHelper::new().await;
+    let bucket = generate_bucket_name();
+    helper.create_bucket(&bucket, REGION).await;
+
+    let bucket_arg = format!("s3://{bucket}");
+
+    // Set Payer=Requester first so the dry-run --bucket-owner has
+    // something to potentially flip.
+    let setup = run_s7cmd(&[
+        "put-bucket-request-payment",
+        "--requester",
+        "--target-profile",
+        "s7cmd-e2e-test",
+        &bucket_arg,
+    ]);
+    assert!(setup.status.success(), "setup must succeed");
+
+    let output = run_s7cmd(&[
+        "put-bucket-request-payment",
+        "--dry-run",
+        "--bucket-owner",
+        "--target-profile",
+        "s7cmd-e2e-test",
+        &bucket_arg,
+    ]);
+    assert_dry_run_success(&output, "would put bucket request payment");
+
+    let get_out = run_s7cmd(&[
+        "get-bucket-request-payment",
+        "--target-profile",
+        "s7cmd-e2e-test",
+        &bucket_arg,
+    ]);
+    let stdout = String::from_utf8_lossy(&get_out.stdout).to_string();
+    helper.delete_bucket_with_cascade(&bucket).await;
+
+    assert!(get_out.status.success());
+    // Setup made it Requester; dry-run --bucket-owner should NOT have
+    // flipped it back. If the dry-run had issued the put, get would
+    // now show BucketOwner.
+    assert!(
+        stdout.contains("\"Requester\""),
+        "put-bucket-request-payment --dry-run --bucket-owner must NOT have \
+         flipped Payer back; expected Requester; got: {stdout}"
+    );
+}
+
+#[tokio::test]
+async fn restore_object_dry_run_does_not_call_api() {
+    let helper = TestHelper::new().await;
+    let bucket = generate_bucket_name();
+    helper.create_bucket(&bucket, REGION).await;
+
+    let key = "dry-run-restore.txt";
+    helper.put_object(&bucket, key, b"x".to_vec()).await;
+
+    let object_arg = format!("s3://{bucket}/{key}");
+    let output = run_s7cmd(&[
+        "restore-object",
+        "--dry-run",
+        "--days",
+        "1",
+        "--tier",
+        "Standard",
+        "--target-profile",
+        "s7cmd-e2e-test",
+        &object_arg,
+    ]);
+    // If the API call had been issued, AWS would respond with
+    // InvalidObjectState (Standard-class objects can't be restored)
+    // and the binary would exit non-zero. A successful dry-run proves
+    // the call was skipped.
+    assert_dry_run_success(&output, "would restore object");
+
+    helper.delete_bucket_with_cascade(&bucket).await;
+}
+
+#[tokio::test]
+async fn restore_object_dry_run_with_version_id_does_not_call_api() {
+    let helper = TestHelper::new().await;
+    let bucket = generate_bucket_name();
+    helper.create_bucket(&bucket, REGION).await;
+    helper.enable_bucket_versioning(&bucket).await;
+
+    let key = "dry-run-restore-versioned.txt";
+    let version_id = helper
+        .put_object_returning_version_id(&bucket, key, b"x".to_vec())
+        .await;
+
+    let object_arg = format!("s3://{bucket}/{key}");
+    let output = run_s7cmd(&[
+        "restore-object",
+        "--dry-run",
+        "--days",
+        "1",
+        "--tier",
+        "Bulk",
+        "--source-version-id",
+        &version_id,
+        "--target-profile",
+        "s7cmd-e2e-test",
+        &object_arg,
+    ]);
+    assert_dry_run_success(&output, "would restore object");
+    // Cross-check: the version_id field appears in the dry-run log,
+    // so we know our runtime handed it through to the format.
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(&version_id),
+        "version_id must appear in dry-run log line; got: {stderr}"
+    );
+
+    helper.delete_bucket_with_cascade(&bucket).await;
+}

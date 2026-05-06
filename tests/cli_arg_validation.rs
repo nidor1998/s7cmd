@@ -448,3 +448,84 @@ fn put_bucket_notification_configuration_no_args_exits_2() {
     assert_eq!(code, Some(2));
     assert!(!stderr.is_empty());
 }
+
+// ---- get-bucket-replication ----
+
+#[test]
+fn get_bucket_replication_no_args_exits_2() {
+    let (code, _stdout, stderr) = run(s7cmd_cmd().arg("get-bucket-replication"));
+    assert_eq!(code, Some(2));
+    assert!(!stderr.is_empty());
+}
+
+// ---- put-bucket-replication ----
+
+#[test]
+fn put_bucket_replication_no_args_exits_2() {
+    let (code, _stdout, stderr) = run(s7cmd_cmd().arg("put-bucket-replication"));
+    assert_eq!(code, Some(2));
+    assert!(!stderr.is_empty());
+}
+
+// ---- delete-bucket-replication ----
+
+#[test]
+fn delete_bucket_replication_no_args_exits_2() {
+    let (code, _stdout, stderr) = run(s7cmd_cmd().arg("delete-bucket-replication"));
+    assert_eq!(code, Some(2));
+    assert!(!stderr.is_empty());
+}
+
+// ---- get-bucket-accelerate-configuration ----
+
+#[test]
+fn get_bucket_accelerate_configuration_no_args_exits_2() {
+    let (code, _stdout, stderr) = run(s7cmd_cmd().arg("get-bucket-accelerate-configuration"));
+    assert_eq!(code, Some(2));
+    assert!(!stderr.is_empty());
+}
+
+// ---- put-bucket-accelerate-configuration ----
+
+#[test]
+fn put_bucket_accelerate_configuration_no_args_exits_2() {
+    let (code, _stdout, stderr) = run(s7cmd_cmd().arg("put-bucket-accelerate-configuration"));
+    assert_eq!(code, Some(2));
+    assert!(!stderr.is_empty());
+}
+
+// ---- get-bucket-request-payment ----
+
+#[test]
+fn get_bucket_request_payment_no_args_exits_2() {
+    let (code, _stdout, stderr) = run(s7cmd_cmd().arg("get-bucket-request-payment"));
+    assert_eq!(code, Some(2));
+    assert!(!stderr.is_empty());
+}
+
+// ---- put-bucket-request-payment ----
+
+#[test]
+fn put_bucket_request_payment_no_args_exits_2() {
+    let (code, _stdout, stderr) = run(s7cmd_cmd().arg("put-bucket-request-payment"));
+    assert_eq!(code, Some(2));
+    assert!(!stderr.is_empty());
+}
+
+// ---- get-bucket-policy-status ----
+
+#[test]
+fn get_bucket_policy_status_no_args_exits_2() {
+    let (code, _stdout, stderr) = run(s7cmd_cmd().arg("get-bucket-policy-status"));
+    assert_eq!(code, Some(2));
+    assert!(!stderr.is_empty());
+}
+
+// ---- restore-object ----
+
+#[test]
+fn restore_object_no_args_exits_2() {
+    let (code, _stdout, stderr) = run(s7cmd_cmd().arg("restore-object"));
+    assert_eq!(code, Some(2));
+    assert!(!stderr.is_empty());
+}

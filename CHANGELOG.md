@@ -5,6 +5,62 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-05-06
+
+### Added
+
+Nine new subcommands sourced from `s3util-rs` 1.3.0. Each one
+mirrors the upstream behavior (argument names, log messages,
+exit codes, output JSON shape) and respects s7cmd's
+`--dry-run`, `--target-profile`, `batch-run`, and exit-code
+conventions.
+
+- **Bucket Replication** — `get-bucket-replication`,
+  `put-bucket-replication`, `delete-bucket-replication` for
+  managing cross-region and same-region replication rules.
+  `put-bucket-replication` accepts the AWS-CLI shape
+  (top-level `Role` + `Rules`) from a file path or `-` for
+  stdin (file path only inside `batch-run`, matching the
+  other `put-*` family).
+- **Transfer Acceleration** — `get-bucket-accelerate-configuration`,
+  `put-bucket-accelerate-configuration` to read and toggle S3
+  Transfer Acceleration. `put-` takes mutually-exclusive
+  `--enabled` / `--suspended` flags.
+- **Requester Pays** — `get-bucket-request-payment`,
+  `put-bucket-request-payment` for switching between owner-pays
+  and requester-pays billing. `put-` takes mutually-exclusive
+  `--requester` / `--bucket-owner` flags.
+- **Policy Status** — `get-bucket-policy-status` to report whether
+  a bucket policy makes the bucket public
+  (`{"PolicyStatus": {"IsPublic": …}}`).
+- **Object Restore** — `restore-object` to initiate restoration
+  of S3 Glacier-class archived objects with `--days N` and
+  `--tier {Standard,Bulk,Expedited}`. Supports
+  `--source-version-id` for version-targeted restores.
+
+### Changed
+
+- Bumped `s3util-rs` from 1.2 to 1.3 (vendored CLI sources
+  synced to match). This release also picks up the upstream
+  bug fixes for output formatting (object-size filters and
+  version-related fields in lifecycle output, encryption
+  blocking rules, target grants in logging, `ChecksumSHA512` /
+  `ChecksumMD5` in object metadata, replication metrics and
+  RTC time containers) and accepts ISO 8601 (`YYYY-MM-DD`)
+  dates in lifecycle rules.
+
+### Underlying libraries
+
+This release pins the following exact versions of the underlying
+libraries:
+
+```toml
+s3sync     = "=1.58.6"
+s3util-rs  = "=1.3.0"
+s3rm-rs    = "=1.3.6"
+s3ls-rs    = "=1.0.1"
+```
+
 ## [1.0.0] - 2026-05-04
 
 Initial release.
