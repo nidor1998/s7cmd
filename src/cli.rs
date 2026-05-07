@@ -118,6 +118,9 @@ Bucket Policy Status:
 Object Restore:
   restore-object                        Restore an archived S3 object
 
+Object Presign:
+  presign                               Generate a pre-signed URL for an S3 object
+
 Batch:
   batch-run                             Run s7cmd commands from a file (or - for stdin)
 
@@ -375,6 +378,10 @@ pub enum Cmd {
     // Object Restore
     /// Restore an archived S3 object
     RestoreObject(s3util_rs::config::args::RestoreObjectArgs),
+
+    // Object Presign
+    /// Generate a pre-signed URL for an S3 object
+    Presign(s3util_rs::config::args::PresignArgs),
 
     // Batch
     /// Run s7cmd commands from a file (or - for stdin)

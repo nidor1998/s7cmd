@@ -477,6 +477,23 @@ fn parses_restore_object() {
 }
 
 #[test]
+fn parses_presign() {
+    let cli =
+        Cli::try_parse_from(["s7cmd", "presign", "s3://bucket/key"]).expect("presign should parse");
+    assert!(matches!(cli.command, Some(Cmd::Presign(_))));
+}
+
+#[test]
+fn parses_presign_with_expires_in() {
+    let cli = Cli::try_parse_from(["s7cmd", "presign", "s3://bucket/key", "--expires-in", "120"])
+        .expect("presign --expires-in should parse");
+    let Some(Cmd::Presign(args)) = cli.command else {
+        panic!("expected Presign");
+    };
+    assert_eq!(args.expires_in, 120);
+}
+
+#[test]
 fn parses_batch_run_with_stdin_dash() {
     let cli = Cli::try_parse_from(["s7cmd", "batch-run", "-"]).expect("batch-run - should parse");
     let Some(Cmd::BatchRun(args)) = cli.command else {

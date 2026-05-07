@@ -195,6 +195,7 @@ fn reject_per_line_tracing(line_no: usize, raw: &str, cmd: &Cmd) -> Result<()> {
         Cmd::PutBucketRequestPayment(a) => check_common!(a),
         Cmd::GetBucketPolicyStatus(a) => check_common!(a),
         Cmd::RestoreObject(a) => check_common!(a),
+        Cmd::Presign(a) => check_common!(a),
     }
     Ok(())
 }
@@ -508,6 +509,7 @@ mod tests {
             "get-object-tagging",
             "delete-object-tagging",
             "restore-object",
+            "presign",
         ];
         for sub in object_keyed {
             assert_rejects_tracing(&["s7cmd", sub, "--json-tracing", "s3://b/k"]);
