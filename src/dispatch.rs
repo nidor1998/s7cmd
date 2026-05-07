@@ -350,6 +350,11 @@ pub async fn dispatch(cmd: Cmd) -> i32 {
             let client_config = args.common.build_client_config();
             status_to_exit(util_bin::cli::run_restore_object(args, client_config).await)
         }
+
+        Cmd::Presign(args) => {
+            let client_config = args.common.build_client_config();
+            status_to_exit(util_bin::cli::run_presign(args, client_config).await)
+        }
     }
 }
 
@@ -872,6 +877,18 @@ mod tests {
         ]);
         let code = dispatch(cmd).await;
         assert_eq!(code, 0);
+    }
+
+    /// presign has no `--dry-run` (signing is local; nothing to defer). The
+    /// bucket-only-path branch is the only one that fails before any SDK
+    /// work, so it's the right shape for a routing-only assertion: clap
+    /// accepts `s3://bucket`, `bucket_key()` rejects it post-parse, and
+    /// `run_presign` surfaces the error → status_to_exit gives exit 1.
+    #[tokio::test]
+    async fn dispatch_presign_bucket_only_path_returns_one() {
+        let cmd = cmd_from(&["s7cmd", "presign", FAKE_BUCKET]);
+        let code = dispatch(cmd).await;
+        assert_eq!(code, 1);
     }
 
     // ---------- Get / Head arms (no --dry-run; aim a fake endpoint) ----------

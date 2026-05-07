@@ -989,6 +989,7 @@ get-bucket-request-payment {auth_target} s3://{bucket}
 # ---- object operations (bucket is still non-versioned here) ----
 cp {auth_target} {payload_p} s3://{bucket}/object1
 head-object {auth_target} s3://{bucket}/object1
+presign {auth_target} s3://{bucket}/object1
 put-object-tagging {auth_target} --tagging \"k=v\" s3://{bucket}/object1
 get-object-tagging {auth_target} s3://{bucket}/object1
 delete-object-tagging {auth_target} s3://{bucket}/object1

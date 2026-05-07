@@ -125,6 +125,7 @@ fn init_tracing_for(cmd: &Cmd) {
         }
         Cmd::GetBucketPolicyStatus(args) => args.common.build_tracing_config(),
         Cmd::RestoreObject(args) => args.common.build_tracing_config_dry_run(args.dry_run),
+        Cmd::Presign(args) => args.common.build_tracing_config(),
     };
 
     if let Some(tc) = tc {

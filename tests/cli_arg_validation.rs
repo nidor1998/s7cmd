@@ -529,3 +529,12 @@ fn restore_object_no_args_exits_2() {
     assert_eq!(code, Some(2));
     assert!(!stderr.is_empty());
 }
+
+// ---- presign ----
+
+#[test]
+fn presign_no_args_exits_2() {
+    let (code, _stdout, stderr) = run(s7cmd_cmd().arg("presign"));
+    assert_eq!(code, Some(2));
+    assert!(!stderr.is_empty());
+}

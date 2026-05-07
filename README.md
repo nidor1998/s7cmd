@@ -48,12 +48,12 @@ migrations.
 s7cmd is designed to cover **Amazon S3 object operations and bucket
 management** — listing (`ls`), single- and bulk-object transfers
 (`cp` / `mv` / `rm`), recursive synchronization (`sync`), bulk delete
-(`clean`), archive restoration (`restore-object`), and the common
-bucket-level configurations (tagging, versioning, policy,
-policy-status, lifecycle, encryption, CORS, public-access-block,
-website, logging, notification, replication, transfer acceleration,
-request payment). For any S3 use case outside that scope, use a more
-comprehensive tool such as the
+(`clean`), archive restoration (`restore-object`), pre-signed URL
+generation (`presign`), and the common bucket-level configurations
+(tagging, versioning, policy, policy-status, lifecycle, encryption,
+CORS, public-access-block, website, logging, notification,
+replication, transfer acceleration, request payment). For any S3 use
+case outside that scope, use a more comprehensive tool such as the
 [AWS CLI](https://aws.amazon.com/cli/) (`aws s3api`).
 
 s7cmd targets **Amazon S3** as its primary supported platform.
@@ -213,6 +213,8 @@ Object Operations:
   cp                                    Copy objects from/to S3 (or S3 to S3)
   mv                                    Move objects from/to S3 (copy then delete source)
   rm                                    Delete a single S3 object
+  restore-object                        Restore an archived S3 object
+  presign                               Generate a pre-signed URL for an S3 object (GET only)
   sync                                  Synchronize files between local and S3 (or S3 to S3)
   clean                                 Bulk-delete S3 objects
 
@@ -289,9 +291,6 @@ Bucket Request Payment:
 
 Bucket Policy Status:
   get-bucket-policy-status              Get a bucket's policy status (whether it is public)
-
-Object Restore:
-  restore-object                        Restore an archived S3 object
 
 Batch:
   batch-run                             Run s7cmd commands from a file (or - for stdin)
