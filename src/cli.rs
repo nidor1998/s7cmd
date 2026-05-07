@@ -38,6 +38,8 @@ Object Operations:
   cp                                    Copy objects from/to S3 (or S3 to S3)
   mv                                    Move objects from/to S3 (copy then delete source)
   rm                                    Delete a single S3 object
+  restore-object                        Restore an archived S3 object
+  presign                               Generate a pre-signed URL for an S3 object (GET only)
   sync                                  Synchronize files between local and S3 (or S3 to S3)
   clean                                 Bulk-delete S3 objects
 
@@ -114,12 +116,6 @@ Bucket Request Payment:
 
 Bucket Policy Status:
   get-bucket-policy-status              Get a bucket's policy status (whether it is public)
-
-Object Restore:
-  restore-object                        Restore an archived S3 object
-
-Object Presign:
-  presign                               Generate a pre-signed URL for an S3 object
 
 Batch:
   batch-run                             Run s7cmd commands from a file (or - for stdin)
@@ -248,6 +244,10 @@ pub enum Cmd {
     Mv(s3util_rs::config::args::MvArgs),
     /// Delete a single S3 object
     Rm(s3util_rs::config::args::RmArgs),
+    /// Restore an archived S3 object
+    RestoreObject(s3util_rs::config::args::RestoreObjectArgs),
+    /// Generate a pre-signed URL for an S3 object (GET only)
+    Presign(s3util_rs::config::args::PresignArgs),
     /// Synchronize files between local and S3 (or S3 to S3)
     Sync(Box<s3sync::CLIArgs>),
     /// Bulk-delete S3 objects
@@ -374,14 +374,6 @@ pub enum Cmd {
     // Bucket Policy Status
     /// Get a bucket's policy status (whether the policy makes the bucket public)
     GetBucketPolicyStatus(s3util_rs::config::args::GetBucketPolicyStatusArgs),
-
-    // Object Restore
-    /// Restore an archived S3 object
-    RestoreObject(s3util_rs::config::args::RestoreObjectArgs),
-
-    // Object Presign
-    /// Generate a pre-signed URL for an S3 object
-    Presign(s3util_rs::config::args::PresignArgs),
 
     // Batch
     /// Run s7cmd commands from a file (or - for stdin)

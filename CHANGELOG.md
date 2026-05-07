@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-05-07
+
+### Added
+
+One new subcommand sourced from `s3util-rs` 1.4.0:
+
+- **Pre-signed URLs** — `presign s3://<BUCKET>/<KEY> [--expires-in N]`
+  generates a SigV4-signed `GetObject` URL locally and prints it to
+  stdout. Default `--expires-in` is 3600 seconds; maximum is 604800
+  seconds (one week). Zero, negative, non-numeric, and over-max
+  values are rejected at parse time. Bucket-only paths
+  (`s3://<BUCKET>` or `s3://<BUCKET>/`) and local-path targets are
+  rejected post-parse and exit 1; unsupported URL schemes (e.g.
+  `http://...`) are rejected by clap's value-parser and exit 2.
+  presign is GET-only (no `--source-version-id`) and has no
+  `--dry-run` (signing is local — no S3 API call is made), matching
+  `aws s3 presign`.
+
+### Changed
+
+- Bumped `s3util-rs` from 1.3 to 1.4 (vendored CLI sources synced
+  to match) — this is what brings `presign`.
+- Top-level `--help` reorganization: `restore-object` and `presign`
+  now appear inside the "Object Operations" group (right after
+  `rm`); the standalone "Object Restore" / "Object Presign"
+  sections were removed. Per-subcommand `--help` is unchanged.
+
+### Underlying libraries
+
+This release pins the following exact versions of the underlying
+libraries:
+
+```toml
+s3sync     = "=1.58.6"
+s3util-rs  = "=1.4.0"
+s3rm-rs    = "=1.3.6"
+s3ls-rs    = "=1.0.1"
+```
+
 ## [1.1.0] - 2026-05-06
 
 ### Added
