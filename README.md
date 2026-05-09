@@ -56,21 +56,21 @@ replication, transfer acceleration, request payment). For any S3 use
 case outside that scope, use a more comprehensive tool such as the
 [AWS CLI](https://aws.amazon.com/cli/) (`aws s3api`).
 
-s7cmd targets **Amazon S3** as its primary supported platform.
+s7cmd targets **Amazon S3** as its only supported platform.
 S3-compatible storage (MinIO, Cloudflare R2, Backblaze B2, Wasabi,
-Ceph RGW, DigitalOcean Spaces, IBM COS, and similar) is supported
-on a **best-effort basis only** — such services may work via
-`--endpoint-url` (and `--source-force-path-style` /
-`--target-force-path-style` when path-style addressing is required),
-but they are not part of the official test matrix
-and behavior may change between releases. This is a structural
-consequence of building on `aws-sdk-rust`, which is generated from
-AWS service models and assumes Amazon S3 semantics (checksum
-headers, endpoint resolution, signing variants, response schemas);
-features that depend on AWS-specific semantics, such as CRC64NVME
-checksums or newer S3 API additions, may not work against
-non-AWS endpoints. Bug reports against S3-compatible storage will
-be triaged but not prioritized, and fixes are not guaranteed.
+Ceph RGW, DigitalOcean Spaces, IBM COS, and similar) is provided
+strictly **as-is**, with **absolutely no support or assistance** —
+such services may work via `--endpoint-url` (and
+`--source-force-path-style` / `--target-force-path-style` when
+path-style addressing is required), but they are not part of the
+official test matrix and behavior may change between releases. This
+is a structural consequence of building on `aws-sdk-rust`, which is
+generated from AWS service models and assumes Amazon S3 semantics
+(checksum headers, endpoint resolution, signing variants, response
+schemas); features that depend on AWS-specific semantics, such as
+CRC64NVME checksums or newer S3 API additions, may not work against
+non-AWS endpoints. Bug reports, questions, and assistance requests
+regarding S3-compatible storage will not be addressed.
 
 s7cmd is **not** intended to be a drop-in replacement for, or
 behaviorally compatible with, any other S3 client — including the
@@ -91,13 +91,13 @@ The following are explicitly out of scope and will not be added,
 regardless of demand:
 
 - Support, testing, or guaranteed compatibility for any
-  storage service other than Amazon S3. S3-compatible storage may
-  work on a best-effort basis as described in the Scope section
-  above, but adding dedicated code paths, provider-specific
-  workarounds, or backends for services such as MinIO, Cloudflare
-  R2, Backblaze B2, Wasabi, Ceph RGW, DigitalOcean Spaces, IBM COS,
-  Tencent COS, Alibaba OSS, Azure Blob Storage, or Google Cloud
-  Storage is out of scope.
+  storage service other than Amazon S3. S3-compatible storage is
+  provided strictly as-is, with no support or assistance, as
+  described in the Scope section above; adding dedicated code
+  paths, provider-specific workarounds, or backends for services
+  such as MinIO, Cloudflare R2, Backblaze B2, Wasabi, Ceph RGW,
+  DigitalOcean Spaces, IBM COS, Tencent COS, Alibaba OSS, Azure
+  Blob Storage, or Google Cloud Storage is out of scope.
 - Feature parity with, or porting features from, other S3 clients.
   Feature requests of the form "tool X has feature Y, please add
   it to s7cmd" — including variants such as "feature Y would also
