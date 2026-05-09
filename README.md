@@ -405,9 +405,10 @@ non-UTF-8 bytes, file unreadable — still abort the whole run.)
 **Format check.** Pass `--check-format` to validate the script
 without executing anything. The walk stops at the first
 parse or validation problem (or read I/O error), reports
-that line as a single error-level log entry — prefixed with the
-script source (file path, or `stdin` for `-`) and the line number
-— and exits 1. On a clean pass a `"format OK"` message is emitted.
+that line as a single error-level log entry — identifying the
+script source (file path, or `stdin` for `-`) and the line
+number — and exits 1. On a clean pass a `"format OK"` message
+is emitted.
 
 **Per-line tracing.** Each dispatched line emits a `start` event
 and a matching outcome event (`success`, `warning (exit N)`,
@@ -475,15 +476,15 @@ the log lines you want to read:
 
 ```console
 $ s7cmd batch-run -v --no-progress sample_dry_run.txt
-2026-04-30T23:34:11.178191Z  INFO line 2: start: create-bucket --dry-run s3://example-bucket-1
+2026-04-30T23:34:11.178191Z  INFO line started line=2 event="start" command="create-bucket" raw="create-bucket --dry-run s3://example-bucket-1"
 2026-04-30T23:34:11.282653Z  INFO [dry-run] would create bucket. bucket=example-bucket-1
-2026-04-30T23:34:11.282756Z  INFO line 2: success: create-bucket --dry-run s3://example-bucket-1
-2026-04-30T23:34:11.282762Z  INFO line 3: start: create-bucket --dry-run s3://example-bucket-2
+2026-04-30T23:34:11.282756Z  INFO line completed line=2 event="success" exit_code=0 command="create-bucket" raw="create-bucket --dry-run s3://example-bucket-1"
+2026-04-30T23:34:11.282762Z  INFO line started line=3 event="start" command="create-bucket" raw="create-bucket --dry-run s3://example-bucket-2"
 2026-04-30T23:34:11.283018Z  INFO [dry-run] would create bucket. bucket=example-bucket-2
-2026-04-30T23:34:11.283038Z  INFO line 3: success: create-bucket --dry-run s3://example-bucket-2
-2026-04-30T23:34:11.283040Z  INFO line 4: start: put-bucket-tagging --dry-run --tagging "team=data&env=prod" s3://example-bucket-1
+2026-04-30T23:34:11.283038Z  INFO line completed line=3 event="success" exit_code=0 command="create-bucket" raw="create-bucket --dry-run s3://example-bucket-2"
+2026-04-30T23:34:11.283040Z  INFO line started line=4 event="start" command="put-bucket-tagging" raw="put-bucket-tagging --dry-run --tagging \"team=data&env=prod\" s3://example-bucket-1"
 2026-04-30T23:34:11.283239Z  INFO [dry-run] would put bucket tagging. bucket=example-bucket-1
-2026-04-30T23:34:11.283284Z  INFO line 4: success: put-bucket-tagging --dry-run --tagging "team=data&env=prod" s3://example-bucket-1
+2026-04-30T23:34:11.283284Z  INFO line completed line=4 event="success" exit_code=0 command="put-bucket-tagging" raw="put-bucket-tagging --dry-run --tagging \"team=data&env=prod\" s3://example-bucket-1"
 batch-run: 3 succeeded, 0 failed, 0 warnings, 0 skipped, elapsed 0.1s
 ```
 
@@ -499,15 +500,15 @@ put-bucket-tagging --tagging "team=data&env=prod" s3://example-bucket-1
 
 ```console
 $ s7cmd batch-run -v --no-progress sample.txt
-2026-04-30T23:35:42.418901Z  INFO line 2: start: create-bucket s3://example-bucket-1
+2026-04-30T23:35:42.418901Z  INFO line started line=2 event="start" command="create-bucket" raw="create-bucket s3://example-bucket-1"
 2026-04-30T23:35:43.512214Z  INFO Bucket created. bucket=example-bucket-1
-2026-04-30T23:35:43.512410Z  INFO line 2: success: create-bucket s3://example-bucket-1
-2026-04-30T23:35:43.512430Z  INFO line 3: start: create-bucket s3://example-bucket-2
+2026-04-30T23:35:43.512410Z  INFO line completed line=2 event="success" exit_code=0 command="create-bucket" raw="create-bucket s3://example-bucket-1"
+2026-04-30T23:35:43.512430Z  INFO line started line=3 event="start" command="create-bucket" raw="create-bucket s3://example-bucket-2"
 2026-04-30T23:35:44.601877Z  INFO Bucket created. bucket=example-bucket-2
-2026-04-30T23:35:44.602008Z  INFO line 3: success: create-bucket s3://example-bucket-2
-2026-04-30T23:35:44.602020Z  INFO line 4: start: put-bucket-tagging --tagging "team=data&env=prod" s3://example-bucket-1
+2026-04-30T23:35:44.602008Z  INFO line completed line=3 event="success" exit_code=0 command="create-bucket" raw="create-bucket s3://example-bucket-2"
+2026-04-30T23:35:44.602020Z  INFO line started line=4 event="start" command="put-bucket-tagging" raw="put-bucket-tagging --tagging \"team=data&env=prod\" s3://example-bucket-1"
 2026-04-30T23:35:44.881342Z  INFO Bucket tagging set. bucket=example-bucket-1
-2026-04-30T23:35:44.881455Z  INFO line 4: success: put-bucket-tagging --tagging "team=data&env=prod" s3://example-bucket-1
+2026-04-30T23:35:44.881455Z  INFO line completed line=4 event="success" exit_code=0 command="put-bucket-tagging" raw="put-bucket-tagging --tagging \"team=data&env=prod\" s3://example-bucket-1"
 batch-run: 3 succeeded, 0 failed, 0 warnings, 0 skipped, elapsed 2.5s
 ```
 

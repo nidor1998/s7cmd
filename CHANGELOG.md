@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.2] - 2026-05-09
+
+### Changed
+
+- `batch-run` per-line and `--check-format` logs now emit their
+  details as structured `tracing` fields rather than packing
+  everything into the message string.
+
+### Underlying libraries
+
+Pinned versions are unchanged from 1.2.1:
+
+```toml
+s3sync     = "=1.58.6"
+s3util-rs  = "=1.4.0"
+s3rm-rs    = "=1.3.6"
+s3ls-rs    = "=1.0.1"
+```
+
 ## [1.2.1] - 2026-05-09
 
 ### Changed
