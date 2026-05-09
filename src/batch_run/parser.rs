@@ -26,9 +26,9 @@ pub struct ParsedLine {
 pub enum ParsedLineKind {
     /// Successful tokenization. The vector starts with `"s7cmd"`.
     Ok(Vec<String>),
-    /// Tokenization failed (unbalanced quotes, etc.). The message is a
-    /// single-line description suitable for direct logging — already
-    /// includes "line N:", the error text, and the raw line.
+    /// Tokenization failed (unbalanced quotes, etc.). The string carries
+    /// only the underlying error text — no `"line N:"` prefix and no raw
+    /// line tail. Both are attached at log time as structured fields.
     TokenizeError(String),
 }
 
@@ -75,11 +75,12 @@ pub fn read_all<R: BufRead>(mut reader: R) -> Result<Vec<ParsedLine>> {
             }),
             Ok(None) => continue,
             Err(e) => {
-                let message = format!("line {line_no}: parse error: {e}: {}", line.trim_end());
+                // Reason is the underlying error only; line_no and raw are
+                // attached at log time as structured fields.
                 out.push(ParsedLine {
                     line_no,
                     raw: line,
-                    kind: ParsedLineKind::TokenizeError(message),
+                    kind: ParsedLineKind::TokenizeError(e.to_string()),
                 });
             }
         }
@@ -208,8 +209,14 @@ mod tests {
         assert_eq!(lines[1].line_no, 2);
         match &lines[1].kind {
             ParsedLineKind::TokenizeError(msg) => {
-                assert!(msg.contains("line 2"), "msg: {msg}");
-                assert!(msg.contains("parse error"), "msg: {msg}");
+                // The reason is the underlying tokenize error text only —
+                // no "line N:" prefix and no raw line tail (those are
+                // attached at log time as structured fields).
+                assert!(msg.contains("malformed"), "msg: {msg}");
+                assert!(
+                    !msg.starts_with("line "),
+                    "reason must not bake line prefix: {msg}"
+                );
             }
             other => panic!("expected TokenizeError, got {other:?}"),
         }

@@ -7,36 +7,32 @@ use s3util_rs::types::StoragePath;
 
 /// Inspect a parsed `Cmd` and reject the cases that batch-run cannot
 /// support. Errors include the line number for human-readable output.
-pub fn validate(line_no: usize, raw: &str, cmd: &Cmd) -> Result<()> {
+pub fn validate(_line_no: usize, _raw: &str, cmd: &Cmd) -> Result<()> {
     if matches!(cmd, Cmd::BatchRun(_)) {
-        return Err(anyhow!(
-            "line {line_no}: nested batch-run is not allowed\n  > {raw}"
-        ));
+        return Err(anyhow!("nested batch-run is not allowed"));
     }
     if let Cmd::Cp(args) = cmd {
-        let cp_config = s3util_rs::Config::try_from(args.clone())
-            .map_err(|e| anyhow!("line {line_no}: {e}\n  > {raw}"))?;
+        let cp_config = s3util_rs::Config::try_from(args.clone()).map_err(|e| anyhow!("{e}"))?;
         if matches!(cp_config.source, StoragePath::Stdio)
             || matches!(cp_config.target, StoragePath::Stdio)
         {
             return Err(anyhow!(
-                "line {line_no}: stdin/stdout transfers are not allowed inside batch-run\n  > {raw}"
+                "stdin/stdout transfers are not allowed inside batch-run"
             ));
         }
     }
     if let Cmd::Mv(args) = cmd {
-        let mv_config = s3util_rs::Config::try_from(args.clone())
-            .map_err(|e| anyhow!("line {line_no}: {e}\n  > {raw}"))?;
+        let mv_config = s3util_rs::Config::try_from(args.clone()).map_err(|e| anyhow!("{e}"))?;
         if matches!(mv_config.source, StoragePath::Stdio)
             || matches!(mv_config.target, StoragePath::Stdio)
         {
             return Err(anyhow!(
-                "line {line_no}: stdin/stdout transfers are not allowed inside batch-run\n  > {raw}"
+                "stdin/stdout transfers are not allowed inside batch-run"
             ));
         }
     }
-    reject_per_line_stdin_config(line_no, raw, cmd)?;
-    reject_per_line_tracing(line_no, raw, cmd)?;
+    reject_per_line_stdin_config(_line_no, _raw, cmd)?;
+    reject_per_line_tracing(_line_no, _raw, cmd)?;
     Ok(())
 }
 
@@ -45,7 +41,7 @@ pub fn validate(line_no: usize, raw: &str, cmd: &Cmd) -> Result<()> {
 /// Inside batch-run, stdin (or the script file) is consumed by batch-run
 /// itself, so `-` would clash with the script reader. Reject those lines at
 /// validate time.
-fn reject_per_line_stdin_config(line_no: usize, raw: &str, cmd: &Cmd) -> Result<()> {
+fn reject_per_line_stdin_config(_line_no: usize, _raw: &str, cmd: &Cmd) -> Result<()> {
     let stdin_arg = match cmd {
         Cmd::PutBucketPolicy(a) => a.policy.as_deref(),
         Cmd::PutBucketLifecycleConfiguration(a) => a.lifecycle_configuration.as_deref(),
@@ -60,7 +56,7 @@ fn reject_per_line_stdin_config(line_no: usize, raw: &str, cmd: &Cmd) -> Result<
     };
     if stdin_arg == Some("-") {
         return Err(anyhow!(
-            "line {line_no}: stdin/stdout transfers are not allowed inside batch-run\n  > {raw}"
+            "stdin/stdout transfers are not allowed inside batch-run"
         ));
     }
     Ok(())
@@ -85,7 +81,7 @@ fn reject_per_line_stdin_config(line_no: usize, raw: &str, cmd: &Cmd) -> Result<
 ///   - Clean (s3rm_rs::CLIArgs): top-level public fields (no `.common`)
 ///   - Sync (s3sync::CLIArgs): top-level fields are private — read them
 ///     via `s3sync::Config::try_from(...)`.
-fn reject_per_line_tracing(line_no: usize, raw: &str, cmd: &Cmd) -> Result<()> {
+fn reject_per_line_tracing(_line_no: usize, _raw: &str, cmd: &Cmd) -> Result<()> {
     macro_rules! check_common {
         ($a:expr) => {{
             let c = &$a.common;
@@ -94,7 +90,7 @@ fn reject_per_line_tracing(line_no: usize, raw: &str, cmd: &Cmd) -> Result<()> {
                 || c.span_events_tracing
                 || c.disable_color_tracing
             {
-                return Err(tracing_error(line_no, raw));
+                return Err(tracing_error());
             }
         }};
     }
@@ -110,7 +106,7 @@ fn reject_per_line_tracing(line_no: usize, raw: &str, cmd: &Cmd) -> Result<()> {
                 || boxed.span_events_tracing
                 || boxed.disable_color_tracing
             {
-                return Err(tracing_error(line_no, raw));
+                return Err(tracing_error());
             }
         }
         Cmd::Clean(boxed) => {
@@ -119,7 +115,7 @@ fn reject_per_line_tracing(line_no: usize, raw: &str, cmd: &Cmd) -> Result<()> {
                 || boxed.span_events_tracing
                 || boxed.disable_color_tracing
             {
-                return Err(tracing_error(line_no, raw));
+                return Err(tracing_error());
             }
         }
 
@@ -134,15 +130,14 @@ fn reject_per_line_tracing(line_no: usize, raw: &str, cmd: &Cmd) -> Result<()> {
         // cannot raise the level so the user-visible behaviour is
         // unaffected.
         Cmd::Sync(boxed) => {
-            let cfg = s3sync::Config::try_from((**boxed).clone())
-                .map_err(|e| anyhow!("line {line_no}: {e}\n  > {raw}"))?;
+            let cfg = s3sync::Config::try_from((**boxed).clone()).map_err(|e| anyhow!("{e}"))?;
             if let Some(t) = cfg.tracing_config
                 && (t.json_tracing
                     || t.aws_sdk_tracing
                     || t.span_events_tracing
                     || t.disable_color_tracing)
             {
-                return Err(tracing_error(line_no, raw));
+                return Err(tracing_error());
             }
         }
 
@@ -200,10 +195,10 @@ fn reject_per_line_tracing(line_no: usize, raw: &str, cmd: &Cmd) -> Result<()> {
     Ok(())
 }
 
-fn tracing_error(line_no: usize, raw: &str) -> anyhow::Error {
+fn tracing_error() -> anyhow::Error {
     anyhow!(
-        "line {line_no}: tracing flags are not allowed inside batch-run lines; \
-         pass them to batch-run itself, e.g. `s7cmd batch-run --aws-sdk-tracing < cmds.txt`\n  > {raw}"
+        "tracing flags are not allowed inside batch-run lines; \
+         pass them to batch-run itself, e.g. `s7cmd batch-run --aws-sdk-tracing < cmds.txt`"
     )
 }
 
@@ -222,7 +217,6 @@ mod tests {
         let cmd = parse_cmd(&["s7cmd", "batch-run", "-"]);
         let err = validate(7, "batch-run -", &cmd).unwrap_err();
         assert!(err.to_string().contains("nested batch-run"));
-        assert!(err.to_string().contains("line 7"));
     }
 
     #[test]
@@ -252,7 +246,6 @@ mod tests {
         let err = validate(4, "mv s3://b/k -", &cmd).unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("stdin/stdout"), "msg: {msg}");
-        assert!(msg.contains("line 4"), "msg: {msg}");
     }
 
     #[test]
@@ -451,7 +444,11 @@ mod tests {
         let cmd = parse_cmd(&["s7cmd", "sync", "/tmp/src", "/tmp/dst"]);
         let err = validate(4, "sync /tmp/src /tmp/dst", &cmd).unwrap_err();
         let msg = err.to_string();
-        assert!(msg.contains("line 4"), "msg: {msg}");
+        // The error is from s3sync; it must not be empty.
+        assert!(
+            !msg.is_empty(),
+            "expected a non-empty validate error, got empty"
+        );
     }
 
     #[test]

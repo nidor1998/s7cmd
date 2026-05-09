@@ -30,6 +30,37 @@ pub struct PreparedLine {
     pub kind: PreparedLineKind,
 }
 
+/// Why a line failed parse / validate. Used as the `invalid_kind`
+/// structured field on `event = "invalid"` log entries so consumers can
+/// filter by failure category. `as_str` returns a stable, lowercase
+/// identifier that doubles as the field's serialized value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InvalidKind {
+    /// `parser::tokenize_line` rejected the line (e.g. malformed quoting,
+    /// unsupported escape).
+    Tokenize,
+    /// `clap::Parser` rejected the tokenized argv (unknown subcommand,
+    /// missing required arg, …).
+    Parse,
+    /// Tokenized + parsed cleanly but produced no subcommand
+    /// (`Cli { command: None, .. }`).
+    Empty,
+    /// `validate::validate` rejected the parsed `Cmd` (nested batch-run,
+    /// stdin/stdout transfer inside batch-run, per-line tracing flag, …).
+    Validate,
+}
+
+impl InvalidKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            InvalidKind::Tokenize => "tokenize",
+            InvalidKind::Parse => "parse",
+            InvalidKind::Empty => "empty",
+            InvalidKind::Validate => "validate",
+        }
+    }
+}
+
 /// Per-line outcome of the parse + validate stage. `Cmd` is a clean
 /// line ready to dispatch; `Invalid` is a line that failed to tokenize,
 /// failed clap parsing, was empty, or failed validation. Invalid lines
@@ -41,11 +72,13 @@ pub enum PreparedLineKind {
     /// `Cmd` is boxed because the `cli::Cmd` enum is ~1 KiB (some
     /// upstream args structs are large). Boxing keeps the
     /// `PreparedLineKind` enum small so the much-more-common
-    /// `Invalid(String)` variant doesn't carry around an unused 1 KiB.
+    /// `Invalid` variant doesn't carry around an unused 1 KiB.
     Cmd(Box<Cmd>),
-    /// Already-formatted single-line error message (no leading "line N:"
-    /// prefix; the executor adds that uniformly via the `failure` log).
-    Invalid(String),
+    /// `reason` carries only the underlying error text — no `"line N: "`
+    /// prefix and no trailing `\n  > {raw}` (the executor logs `line` and
+    /// `raw` as separate fields). `kind` distinguishes which of the four
+    /// stages produced the failure.
+    Invalid { kind: InvalidKind, reason: String },
 }
 
 /// Synthetic exit code used when an `Invalid` line is "executed":
@@ -58,15 +91,23 @@ pub const EXIT_CODE_INVALID_LINE: i32 = 2;
 /// Emitted at info level immediately before each dispatched
 /// subcommand. Visible with `-v`.
 fn log_start(line_no: usize, raw: &str) {
-    tracing::info!("line {line_no}: start: {}", raw.trim_end());
+    let raw = raw.trim_end();
+    tracing::info!(
+        line = line_no,
+        event = "start",
+        command = command_token(raw),
+        raw = raw,
+        "line started",
+    );
 }
 
 /// Drive one prepared line to completion. For `Cmd`, runs the start /
 /// dispatch / end sequence and returns the dispatched exit code. For
-/// `Invalid`, logs the pre-formatted error message at error level and
-/// returns the synthetic `EXIT_CODE_INVALID_LINE` (= 2). Returning
-/// `(line_no, code)` lets callers record / tick / threshold-check
-/// uniformly without inspecting the variant.
+/// `Invalid`, emits a structured `event = "invalid"` log entry with
+/// `invalid_kind`, `reason`, `line`, `raw`, and `exit_code` as separate
+/// fields, then returns the synthetic `EXIT_CODE_INVALID_LINE` (= 2).
+/// Returning `(line_no, code)` lets callers record / tick / threshold-
+/// check uniformly without inspecting the variant.
 async fn execute_line(line: PreparedLine, dispatch: &DispatchFn) -> (usize, i32) {
     let PreparedLine { line_no, raw, kind } = line;
     let code = match kind {
@@ -76,8 +117,18 @@ async fn execute_line(line: PreparedLine, dispatch: &DispatchFn) -> (usize, i32)
             log_end(line_no, &raw, code);
             code
         }
-        PreparedLineKind::Invalid(message) => {
-            tracing::error!("{message}");
+        PreparedLineKind::Invalid { kind, reason } => {
+            let raw = raw.trim_end();
+            tracing::error!(
+                line = line_no,
+                event = "invalid",
+                invalid_kind = kind.as_str(),
+                reason = reason,
+                exit_code = EXIT_CODE_INVALID_LINE,
+                command = command_token(raw),
+                raw = raw,
+                "line invalid",
+            );
             EXIT_CODE_INVALID_LINE
         }
     };
@@ -99,12 +150,49 @@ async fn execute_line(line: PreparedLine, dispatch: &DispatchFn) -> (usize, i32)
 /// each bucket matches the progress-bar / summary bucket the code feeds.
 fn log_end(line_no: usize, raw: &str, code: i32) {
     let raw = raw.trim_end();
+    let command = command_token(raw);
     match code {
-        0 => tracing::info!("line {line_no}: success: {raw}"),
-        3 | 4 => tracing::warn!("line {line_no}: warning (exit {code}): {raw}"),
-        130 => tracing::warn!("line {line_no}: skipped (exit 130): {raw}"),
-        _ => tracing::error!("line {line_no}: failure (exit {code}): {raw}"),
+        0 => tracing::info!(
+            line = line_no,
+            event = "success",
+            exit_code = code,
+            command = command,
+            raw = raw,
+            "line completed",
+        ),
+        3 | 4 => tracing::warn!(
+            line = line_no,
+            event = "warning",
+            exit_code = code,
+            command = command,
+            raw = raw,
+            "line warning",
+        ),
+        130 => tracing::warn!(
+            line = line_no,
+            event = "skipped",
+            exit_code = code,
+            command = command,
+            raw = raw,
+            "line skipped",
+        ),
+        _ => tracing::error!(
+            line = line_no,
+            event = "failure",
+            exit_code = code,
+            command = command,
+            raw = raw,
+            "line failed",
+        ),
     }
+}
+
+/// Leading whitespace-delimited token of `raw`, used as the `command`
+/// field on per-line events. Returns `None` when `raw` is empty so the
+/// `command` field is simply omitted (tracing's `Option` field-value
+/// support drops `None` automatically).
+fn command_token(raw: &str) -> Option<&str> {
+    raw.split_whitespace().next()
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -549,9 +637,10 @@ mod tests {
                             .unwrap(),
                     ))
                 } else {
-                    PreparedLineKind::Invalid(format!(
-                        "line {line_no}: parse error: synthetic test failure"
-                    ))
+                    PreparedLineKind::Invalid {
+                        kind: InvalidKind::Parse,
+                        reason: "synthetic test failure".to_string(),
+                    }
                 };
                 PreparedLine { line_no, raw, kind }
             })
