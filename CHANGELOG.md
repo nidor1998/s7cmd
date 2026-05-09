@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-05-09
+
+### Changed
+
+- Documentation: clarified that **Amazon S3 is the only supported
+  platform**. S3-compatible storage (MinIO, Cloudflare R2,
+  Backblaze B2, Wasabi, Ceph RGW, DigitalOcean Spaces, IBM COS,
+  and similar) is provided strictly **as-is**, with **absolutely
+  no support or assistance**. Bug reports, questions, and
+  assistance requests regarding S3-compatible storage will not be
+  addressed.
+- Bug report template (`.github/ISSUE_TEMPLATE/bug_report.md`):
+  tightened the Storage line to state that issues regarding
+  S3-compatible services will be closed automatically,
+  unconditionally, and without exception; added a Region field;
+  added a notice that only clear, reproducible bugs in s7cmd
+  itself are accepted (no support, questions, feature requests,
+  or usage help).
+
+### Underlying libraries
+
+Pinned versions are unchanged from 1.2.0:
+
+```toml
+s3sync     = "=1.58.6"
+s3util-rs  = "=1.4.0"
+s3rm-rs    = "=1.3.6"
+s3ls-rs    = "=1.0.1"
+```
+
 ## [1.2.0] - 2026-05-07
 
 ### Added
