@@ -695,18 +695,8 @@ fn batch_run_logs_per_line_start_and_end_at_info() {
         ))
         .assert()
         .success()
-        .stderr(predicate::str::contains(
-            "line 1: start: create-bucket --dry-run s3://b1",
-        ))
-        .stderr(predicate::str::contains(
-            "line 1: success: create-bucket --dry-run s3://b1",
-        ))
-        .stderr(predicate::str::contains(
-            "line 2: start: create-bucket --dry-run s3://b2",
-        ))
-        .stderr(predicate::str::contains(
-            "line 2: success: create-bucket --dry-run s3://b2",
-        ));
+        .stderr(predicate::str::contains("line started"))
+        .stderr(predicate::str::contains("line completed"));
 }
 
 /// A failing line is logged with `failure (exit N)` outcome, not
@@ -729,11 +719,9 @@ fn batch_run_logs_per_line_failure_outcome_with_exit_code() {
         ))
         .assert()
         .failure()
-        .stderr(predicate::str::contains("line 1: success: create-bucket"))
-        .stderr(predicate::str::contains("line 2: start: ls --recursive"))
-        .stderr(predicate::str::contains(
-            "line 2: failure (exit 2): ls --recursive",
-        ));
+        .stderr(predicate::str::contains("line completed"))
+        .stderr(predicate::str::contains("line started"))
+        .stderr(predicate::str::contains("line failed"));
 }
 
 /// Without `-v`, info logs are suppressed (default verbosity is warn).
@@ -750,8 +738,8 @@ fn batch_run_per_line_logs_silent_at_default_verbosity() {
         .write_stdin("create-bucket --dry-run s3://b1\n")
         .assert()
         .success()
-        .stderr(predicate::str::contains("line 1: start").not())
-        .stderr(predicate::str::contains("line 1: success").not())
+        .stderr(predicate::str::contains("line started").not())
+        .stderr(predicate::str::contains("line completed").not())
         // The summary line must still appear — it goes to plain stderr,
         // not via tracing.
         .stderr(predicate::str::contains("1 succeeded, 0 failed"));
@@ -774,11 +762,9 @@ fn batch_run_failure_log_visible_at_default_verbosity() {
         ))
         .assert()
         .failure()
-        .stderr(predicate::str::contains("line 2: start").not())
-        .stderr(predicate::str::contains("line 1: success").not())
-        .stderr(predicate::str::contains(
-            "line 2: failure (exit 2): ls --recursive",
-        ));
+        .stderr(predicate::str::contains("line started").not())
+        .stderr(predicate::str::contains("line completed").not())
+        .stderr(predicate::str::contains("line failed"));
 }
 
 // ---- --continue-on-warning surface ----
@@ -1100,4 +1086,44 @@ fn batch_run_streaming_continue_on_error_runs_all_lines() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("2 succeeded, 1 failed"));
+}
+
+/// `--json-tracing` per-line events emit structured fields (line, event,
+/// exit_code, command, raw) instead of packing everything into the message.
+/// Verified against `create-bucket --dry-run` so no S3 endpoint is needed.
+#[test]
+fn batch_run_json_tracing_per_line_fields() {
+    let assert = Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["batch-run", "--json-tracing", "-v", "-"])
+        .write_stdin("create-bucket --dry-run s3://b1\n")
+        .assert()
+        .success();
+    let stderr = String::from_utf8(assert.get_output().stderr.clone()).unwrap();
+
+    let lines: Vec<serde_json::Value> = stderr
+        .lines()
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .collect();
+
+    let start = lines
+        .iter()
+        .find(|v| v["fields"]["event"] == "start")
+        .unwrap_or_else(|| panic!("no start event in stderr: {stderr}"));
+    assert_eq!(start["fields"]["line"], 1);
+    assert_eq!(start["fields"]["command"], "create-bucket");
+    assert_eq!(start["fields"]["raw"], "create-bucket --dry-run s3://b1");
+    assert_eq!(start["fields"]["message"], "line started");
+    assert_eq!(start["level"], "INFO");
+
+    let success = lines
+        .iter()
+        .find(|v| v["fields"]["event"] == "success")
+        .unwrap_or_else(|| panic!("no success event in stderr: {stderr}"));
+    assert_eq!(success["fields"]["line"], 1);
+    assert_eq!(success["fields"]["exit_code"], 0);
+    assert_eq!(success["fields"]["command"], "create-bucket");
+    assert_eq!(success["fields"]["raw"], "create-bucket --dry-run s3://b1");
+    assert_eq!(success["fields"]["message"], "line completed");
+    assert_eq!(success["level"], "INFO");
 }

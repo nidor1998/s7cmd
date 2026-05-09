@@ -58,7 +58,14 @@ pub const EXIT_CODE_INVALID_LINE: i32 = 2;
 /// Emitted at info level immediately before each dispatched
 /// subcommand. Visible with `-v`.
 fn log_start(line_no: usize, raw: &str) {
-    tracing::info!("line {line_no}: start: {}", raw.trim_end());
+    let raw = raw.trim_end();
+    tracing::info!(
+        line = line_no,
+        event = "start",
+        command = command_token(raw),
+        raw = raw,
+        "line started",
+    );
 }
 
 /// Drive one prepared line to completion. For `Cmd`, runs the start /
@@ -99,12 +106,49 @@ async fn execute_line(line: PreparedLine, dispatch: &DispatchFn) -> (usize, i32)
 /// each bucket matches the progress-bar / summary bucket the code feeds.
 fn log_end(line_no: usize, raw: &str, code: i32) {
     let raw = raw.trim_end();
+    let command = command_token(raw);
     match code {
-        0 => tracing::info!("line {line_no}: success: {raw}"),
-        3 | 4 => tracing::warn!("line {line_no}: warning (exit {code}): {raw}"),
-        130 => tracing::warn!("line {line_no}: skipped (exit 130): {raw}"),
-        _ => tracing::error!("line {line_no}: failure (exit {code}): {raw}"),
+        0 => tracing::info!(
+            line = line_no,
+            event = "success",
+            exit_code = code,
+            command = command,
+            raw = raw,
+            "line completed",
+        ),
+        3 | 4 => tracing::warn!(
+            line = line_no,
+            event = "warning",
+            exit_code = code,
+            command = command,
+            raw = raw,
+            "line warning",
+        ),
+        130 => tracing::warn!(
+            line = line_no,
+            event = "skipped",
+            exit_code = code,
+            command = command,
+            raw = raw,
+            "line skipped",
+        ),
+        _ => tracing::error!(
+            line = line_no,
+            event = "failure",
+            exit_code = code,
+            command = command,
+            raw = raw,
+            "line failed",
+        ),
     }
+}
+
+/// Leading whitespace-delimited token of `raw`, used as the `command`
+/// field on per-line events. Returns `None` when `raw` is empty so the
+/// `command` field is simply omitted (tracing's `Option` field-value
+/// support drops `None` automatically).
+fn command_token(raw: &str) -> Option<&str> {
+    raw.split_whitespace().next()
 }
 
 #[derive(Debug, Clone, Copy)]
