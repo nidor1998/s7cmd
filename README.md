@@ -91,13 +91,13 @@ The following are explicitly out of scope and will not be added,
 regardless of demand:
 
 - Support, testing, or guaranteed compatibility for any
-  storage service other than Amazon S3. S3-compatible storage may
-  work on a best-effort basis as described in the Scope section
-  above, but adding dedicated code paths, provider-specific
-  workarounds, or backends for services such as MinIO, Cloudflare
-  R2, Backblaze B2, Wasabi, Ceph RGW, DigitalOcean Spaces, IBM COS,
-  Tencent COS, Alibaba OSS, Azure Blob Storage, or Google Cloud
-  Storage is out of scope.
+  storage service other than Amazon S3. S3-compatible storage is
+  provided strictly as-is, with no support or assistance, as
+  described in the Scope section above; adding dedicated code
+  paths, provider-specific workarounds, or backends for services
+  such as MinIO, Cloudflare R2, Backblaze B2, Wasabi, Ceph RGW,
+  DigitalOcean Spaces, IBM COS, Tencent COS, Alibaba OSS, Azure
+  Blob Storage, or Google Cloud Storage is out of scope.
 - Feature parity with, or porting features from, other S3 clients.
   Feature requests of the form "tool X has feature Y, please add
   it to s7cmd" — including variants such as "feature Y would also

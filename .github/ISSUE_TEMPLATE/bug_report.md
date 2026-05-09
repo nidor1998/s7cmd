@@ -49,7 +49,7 @@ A clear and concise description of what you expected to happen.
 
 ## Environment
 
-When verifying the reproducibility of a bug report, any report lacking information on the OS, s7cmd version, and Storage will be closed without exception.
+When verifying the reproducibility of a bug report, any report lacking information on the OS, s7cmd version, Storage, and Region will be closed without exception.
 
 - OS: [e.g. macOS 14.5, Ubuntu 24.04, Windows 11]
 - s7cmd version: [output of `s7cmd --version`] — **only the latest release is supported**. Issues filed against any other version will be closed automatically; please reproduce on the latest version before filing.
