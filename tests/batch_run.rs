@@ -394,7 +394,10 @@ fn batch_run_check_format_reports_ok_for_valid_script() {
         .assert()
         .success()
         .stderr(predicate::str::contains("batch-run format OK"))
-        .stderr(predicate::str::contains(format!("source=\"{path_str}\"")))
+        .stderr(predicate::str::contains(format!(
+            "source=\"{}\"",
+            path_str.replace('\\', "\\\\")
+        )))
         // No execution: no [dry-run] log, no run summary.
         .stderr(predicate::str::contains("[dry-run]").not())
         .stderr(predicate::str::contains("ok, ").not());
@@ -452,7 +455,10 @@ fn batch_run_check_format_error_includes_source_path() {
         .assert()
         .failure()
         // Structured fields: source, line=2, and the clap error reason.
-        .stderr(predicate::str::contains(format!("source=\"{path_str}\"")))
+        .stderr(predicate::str::contains(format!(
+            "source=\"{}\"",
+            path_str.replace('\\', "\\\\")
+        )))
         .stderr(predicate::str::contains("line=2"))
         .stderr(predicate::str::contains(
             "unrecognized subcommand '127.0.0.1'",
@@ -512,7 +518,10 @@ fn batch_run_check_format_stops_at_first_error() {
         .assert()
         .failure()
         // Structured fields: source, line=2, and the validate reason.
-        .stderr(predicate::str::contains(format!("source=\"{path_str}\"")))
+        .stderr(predicate::str::contains(format!(
+            "source=\"{}\"",
+            path_str.replace('\\', "\\\\")
+        )))
         .stderr(predicate::str::contains("line=2"))
         .stderr(predicate::str::contains("nested batch-run"))
         // Walk stopped at line 2: line 3 / line 4 must NOT appear.
