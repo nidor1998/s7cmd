@@ -118,14 +118,14 @@ fn batch_run_parses_blank_and_comment_lines() {
 
 #[test]
 fn batch_run_parse_error_includes_line_number() {
-    // Malformed quoting → parse error mentions line 2.
+    // Malformed quoting → parse error mentions line 2 (structured field line=2).
     Command::cargo_bin("s7cmd")
         .unwrap()
-        .args(["batch-run", "-"])
+        .args(["batch-run", "--disable-color-tracing", "-"])
         .write_stdin("# ok\ncp \"unterminated\n")
         .assert()
         .failure()
-        .stderr(predicate::str::contains("line 2"));
+        .stderr(predicate::str::contains("line=2"));
 }
 
 #[test]
@@ -202,7 +202,7 @@ fn batch_run_streaming_parses_blank_and_comment_lines() {
 fn batch_run_invalid_sync_config_counts_as_per_line_failure() {
     Command::cargo_bin("s7cmd")
         .unwrap()
-        .args(["batch-run", "-"])
+        .args(["batch-run", "--disable-color-tracing", "-"])
         .write_stdin(concat!(
             "create-bucket --dry-run s3://b1\n",
             "sync /tmp/nonexistent-src /tmp/nonexistent-dst\n",
@@ -213,7 +213,7 @@ fn batch_run_invalid_sync_config_counts_as_per_line_failure() {
         // Line 1 ran (dry-run create-bucket succeeds), line 2's
         // validate-time error becomes an Invalid failure logged at
         // error level, line 3 is skipped due to default --max-errors=1.
-        .stderr(predicate::str::contains("line 2"))
+        .stderr(predicate::str::contains("line=2"))
         .stderr(predicate::str::contains(
             "1 succeeded, 1 failed, 0 warnings, 1 skipped",
         ));
@@ -385,10 +385,16 @@ fn batch_run_check_format_reports_ok_for_valid_script() {
     let path_str = path.to_str().unwrap();
     Command::cargo_bin("s7cmd")
         .unwrap()
-        .args(["batch-run", "--check-format", path_str])
+        .args([
+            "batch-run",
+            "--check-format",
+            "--disable-color-tracing",
+            path_str,
+        ])
         .assert()
         .success()
-        .stderr(predicate::str::contains(format!("format OK ({path_str}).")))
+        .stderr(predicate::str::contains("batch-run format OK"))
+        .stderr(predicate::str::contains(format!("source=\"{path_str}\"")))
         // No execution: no [dry-run] log, no run summary.
         .stderr(predicate::str::contains("[dry-run]").not())
         .stderr(predicate::str::contains("ok, ").not());
@@ -401,13 +407,19 @@ fn batch_run_check_format_reports_ok_for_valid_script() {
 fn batch_run_check_format_reports_ok_for_stdin_uses_stdin_label() {
     Command::cargo_bin("s7cmd")
         .unwrap()
-        .args(["batch-run", "--check-format", "-"])
+        .args([
+            "batch-run",
+            "--check-format",
+            "--disable-color-tracing",
+            "-",
+        ])
         .write_stdin("head-bucket s3://b1\n")
         .assert()
         .success()
-        .stderr(predicate::str::contains("format OK (stdin)."))
+        .stderr(predicate::str::contains("batch-run format OK"))
+        .stderr(predicate::str::contains("source=\"stdin\""))
         // The literal `-` should not leak into the source label.
-        .stderr(predicate::str::contains("format OK (-)").not());
+        .stderr(predicate::str::contains("source=\"-\"").not());
 }
 
 /// Reproduces the `s7cmd batch-run /etc/hosts ... | <piped-data>`
@@ -431,12 +443,20 @@ fn batch_run_check_format_error_includes_source_path() {
     let path_str = path.to_str().unwrap();
     Command::cargo_bin("s7cmd")
         .unwrap()
-        .args(["batch-run", "--check-format", path_str])
+        .args([
+            "batch-run",
+            "--check-format",
+            "--disable-color-tracing",
+            path_str,
+        ])
         .assert()
         .failure()
-        .stderr(predicate::str::contains(format!(
-            "{path_str}: line 2: parse error: unrecognized subcommand '127.0.0.1':"
-        )))
+        // Structured fields: source, line=2, and the clap error reason.
+        .stderr(predicate::str::contains(format!("source=\"{path_str}\"")))
+        .stderr(predicate::str::contains("line=2"))
+        .stderr(predicate::str::contains(
+            "unrecognized subcommand '127.0.0.1'",
+        ))
         // clap's verbose tail must not leak into the error log.
         .stderr(predicate::str::contains("Usage:").not())
         .stderr(predicate::str::contains("For more information").not())
@@ -450,12 +470,19 @@ fn batch_run_check_format_error_includes_source_path() {
 fn batch_run_check_format_error_uses_stdin_label_for_dash() {
     Command::cargo_bin("s7cmd")
         .unwrap()
-        .args(["batch-run", "--check-format", "-"])
+        .args([
+            "batch-run",
+            "--check-format",
+            "--disable-color-tracing",
+            "-",
+        ])
         .write_stdin("127.0.0.1\tlocalhost\n")
         .assert()
         .failure()
+        .stderr(predicate::str::contains("source=\"stdin\""))
+        .stderr(predicate::str::contains("line=1"))
         .stderr(predicate::str::contains(
-            "stdin: line 1: parse error: unrecognized subcommand '127.0.0.1':",
+            "unrecognized subcommand '127.0.0.1'",
         ));
 }
 
@@ -476,14 +503,21 @@ fn batch_run_check_format_stops_at_first_error() {
     let path_str = path.to_str().unwrap();
     Command::cargo_bin("s7cmd")
         .unwrap()
-        .args(["batch-run", "--check-format", path_str])
+        .args([
+            "batch-run",
+            "--check-format",
+            "--disable-color-tracing",
+            path_str,
+        ])
         .assert()
         .failure()
-        .stderr(predicate::str::contains(format!("{path_str}: line 2:")))
+        // Structured fields: source, line=2, and the validate reason.
+        .stderr(predicate::str::contains(format!("source=\"{path_str}\"")))
+        .stderr(predicate::str::contains("line=2"))
         .stderr(predicate::str::contains("nested batch-run"))
         // Walk stopped at line 2: line 3 / line 4 must NOT appear.
-        .stderr(predicate::str::contains("line 3:").not())
-        .stderr(predicate::str::contains("line 4:").not())
+        .stderr(predicate::str::contains("line=3").not())
+        .stderr(predicate::str::contains("line=4").not())
         .stderr(predicate::str::contains("stdin/stdout").not())
         .stderr(predicate::str::contains("format OK").not());
 }
@@ -494,11 +528,17 @@ fn batch_run_check_format_stops_at_first_error() {
 fn batch_run_check_format_reads_from_stdin() {
     Command::cargo_bin("s7cmd")
         .unwrap()
-        .args(["batch-run", "--check-format", "-"])
+        .args([
+            "batch-run",
+            "--check-format",
+            "--disable-color-tracing",
+            "-",
+        ])
         .write_stdin("head-bucket s3://b1\nbatch-run -\n")
         .assert()
         .failure()
-        .stderr(predicate::str::contains("stdin: line 2:"))
+        .stderr(predicate::str::contains("source=\"stdin\""))
+        .stderr(predicate::str::contains("line=2"))
         .stderr(predicate::str::contains("nested batch-run"))
         .stderr(predicate::str::contains("format OK").not());
 }
@@ -533,7 +573,7 @@ fn batch_run_check_format_error_drains_unread_stdin() {
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "parse error: unrecognized subcommand '127.0.0.1'",
+            "unrecognized subcommand '127.0.0.1'",
         ));
 }
 
@@ -933,12 +973,12 @@ fn batch_run_streaming_missing_file_errors() {
 fn batch_run_streaming_parse_error_includes_line_number() {
     Command::cargo_bin("s7cmd")
         .unwrap()
-        .args(["batch-run", "--streaming", "-"])
+        .args(["batch-run", "--disable-color-tracing", "--streaming", "-"])
         .write_stdin("# blank ok\ncp \"unterminated\n")
         .assert()
         .failure()
-        .stderr(predicate::str::contains("line 2"))
-        .stderr(predicate::str::contains("parse error"));
+        .stderr(predicate::str::contains("line=2"))
+        .stderr(predicate::str::contains("malformed"));
 }
 
 /// Streaming mode unknown subcommand → clap parse error path.
@@ -946,12 +986,12 @@ fn batch_run_streaming_parse_error_includes_line_number() {
 fn batch_run_streaming_clap_parse_error_includes_line_number() {
     Command::cargo_bin("s7cmd")
         .unwrap()
-        .args(["batch-run", "--streaming", "-"])
+        .args(["batch-run", "--disable-color-tracing", "--streaming", "-"])
         .write_stdin("no-such-command\n")
         .assert()
         .failure()
-        .stderr(predicate::str::contains("line 1"))
-        .stderr(predicate::str::contains("parse error"));
+        .stderr(predicate::str::contains("line=1"))
+        .stderr(predicate::str::contains("unrecognized subcommand"));
 }
 
 /// Streaming mode `--auto-complete-shell` → top-level flag with no
@@ -960,11 +1000,11 @@ fn batch_run_streaming_clap_parse_error_includes_line_number() {
 fn batch_run_streaming_empty_command_errors() {
     Command::cargo_bin("s7cmd")
         .unwrap()
-        .args(["batch-run", "--streaming", "-"])
+        .args(["batch-run", "--disable-color-tracing", "--streaming", "-"])
         .write_stdin("--auto-complete-shell bash\n")
         .assert()
         .failure()
-        .stderr(predicate::str::contains("line 1"))
+        .stderr(predicate::str::contains("line=1"))
         .stderr(predicate::str::contains("empty command"));
 }
 
@@ -990,12 +1030,17 @@ fn batch_run_check_format_rejects_empty_command() {
 fn batch_run_check_format_rejects_tokenize_error() {
     Command::cargo_bin("s7cmd")
         .unwrap()
-        .args(["batch-run", "--check-format", "-"])
+        .args([
+            "batch-run",
+            "--check-format",
+            "--disable-color-tracing",
+            "-",
+        ])
         .write_stdin("cp \"unterminated\n")
         .assert()
         .failure()
-        .stderr(predicate::str::contains("parse error"))
-        .stderr(predicate::str::contains("line 1"));
+        .stderr(predicate::str::contains("malformed"))
+        .stderr(predicate::str::contains("line=1"));
 }
 
 // ---- empty-command in read-all mode ----
@@ -1007,12 +1052,12 @@ fn batch_run_check_format_rejects_tokenize_error() {
 fn batch_run_read_all_empty_command_errors() {
     Command::cargo_bin("s7cmd")
         .unwrap()
-        .args(["batch-run", "-"])
+        .args(["batch-run", "--disable-color-tracing", "-"])
         .write_stdin("--auto-complete-shell bash\n")
         .assert()
         .failure()
         .stderr(predicate::str::contains("empty command"))
-        .stderr(predicate::str::contains("line 1"));
+        .stderr(predicate::str::contains("line=1"));
 }
 
 /// Regression: per-line `cp --auto-complete-shell <SHELL>` previously
@@ -1026,12 +1071,12 @@ fn batch_run_read_all_empty_command_errors() {
 fn batch_run_per_line_auto_complete_shell_does_not_panic() {
     Command::cargo_bin("s7cmd")
         .unwrap()
-        .args(["batch-run", "-"])
+        .args(["batch-run", "--disable-color-tracing", "-"])
         .write_stdin("cp --auto-complete-shell fish\n")
         .assert()
         .failure()
-        .stderr(predicate::str::contains("line 1"))
-        .stderr(predicate::str::contains("parse error"))
+        .stderr(predicate::str::contains("line=1"))
+        .stderr(predicate::str::contains("auto-complete-shell"))
         // Must NOT panic — the old behavior surfaced as
         // `thread 'main' ... panicked at .../storage_path.rs`.
         .stderr(predicate::str::contains("panicked").not());
@@ -1043,12 +1088,12 @@ fn batch_run_per_line_auto_complete_shell_does_not_panic() {
 fn batch_run_streaming_per_line_auto_complete_shell_does_not_panic() {
     Command::cargo_bin("s7cmd")
         .unwrap()
-        .args(["batch-run", "--streaming", "-"])
+        .args(["batch-run", "--disable-color-tracing", "--streaming", "-"])
         .write_stdin("cp --auto-complete-shell fish\n")
         .assert()
         .failure()
-        .stderr(predicate::str::contains("line 1"))
-        .stderr(predicate::str::contains("parse error"))
+        .stderr(predicate::str::contains("line=1"))
+        .stderr(predicate::str::contains("auto-complete-shell"))
         .stderr(predicate::str::contains("panicked").not());
 }
 
@@ -1057,12 +1102,17 @@ fn batch_run_streaming_per_line_auto_complete_shell_does_not_panic() {
 fn batch_run_check_format_per_line_auto_complete_shell_does_not_panic() {
     Command::cargo_bin("s7cmd")
         .unwrap()
-        .args(["batch-run", "--check-format", "-"])
+        .args([
+            "batch-run",
+            "--check-format",
+            "--disable-color-tracing",
+            "-",
+        ])
         .write_stdin("cp --auto-complete-shell fish\n")
         .assert()
         .failure()
-        .stderr(predicate::str::contains("line 1"))
-        .stderr(predicate::str::contains("parse error"))
+        .stderr(predicate::str::contains("line=1"))
+        .stderr(predicate::str::contains("auto-complete-shell"))
         .stderr(predicate::str::contains("panicked").not());
 }
 
@@ -1126,4 +1176,47 @@ fn batch_run_json_tracing_per_line_fields() {
     assert_eq!(success["fields"]["raw"], "create-bucket --dry-run s3://b1");
     assert_eq!(success["fields"]["message"], "line completed");
     assert_eq!(success["level"], "INFO");
+}
+
+/// Invalid lines emit `event="invalid"` plus invalid_kind, reason, line, raw,
+/// exit_code as structured fields under --json-tracing.
+#[test]
+fn batch_run_json_tracing_invalid_line_fields() {
+    let assert = Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["batch-run", "--json-tracing", "--continue-on-error", "-"])
+        .write_stdin("not-a-real-subcommand foo bar\n")
+        .assert()
+        .failure();
+    let stderr = String::from_utf8(assert.get_output().stderr.clone()).unwrap();
+
+    let invalid = stderr
+        .lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .find(|v| v["fields"]["event"] == "invalid")
+        .unwrap_or_else(|| panic!("no invalid event in stderr: {stderr}"));
+
+    assert_eq!(invalid["fields"]["line"], 1);
+    assert_eq!(invalid["fields"]["invalid_kind"], "parse");
+    assert_eq!(invalid["fields"]["exit_code"], 2);
+    assert_eq!(invalid["fields"]["raw"], "not-a-real-subcommand foo bar");
+    assert_eq!(invalid["fields"]["message"], "line invalid");
+    assert_eq!(invalid["level"], "ERROR");
+    assert!(
+        invalid["fields"]["reason"]
+            .as_str()
+            .unwrap()
+            .contains("unrecognized subcommand"),
+        "reason should contain clap error text: {}",
+        invalid["fields"]["reason"]
+    );
+    // reason MUST NOT contain the old "line N: parse error: " prefix
+    assert!(
+        !invalid["fields"]["reason"]
+            .as_str()
+            .unwrap()
+            .starts_with("line "),
+        "reason should not bake the line prefix: {}",
+        invalid["fields"]["reason"]
+    );
 }

@@ -78,7 +78,12 @@ fn run_check_format(args: BatchRunArgs) -> i32 {
         match std::fs::File::open(&args.script) {
             Ok(f) => check_format_lines(std::io::BufReader::new(f), source),
             Err(e) => {
-                tracing::error!("{source}: {e}");
+                tracing::error!(
+                    source = source,
+                    event = "open_error",
+                    error = format!("{e}"),
+                    "could not open script",
+                );
                 drain_stdin_on_error_exit(&args);
                 return 1;
             }
@@ -88,24 +93,27 @@ fn run_check_format(args: BatchRunArgs) -> i32 {
         drain_stdin_on_error_exit(&args);
         1
     } else {
-        tracing::info!("batch-run: format OK ({source}).");
+        tracing::info!(source = source, event = "format_ok", "batch-run format OK",);
         0
     }
 }
 
 /// Display label for the script source: `"stdin"` for `-`, the file
-/// path otherwise. Used to prefix per-line check-format diagnostics so
-/// the user can see at a glance which file is being checked — the
-/// real-world failure mode is forgetting `-` and accidentally pointing
-/// `batch-run` at a non-script file (`/etc/hosts`, etc.).
+/// path otherwise. Used as the `source` structured field on check-format
+/// log entries so the user can see at a glance which file is being
+/// checked — the real-world failure mode is forgetting `-` and
+/// accidentally pointing `batch-run` at a non-script file (`/etc/hosts`,
+/// etc.).
 fn script_source_label(script: &str) -> &str {
     if script == "-" { "stdin" } else { script }
 }
 
 /// Walk lines and stop at the first problem. Returns `true` if an issue
 /// was reported (via `tracing::error!`), `false` if every line passed.
-/// Each per-line error is prefixed with `<source>: line N:` so the log
-/// identifies *which* file the offending line is from.
+/// Per-line errors emit structured fields: `source`, `line`, `event`,
+/// and (for invalid lines) `invalid_kind`, `reason`, `raw` — matching
+/// the executor path's field shape with an added `source` field for
+/// which script was checked.
 fn check_format_lines<R: BufRead>(mut reader: R, source: &str) -> bool {
     let mut line_no: usize = 0;
     loop {
@@ -114,7 +122,13 @@ fn check_format_lines<R: BufRead>(mut reader: R, source: &str) -> bool {
             Ok(Some(s)) => s,
             Ok(None) => return false,
             Err(e) => {
-                tracing::error!("{source}: line {line_no}: read error: {e}");
+                tracing::error!(
+                    source = source,
+                    line = line_no,
+                    event = "read_error",
+                    error = format!("{e}"),
+                    "line read error",
+                );
                 return true;
             }
         };
@@ -123,8 +137,13 @@ fn check_format_lines<R: BufRead>(mut reader: R, source: &str) -> bool {
             Ok(None) => continue, // blank or comment
             Err(e) => {
                 tracing::error!(
-                    "{source}: line {line_no}: parse error: {e}: {}",
-                    line.trim_end()
+                    source = source,
+                    line = line_no,
+                    event = "invalid",
+                    invalid_kind = "tokenize",
+                    reason = e.to_string(),
+                    raw = line.trim_end(),
+                    "line invalid",
                 );
                 return true;
             }
@@ -134,9 +153,13 @@ fn check_format_lines<R: BufRead>(mut reader: R, source: &str) -> bool {
             Err(e) => {
                 let s = e.to_string();
                 tracing::error!(
-                    "{source}: line {line_no}: parse error: {}: {}",
-                    clap_error_summary(&s),
-                    line.trim_end()
+                    source = source,
+                    line = line_no,
+                    event = "invalid",
+                    invalid_kind = "parse",
+                    reason = clap_error_summary(&s),
+                    raw = line.trim_end(),
+                    "line invalid",
                 );
                 return true;
             }
@@ -145,16 +168,29 @@ fn check_format_lines<R: BufRead>(mut reader: R, source: &str) -> bool {
             Some(c) => c,
             None => {
                 tracing::error!(
-                    "{source}: line {line_no}: empty command: {}",
-                    line.trim_end()
+                    source = source,
+                    line = line_no,
+                    event = "invalid",
+                    invalid_kind = "empty",
+                    reason = "empty command",
+                    raw = line.trim_end(),
+                    "line invalid",
                 );
                 return true;
             }
         };
         if let Err(e) = validate::validate(line_no, &line, &cmd) {
-            // validate's message already includes "line N: <description>"
-            // plus a `> raw` tail; flatten and prefix with the source.
-            tracing::error!("{source}: {}", flatten(&e.to_string()));
+            // validate returns only the underlying error text; source, line,
+            // and raw are emitted as separate structured fields here.
+            tracing::error!(
+                source = source,
+                line = line_no,
+                event = "invalid",
+                invalid_kind = "validate",
+                reason = flatten(&e.to_string()),
+                raw = line.trim_end(),
+                "line invalid",
+            );
             return true;
         }
     }
@@ -434,14 +470,13 @@ where
                 // Tokenize (skips blank/comment). Tokenize errors flow
                 // through as a `TokenizeError` ParsedLine kind so they
                 // become exit-2 Invalid lines downstream rather than
-                // aborting the reader.
+                // aborting the reader. Reason carries only the underlying
+                // error text — line_no and raw are attached at log time
+                // as structured fields by the executor.
                 let parsed_kind = match parser::tokenize_line(&text) {
                     Ok(None) => continue, // blank / comment
                     Ok(Some(argv)) => parser::ParsedLineKind::Ok(argv),
-                    Err(e) => parser::ParsedLineKind::TokenizeError(format!(
-                        "line {line_no}: parse error: {e}: {}",
-                        text.trim_end()
-                    )),
+                    Err(e) => parser::ParsedLineKind::TokenizeError(e.to_string()),
                 };
 
                 let prepared = try_prepare(parser::ParsedLine {
@@ -507,8 +542,9 @@ where
 
 /// Convert one `ParsedLine` into a `PreparedLine`. Tokenize / clap-parse
 /// / empty-command / validate failures all become `PreparedLineKind::Invalid`
-/// carrying a single-line error message; only successful clap parses with
-/// a present subcommand and clean validation become `PreparedLineKind::Cmd`.
+/// with `kind` identifying the failure stage and `reason` carrying the
+/// underlying error text. Only successful clap parses with a present
+/// subcommand and clean validation become `PreparedLineKind::Cmd`.
 /// Per-line failures are NEVER fatal here — the executor schedules
 /// `Invalid` lines as exit-2 failures so they count toward `--max-errors`
 /// like any runtime failure.
@@ -516,39 +552,43 @@ fn try_prepare(parsed: parser::ParsedLine) -> PreparedLine {
     let parser::ParsedLine { line_no, raw, kind } = parsed;
     let kind = match build_prepared_kind(line_no, &raw, kind) {
         Ok(k) => k,
-        Err(message) => executor::PreparedLineKind::Invalid(message),
+        Err((invalid_kind, reason)) => executor::PreparedLineKind::Invalid {
+            kind: invalid_kind,
+            reason,
+        },
     };
     PreparedLine { line_no, raw, kind }
 }
 
-/// `Ok(Cmd(_))` on a successfully parsed + validated line; `Err(msg)`
-/// otherwise. The error string is single-line, already prefixed with
-/// `line N:` and suffixed with the offending raw line, suitable for
-/// direct emission via `tracing::error!`.
+/// `Ok(PreparedLineKind::Cmd(_))` on a successfully parsed + validated line;
+/// `Err((InvalidKind, reason))` otherwise. The reason carries only the
+/// underlying error text — no `"line N:"` prefix and no raw line tail
+/// (those are attached at log time as structured fields).
 fn build_prepared_kind(
     line_no: usize,
     raw: &str,
     parsed_kind: parser::ParsedLineKind,
-) -> std::result::Result<executor::PreparedLineKind, String> {
+) -> std::result::Result<executor::PreparedLineKind, (executor::InvalidKind, String)> {
     let argv = match parsed_kind {
-        parser::ParsedLineKind::TokenizeError(msg) => return Err(msg),
+        parser::ParsedLineKind::TokenizeError(msg) => {
+            return Err((executor::InvalidKind::Tokenize, msg));
+        }
         parser::ParsedLineKind::Ok(argv) => argv,
     };
     let cli = parse_line_argv(&argv).map_err(|e| {
-        // Strip clap's `Usage:` / `For more information…` trailers and
-        // its leading `error:` prefix so the message stays single-line —
-        // same approach as `check_format_lines`.
         let s = e.to_string();
-        format!(
-            "line {line_no}: parse error: {}: {}",
-            clap_error_summary(&s),
-            raw.trim_end()
+        // Reason is the clap summary only; line_no and raw are attached
+        // at log time as structured fields.
+        (
+            executor::InvalidKind::Parse,
+            clap_error_summary(&s).to_string(),
         )
     })?;
     let cmd = cli
         .command
-        .ok_or_else(|| format!("line {line_no}: empty command: {}", raw.trim_end()))?;
-    validate::validate(line_no, raw, &cmd).map_err(|e| flatten(&e.to_string()))?;
+        .ok_or_else(|| (executor::InvalidKind::Empty, "empty command".to_string()))?;
+    validate::validate(line_no, raw, &cmd)
+        .map_err(|e| (executor::InvalidKind::Validate, flatten(&e.to_string())))?;
     Ok(executor::PreparedLineKind::Cmd(Box::new(cmd)))
 }
 
@@ -627,9 +667,9 @@ mod tests {
 
     fn assert_invalid(line: &PreparedLine, must_contain: &[&str]) {
         match &line.kind {
-            executor::PreparedLineKind::Invalid(msg) => {
+            executor::PreparedLineKind::Invalid { reason, .. } => {
                 for needle in must_contain {
-                    assert!(msg.contains(needle), "expected {needle:?} in {msg:?}");
+                    assert!(reason.contains(needle), "expected {needle:?} in {reason:?}");
                 }
             }
             executor::PreparedLineKind::Cmd(_) => {
@@ -689,10 +729,20 @@ mod tests {
     #[test]
     fn parse_and_validate_parse_error_becomes_invalid_with_line_number_and_raw() {
         // Unknown subcommand → clap parse error → `Invalid` PreparedLine.
+        // The `reason` carries only the clap summary (no "line N:" prefix).
         let parsed = vec![pl(7, "no-such-command", &["s7cmd", "no-such-command"])];
         let out = parse_and_validate(parsed);
         assert_eq!(out.len(), 1);
-        assert_invalid(&out[0], &["line 7", "parse error", "no-such-command"]);
+        assert_eq!(out[0].line_no, 7);
+        assert_invalid(&out[0], &["no-such-command"]);
+        // Verify kind is correctly set.
+        assert!(matches!(
+            &out[0].kind,
+            executor::PreparedLineKind::Invalid {
+                kind: executor::InvalidKind::Parse,
+                ..
+            }
+        ));
     }
 
     /// Per-line `cp --auto-complete-shell <SHELL>` previously panicked
@@ -711,7 +761,7 @@ mod tests {
             &["s7cmd", "cp", "--auto-complete-shell", "fish"],
         )];
         let out = parse_and_validate(parsed);
-        assert_invalid(&out[0], &["line 4", "parse error", "auto-complete-shell"]);
+        assert_invalid(&out[0], &["auto-complete-shell"]);
     }
 
     #[test]
@@ -725,7 +775,7 @@ mod tests {
             &["s7cmd", "--auto-complete-shell", "bash"],
         )];
         let out = parse_and_validate(parsed);
-        assert_invalid(&out[0], &["line 2", "empty command"]);
+        assert_invalid(&out[0], &["empty command"]);
     }
 
     #[test]
@@ -735,7 +785,7 @@ mod tests {
         // the validate step.
         let parsed = vec![pl(5, "batch-run -", &["s7cmd", "batch-run", "-"])];
         let out = parse_and_validate(parsed);
-        assert_invalid(&out[0], &["line 5", "nested batch-run"]);
+        assert_invalid(&out[0], &["nested batch-run"]);
     }
 
     #[test]
@@ -755,7 +805,7 @@ mod tests {
         let out = parse_and_validate(parsed);
         assert_eq!(out.len(), 2);
         assert_cmd(&out[0]);
-        assert_invalid(&out[1], &["line 2", "nested batch-run"]);
+        assert_invalid(&out[1], &["nested batch-run"]);
     }
 
     /// `parse_and_validate` switches to a `thread::scope` fan-out above
@@ -835,7 +885,7 @@ mod tests {
         assert_eq!(out.len(), n);
         for (i, p) in out.iter().enumerate() {
             assert_eq!(p.line_no, i + 1);
-            assert_invalid(p, &["parse error", "no-such-command"]);
+            assert_invalid(p, &["no-such-command"]);
         }
     }
 
