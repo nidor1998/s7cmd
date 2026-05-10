@@ -1,6 +1,6 @@
 [package]
 name = "s7cmd"
-version = "1.2.2"
+version = "1.2.3"
 edition = "2024"
 rust-version = "1.91.1"
 license = "Apache-2.0"
@@ -42,6 +42,10 @@ shlex = "1"
 # Used by batch_run for verbosity-driven tracing config (-v / -vv / -q / -qq).
 # Already a transitive dep via s3util-rs; declare it directly so version is locked.
 clap-verbosity-flag = "3"
+# `FutureExt::catch_unwind` for the batch_run executor's per-line panic
+# guard. Already a transitive dep via the AWS SDK; declared directly so
+# the version is locked.
+futures      = "0.3"
 tokio        = { version = "1.52", features = ["full"] }
 tracing      = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "local-time"] }
@@ -99,7 +103,6 @@ codegen-units = 1
 [profile.release-min-size]
 inherits   = "release"
 debug      = 0
-panic      = "abort"
 opt-level  = "z"
 
 [lints.rust]

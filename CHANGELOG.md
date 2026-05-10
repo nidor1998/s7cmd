@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.3] - 2026-05-09
+
+### Fixed
+
+- `batch-run` now catches panics in dispatched subcommands. A
+  panicked subcommand surfaces as exit code `101` with a structured
+  `event = "panicked"` log entry carrying `line`, `raw`, `command`,
+  and `panic` fields, is recorded as a failure in the summary, and
+  counts toward `--max-errors` (so `--continue-on-error` and the
+  failure-threshold flags apply to panics like any other failure).
+  Previously, in the default sequential mode (`--parallel 1`), a
+  panic in any subcommand crashed the entire `batch-run` process
+  with no summary line, no structured log entry, and no chance to
+  apply the failure-policy flags; in parallel mode the panic was
+  caught but the recovery log did not identify which line panicked.
+
+### Changed
+
+- All build profiles now use `panic = "unwind"`. The
+  `release-min-size` profile previously set `panic = "abort"`, which
+  would have suppressed the new `batch-run` panic recovery for
+  binaries built under that profile.
+
+### Underlying libraries
+
+Pinned versions are unchanged from 1.2.2:
+
+```toml
+s3sync     = "=1.58.6"
+s3util-rs  = "=1.4.0"
+s3rm-rs    = "=1.3.6"
+s3ls-rs    = "=1.0.1"
+```
+
 ## [1.2.2] - 2026-05-09
 
 ### Changed

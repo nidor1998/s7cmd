@@ -3054,7 +3054,7 @@ dependencies = [
 
 [[package]]
 name = "s7cmd"
-version = "1.2.2"
+version = "1.2.3"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -3069,6 +3069,7 @@ dependencies = [
  "clap-verbosity-flag",
  "clap_complete",
  "dyn-clone",
+ "futures",
  "indicatif",
  "leaky-bucket",
  "log",
