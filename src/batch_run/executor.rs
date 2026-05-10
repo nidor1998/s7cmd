@@ -5,11 +5,13 @@ use crate::batch_run::summary::Summary;
 use crate::cli::Cmd;
 
 use std::future::Future;
+use std::panic::AssertUnwindSafe;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
+use futures::FutureExt;
 use tokio::sync::Semaphore;
 use tokio::task::{JoinSet, LocalSet};
 
@@ -108,14 +110,42 @@ fn log_start(line_no: usize, raw: &str) {
 /// fields, then returns the synthetic `EXIT_CODE_INVALID_LINE` (= 2).
 /// Returning `(line_no, code)` lets callers record / tick / threshold-
 /// check uniformly without inspecting the variant.
+///
+/// The dispatched future is wrapped in `catch_unwind` so a panic in any
+/// subcommand becomes a recorded failure with full line / raw / command
+/// identification — instead of unwinding through the executor (which in
+/// sequential mode meant aborting the whole `batch-run` process with no
+/// summary, no log entry, and no chance to apply `--max-errors` /
+/// `--continue-on-error`). `AssertUnwindSafe` is sound here: nothing we
+/// mutate outside the dispatch future crosses the catch boundary. All
+/// build profiles in this crate use `panic = "unwind"`, so the recovery
+/// is always active — `catch_unwind` is a no-op under `panic = "abort"`,
+/// which we deliberately do not opt into anywhere.
 async fn execute_line(line: PreparedLine, dispatch: &DispatchFn) -> (usize, i32) {
     let PreparedLine { line_no, raw, kind } = line;
     let code = match kind {
         PreparedLineKind::Cmd(cmd) => {
             log_start(line_no, &raw);
-            let code = dispatch(*cmd).await;
-            log_end(line_no, &raw, code);
-            code
+            match AssertUnwindSafe(dispatch(*cmd)).catch_unwind().await {
+                Ok(code) => {
+                    log_end(line_no, &raw, code);
+                    code
+                }
+                Err(payload) => {
+                    let raw_trimmed = raw.trim_end();
+                    let msg = panic_message(&*payload);
+                    tracing::error!(
+                        line = line_no,
+                        event = "panicked",
+                        exit_code = EXIT_CODE_PANIC,
+                        command = command_token(raw_trimmed),
+                        raw = raw_trimmed,
+                        panic = msg.as_str(),
+                        "subcommand panicked",
+                    );
+                    EXIT_CODE_PANIC
+                }
+            }
         }
         PreparedLineKind::Invalid { kind, reason } => {
             let raw = raw.trim_end();
@@ -133,6 +163,30 @@ async fn execute_line(line: PreparedLine, dispatch: &DispatchFn) -> (usize, i32)
         }
     };
     (line_no, code)
+}
+
+/// Synthetic exit code surfaced when a dispatched subcommand panics.
+/// Matches the conventional Unix code for an uncaught Rust panic
+/// (`std::process::abort` / `SIGABRT` is 134, but the language-level
+/// "panic produced by `panic!`" exit on most platforms is 101). Counted
+/// as a failure by `Summary::record` and stop-worthy by `is_stop_worthy`,
+/// so panics flow through `--max-errors` / `--continue-on-error` like
+/// any runtime failure.
+pub const EXIT_CODE_PANIC: i32 = 101;
+
+/// Best-effort extraction of the panic message from a `catch_unwind`
+/// payload. The payload is whatever was passed to `panic!` — usually a
+/// `&'static str` or `String`. Any other payload type (a structured
+/// type set via `panic_any`, etc.) falls back to a placeholder so the
+/// log entry still carries something the user can grep on.
+fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
+    if let Some(s) = payload.downcast_ref::<&'static str>() {
+        return (*s).to_string();
+    }
+    if let Some(s) = payload.downcast_ref::<String>() {
+        return s.clone();
+    }
+    "unknown panic payload".to_string()
 }
 
 /// Emitted immediately after each dispatched subcommand. The level
@@ -1314,18 +1368,91 @@ mod tests {
         assert_eq!(summary.skipped, 1 + 3); // line 1 (130) + lines 3,4,5 (never run)
     }
 
-    // ---- panic recovery in parallel join loop ----
+    // ---- panic recovery in execute_line ----
     //
-    // When a dispatched task panics, `JoinSet::join_next` returns
-    // `Err(JoinError)`. The parallel executors translate that into a
-    // synthetic `failed += 1` and bump the worst exit code to at least 1.
-    // These tests exercise that recovery arm.
+    // `execute_line` wraps `dispatch(...).await` in `catch_unwind`, so a
+    // panic in any dispatched subcommand becomes `EXIT_CODE_PANIC` (= 101)
+    // with full line / raw / command identification in the structured
+    // error log. The parallel join loop's `Err(JoinError)` arm is now a
+    // defense-in-depth fallback for panics that originate OUTSIDE the
+    // dispatch future (in the post-dispatch bookkeeping code) — it
+    // records `failed += 1` with code 1 the way it always has.
 
-    /// `run_parallel`: a panicking dispatch produces a `JoinError`; the
-    /// executor records a synthetic failure and surfaces exit code 1.
-    /// `--continue-on-error` is set so the spawn loop doesn't pre-empt.
+    /// `run_sequential`: a panicking dispatch is caught inside
+    /// `execute_line`, surfaced as `EXIT_CODE_PANIC`, recorded as a
+    /// failure, and counted toward the default fail-fast threshold (no
+    /// further lines run, even though there are more).
     #[tokio::test]
-    async fn parallel_join_arm_handles_task_panic() {
+    async fn sequential_dispatch_panic_recovers_and_records_failure() {
+        let lines = make_lines(3);
+        let (code, summary) = run_sequential(
+            lines,
+            opts(1, Some(1)), // default fail-fast
+            panicking_dispatch(),
+            no_interrupt(),
+        )
+        .await;
+        assert_eq!(code, EXIT_CODE_PANIC);
+        assert_eq!(summary.failed, 1);
+        assert_eq!(summary.ok, 0);
+        assert_eq!(summary.skipped, 2); // lines 2, 3 not dispatched
+    }
+
+    /// `run_sequential` with `--continue-on-error`: the panicking line is
+    /// recorded but the run continues, dispatching the remaining lines.
+    /// Verifies that panic recovery participates in the same threshold
+    /// machinery as other failures.
+    #[tokio::test]
+    async fn sequential_dispatch_panic_continues_with_continue_on_error() {
+        // First call panics, subsequent calls return 0 — but
+        // `panicking_dispatch` panics on every call, so use a custom
+        // dispatch that panics once then returns 0.
+        let codes = Arc::new(tokio::sync::Mutex::new(vec![0i32, 0i32].into_iter()));
+        let panic_first = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let dispatch: DispatchFn = {
+            let codes = Arc::clone(&codes);
+            let panic_first = Arc::clone(&panic_first);
+            Arc::new(move |_cmd: Cmd| {
+                let codes = Arc::clone(&codes);
+                let panic_first = Arc::clone(&panic_first);
+                Box::pin(async move {
+                    if panic_first.swap(false, Ordering::SeqCst) {
+                        panic!("synthetic panic for test");
+                    }
+                    codes.lock().await.next().expect("not enough fake codes")
+                })
+            })
+        };
+
+        let lines = make_lines(3);
+        let (code, summary) = run_sequential(lines, opts(1, None), dispatch, no_interrupt()).await;
+        assert_eq!(code, EXIT_CODE_PANIC);
+        assert_eq!(summary.failed, 1);
+        assert_eq!(summary.ok, 2); // lines 2 and 3 ran successfully
+        assert_eq!(summary.skipped, 0);
+    }
+
+    /// Streaming sequential: panic recovery via the channel path.
+    #[tokio::test]
+    async fn sequential_streaming_dispatch_panic_recovers_and_records_failure() {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        for line in make_lines(1) {
+            tx.send(line).unwrap();
+        }
+        drop(tx);
+        let (code, summary) =
+            run_sequential_streaming(rx, opts(1, None), panicking_dispatch(), no_interrupt()).await;
+        assert_eq!(code, EXIT_CODE_PANIC);
+        assert_eq!(summary.failed, 1);
+        assert_eq!(summary.ok, 0);
+    }
+
+    /// `run_parallel`: dispatch panic now flows through `execute_line`'s
+    /// `catch_unwind` (not the join-loop fallback), surfacing as
+    /// `EXIT_CODE_PANIC`. The recorded summary remains the same shape:
+    /// one failed entry, no successes.
+    #[tokio::test]
+    async fn parallel_dispatch_panic_recovers_and_records_failure() {
         let lines = make_lines(1);
         let (code, summary) = run_parallel(
             lines,
@@ -1334,14 +1461,14 @@ mod tests {
             no_interrupt(),
         )
         .await;
-        assert_eq!(code, 1);
+        assert_eq!(code, EXIT_CODE_PANIC);
         assert_eq!(summary.failed, 1);
         assert_eq!(summary.ok, 0);
     }
 
     /// `run_parallel_streaming`: same shape, via the channel.
     #[tokio::test]
-    async fn parallel_streaming_join_arm_handles_task_panic() {
+    async fn parallel_streaming_dispatch_panic_recovers_and_records_failure() {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         for line in make_lines(1) {
             tx.send(line).unwrap();
@@ -1349,9 +1476,52 @@ mod tests {
         drop(tx);
         let (code, summary) =
             run_parallel_streaming(rx, opts(1, None), panicking_dispatch(), no_interrupt()).await;
-        assert_eq!(code, 1);
+        assert_eq!(code, EXIT_CODE_PANIC);
         assert_eq!(summary.failed, 1);
         assert_eq!(summary.ok, 0);
+    }
+
+    /// Panic counts toward `--max-errors`: with threshold 2, the second
+    /// panic stops the run before any subsequent line dispatches. This is
+    /// the load-bearing invariant — without panic recovery, panics either
+    /// crashed the process (sequential) or recorded `failed` but did NOT
+    /// trip the threshold (parallel join arm only updated summary, not
+    /// fail_count).
+    #[tokio::test]
+    async fn sequential_panic_counts_toward_max_errors() {
+        let lines = make_lines(5);
+        let (code, summary) = run_sequential(
+            lines,
+            opts(1, Some(2)),     // stop after 2 stop-worthy outcomes
+            panicking_dispatch(), // every line panics
+            no_interrupt(),
+        )
+        .await;
+        assert_eq!(code, EXIT_CODE_PANIC);
+        assert_eq!(summary.failed, 2);
+        assert_eq!(summary.skipped, 3); // lines 3-5 never dispatched
+    }
+
+    /// `panic_message` extracts the message for a `&'static str` payload.
+    #[test]
+    fn panic_message_extracts_static_str() {
+        let payload: Box<dyn std::any::Any + Send> = Box::new("boom");
+        assert_eq!(panic_message(&*payload), "boom");
+    }
+
+    /// `panic_message` extracts the message for a `String` payload.
+    #[test]
+    fn panic_message_extracts_owned_string() {
+        let payload: Box<dyn std::any::Any + Send> = Box::new(String::from("kaboom"));
+        assert_eq!(panic_message(&*payload), "kaboom");
+    }
+
+    /// `panic_message` falls back gracefully for non-string payloads
+    /// (e.g. `panic_any(42i32)`).
+    #[test]
+    fn panic_message_handles_unknown_payload() {
+        let payload: Box<dyn std::any::Any + Send> = Box::new(42i32);
+        assert_eq!(panic_message(&*payload), "unknown panic payload");
     }
 
     // ---- interrupt-mid-spawn-loop in parallel executors ----
