@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.4] - 2026-05-17
+
+### Changed
+
+#### s3sync
+- AWS SDK for Rust does not support the new checksums XXHash64/3/128, MD5, and SHA-512, so an error check has been added
+  to prevent these from being specified as additional checksums. We plan to remove this restriction when AWS SDK for
+  Rust supports these new checksums.
+
+### Underlying libraries
+
+```toml
+s3sync     = "=1.58.7"
+s3util-rs  = "=1.4.0"
+s3rm-rs    = "=1.3.6"
+s3ls-rs    = "=1.0.1"
+```
+
 ## [1.2.3] - 2026-05-09
 
 ### Fixed
