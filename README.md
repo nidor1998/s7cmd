@@ -410,7 +410,7 @@ only its own visual element; pass both for fully clean output.
 ## Proxy support
 
 s7cmd respects the standard proxy environment variables
-(`HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`) automatically.
+(`HTTP_PROXY`, `HTTPS_PROXY`) automatically.
 No flags are required — set the variables in your shell and every
 subcommand routes its S3 traffic through the proxy.
 
