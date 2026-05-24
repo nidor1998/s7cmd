@@ -10,7 +10,7 @@ A reliable, flexible, and fast command-line tool for Amazon S3.
 
 s7cmd combines the speed of a Rust async runtime with the breadth of
 the AWS S3 API surface, providing high-throughput object operations
-(`ls`, `cp`, `mv`, `rm`, `sync`, `clean`) alongside comprehensive
+(`ls`, `cp`, `mv`, `rename`, `rm`, `sync`, `clean`) alongside comprehensive
 bucket administration (lifecycle, policy, encryption, CORS, public
 access block, website, logging, notification, and more) — all from a
 single static binary.
@@ -61,6 +61,7 @@ Object Operations:
   ls                                    List S3 objects
   cp                                    Copy objects from/to S3 (or S3 to S3)
   mv                                    Move objects from/to S3 (copy then delete source)
+  rename                                Rename an S3 object within an Express One Zone bucket
   rm                                    Delete a single S3 object
   restore-object                        Restore an archived S3 object
   presign                               Generate a pre-signed URL for an S3 object (GET only)
@@ -427,7 +428,7 @@ library. For details on flags, semantics, and exit codes, refer to:
 | `ls`                               | [s3ls-rs](https://github.com/nidor1998/s3ls-rs)        |
 | `sync`                             | [s3sync](https://github.com/nidor1998/s3sync)          |
 | `clean`                            | [s3rm-rs](https://github.com/nidor1998/s3rm-rs)        |
-| `cp`, `mv`, `rm`, and all others   | [s3util-rs](https://github.com/nidor1998/s3util-rs)    |
+| `cp`, `mv`, `rename`, `rm`, and all others | [s3util-rs](https://github.com/nidor1998/s3util-rs)    |
 | `batch-run`                        | s7cmd-only — see the section above                     |
 
 Each of these projects (except `batch-run`) also ships its own
@@ -462,9 +463,10 @@ Discussions about the legitimacy, licensing, or ethics of AI-generated code in g
 
 s7cmd is designed to cover **Amazon S3 object operations and bucket
 management** — listing (`ls`), single- and bulk-object transfers
-(`cp` / `mv` / `rm`), recursive synchronization (`sync`), bulk delete
-(`clean`), archive restoration (`restore-object`), pre-signed URL
-generation (`presign`), and the common bucket-level configurations
+(`cp` / `mv` / `rm`), atomic server-side rename (`rename`), recursive
+synchronization (`sync`), bulk delete (`clean`), archive restoration
+(`restore-object`), pre-signed URL generation (`presign`), and the
+common bucket-level configurations
 (tagging, versioning, policy, policy-status, lifecycle, encryption,
 CORS, public-access-block, website, logging, notification,
 replication, transfer acceleration, request payment). For any S3 use
