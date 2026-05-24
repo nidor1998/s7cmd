@@ -67,6 +67,7 @@ fn init_tracing_for(cmd: &Cmd) {
         // sync_bin / ls_bin / clean_bin / cp / mv handle their own subscriber
         // init inside their dispatch arms.
         Cmd::Sync(_) | Cmd::Ls(_) | Cmd::Clean(_) | Cmd::Cp(_) | Cmd::Mv(_) => return,
+        Cmd::Rename(args) => args.build_tracing_config_dry_run(args.dry_run),
         Cmd::Rm(args) => args.common.build_tracing_config_dry_run(args.dry_run),
         Cmd::CreateBucket(args) => args.common.build_tracing_config_dry_run(args.dry_run),
         Cmd::DeleteBucket(args) => args.common.build_tracing_config_dry_run(args.dry_run),
