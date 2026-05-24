@@ -82,13 +82,14 @@ fn reject_per_line_stdin_config(_line_no: usize, _raw: &str, cmd: &Cmd) -> Resul
 ///   - Sync (s3sync::CLIArgs): top-level fields are private — read them
 ///     via `s3sync::Config::try_from(...)`.
 fn reject_per_line_tracing(_line_no: usize, _raw: &str, cmd: &Cmd) -> Result<()> {
+    // Accept the tracing-fields struct directly so callers pass `a.common`
+    // for args with a `.common` wrapper, or `a` for flat args (Ls, Clean, Rename).
     macro_rules! check_common {
-        ($a:expr) => {{
-            let c = &$a.common;
-            if c.json_tracing
-                || c.aws_sdk_tracing
-                || c.span_events_tracing
-                || c.disable_color_tracing
+        ($c:expr) => {{
+            if $c.json_tracing
+                || $c.aws_sdk_tracing
+                || $c.span_events_tracing
+                || $c.disable_color_tracing
             {
                 return Err(tracing_error());
             }
@@ -98,26 +99,10 @@ fn reject_per_line_tracing(_line_no: usize, _raw: &str, cmd: &Cmd) -> Result<()>
         // Already handled by validate() before this fn runs:
         Cmd::BatchRun(_) => {}
 
-        // s3ls_rs / s3rm_rs CLIArgs expose tracing fields as public
-        // top-level fields (no `.common` wrapper).
-        Cmd::Ls(boxed) => {
-            if boxed.json_tracing
-                || boxed.aws_sdk_tracing
-                || boxed.span_events_tracing
-                || boxed.disable_color_tracing
-            {
-                return Err(tracing_error());
-            }
-        }
-        Cmd::Clean(boxed) => {
-            if boxed.json_tracing
-                || boxed.aws_sdk_tracing
-                || boxed.span_events_tracing
-                || boxed.disable_color_tracing
-            {
-                return Err(tracing_error());
-            }
-        }
+        // s3ls_rs / s3rm_rs CLIArgs and RenameArgs expose tracing fields as
+        // public top-level fields (no `.common` wrapper).
+        Cmd::Ls(boxed) => check_common!(boxed),
+        Cmd::Clean(boxed) => check_common!(boxed),
 
         // s3sync::CLIArgs has private tracing fields, but exposes them
         // through `Config::try_from(...).tracing_config`. The conversion
@@ -141,56 +126,58 @@ fn reject_per_line_tracing(_line_no: usize, _raw: &str, cmd: &Cmd) -> Result<()>
             }
         }
 
-        // Cp/Mv: args.common is CommonTransferArgs.
-        Cmd::Cp(a) => check_common!(a),
-        Cmd::Mv(a) => check_common!(a),
+        // Cp/Mv: tracing fields live in args.common (CommonTransferArgs).
+        Cmd::Cp(a) => check_common!(a.common),
+        Cmd::Mv(a) => check_common!(a.common),
+        // Rename: tracing fields are top-level (no .common wrapper).
+        Cmd::Rename(a) => check_common!(a),
 
-        // Rm + bucket/object subcommands: args.common is CommonClientArgs.
-        Cmd::Rm(a) => check_common!(a),
-        Cmd::CreateBucket(a) => check_common!(a),
-        Cmd::DeleteBucket(a) => check_common!(a),
-        Cmd::HeadBucket(a) => check_common!(a),
-        Cmd::HeadObject(a) => check_common!(a),
-        Cmd::GetObjectTagging(a) => check_common!(a),
-        Cmd::PutObjectTagging(a) => check_common!(a),
-        Cmd::DeleteObjectTagging(a) => check_common!(a),
-        Cmd::GetBucketTagging(a) => check_common!(a),
-        Cmd::PutBucketTagging(a) => check_common!(a),
-        Cmd::DeleteBucketTagging(a) => check_common!(a),
-        Cmd::GetBucketPolicy(a) => check_common!(a),
-        Cmd::PutBucketPolicy(a) => check_common!(a),
-        Cmd::DeleteBucketPolicy(a) => check_common!(a),
-        Cmd::GetBucketVersioning(a) => check_common!(a),
-        Cmd::PutBucketVersioning(a) => check_common!(a),
-        Cmd::GetBucketLifecycleConfiguration(a) => check_common!(a),
-        Cmd::PutBucketLifecycleConfiguration(a) => check_common!(a),
-        Cmd::DeleteBucketLifecycleConfiguration(a) => check_common!(a),
-        Cmd::GetBucketEncryption(a) => check_common!(a),
-        Cmd::PutBucketEncryption(a) => check_common!(a),
-        Cmd::DeleteBucketEncryption(a) => check_common!(a),
-        Cmd::GetBucketCors(a) => check_common!(a),
-        Cmd::PutBucketCors(a) => check_common!(a),
-        Cmd::DeleteBucketCors(a) => check_common!(a),
-        Cmd::GetPublicAccessBlock(a) => check_common!(a),
-        Cmd::PutPublicAccessBlock(a) => check_common!(a),
-        Cmd::DeletePublicAccessBlock(a) => check_common!(a),
-        Cmd::GetBucketWebsite(a) => check_common!(a),
-        Cmd::PutBucketWebsite(a) => check_common!(a),
-        Cmd::DeleteBucketWebsite(a) => check_common!(a),
-        Cmd::GetBucketLogging(a) => check_common!(a),
-        Cmd::PutBucketLogging(a) => check_common!(a),
-        Cmd::GetBucketNotificationConfiguration(a) => check_common!(a),
-        Cmd::PutBucketNotificationConfiguration(a) => check_common!(a),
-        Cmd::GetBucketReplication(a) => check_common!(a),
-        Cmd::PutBucketReplication(a) => check_common!(a),
-        Cmd::DeleteBucketReplication(a) => check_common!(a),
-        Cmd::GetBucketAccelerateConfiguration(a) => check_common!(a),
-        Cmd::PutBucketAccelerateConfiguration(a) => check_common!(a),
-        Cmd::GetBucketRequestPayment(a) => check_common!(a),
-        Cmd::PutBucketRequestPayment(a) => check_common!(a),
-        Cmd::GetBucketPolicyStatus(a) => check_common!(a),
-        Cmd::RestoreObject(a) => check_common!(a),
-        Cmd::Presign(a) => check_common!(a),
+        // Rm + bucket/object subcommands: tracing fields in args.common (CommonClientArgs).
+        Cmd::Rm(a) => check_common!(a.common),
+        Cmd::CreateBucket(a) => check_common!(a.common),
+        Cmd::DeleteBucket(a) => check_common!(a.common),
+        Cmd::HeadBucket(a) => check_common!(a.common),
+        Cmd::HeadObject(a) => check_common!(a.common),
+        Cmd::GetObjectTagging(a) => check_common!(a.common),
+        Cmd::PutObjectTagging(a) => check_common!(a.common),
+        Cmd::DeleteObjectTagging(a) => check_common!(a.common),
+        Cmd::GetBucketTagging(a) => check_common!(a.common),
+        Cmd::PutBucketTagging(a) => check_common!(a.common),
+        Cmd::DeleteBucketTagging(a) => check_common!(a.common),
+        Cmd::GetBucketPolicy(a) => check_common!(a.common),
+        Cmd::PutBucketPolicy(a) => check_common!(a.common),
+        Cmd::DeleteBucketPolicy(a) => check_common!(a.common),
+        Cmd::GetBucketVersioning(a) => check_common!(a.common),
+        Cmd::PutBucketVersioning(a) => check_common!(a.common),
+        Cmd::GetBucketLifecycleConfiguration(a) => check_common!(a.common),
+        Cmd::PutBucketLifecycleConfiguration(a) => check_common!(a.common),
+        Cmd::DeleteBucketLifecycleConfiguration(a) => check_common!(a.common),
+        Cmd::GetBucketEncryption(a) => check_common!(a.common),
+        Cmd::PutBucketEncryption(a) => check_common!(a.common),
+        Cmd::DeleteBucketEncryption(a) => check_common!(a.common),
+        Cmd::GetBucketCors(a) => check_common!(a.common),
+        Cmd::PutBucketCors(a) => check_common!(a.common),
+        Cmd::DeleteBucketCors(a) => check_common!(a.common),
+        Cmd::GetPublicAccessBlock(a) => check_common!(a.common),
+        Cmd::PutPublicAccessBlock(a) => check_common!(a.common),
+        Cmd::DeletePublicAccessBlock(a) => check_common!(a.common),
+        Cmd::GetBucketWebsite(a) => check_common!(a.common),
+        Cmd::PutBucketWebsite(a) => check_common!(a.common),
+        Cmd::DeleteBucketWebsite(a) => check_common!(a.common),
+        Cmd::GetBucketLogging(a) => check_common!(a.common),
+        Cmd::PutBucketLogging(a) => check_common!(a.common),
+        Cmd::GetBucketNotificationConfiguration(a) => check_common!(a.common),
+        Cmd::PutBucketNotificationConfiguration(a) => check_common!(a.common),
+        Cmd::GetBucketReplication(a) => check_common!(a.common),
+        Cmd::PutBucketReplication(a) => check_common!(a.common),
+        Cmd::DeleteBucketReplication(a) => check_common!(a.common),
+        Cmd::GetBucketAccelerateConfiguration(a) => check_common!(a.common),
+        Cmd::PutBucketAccelerateConfiguration(a) => check_common!(a.common),
+        Cmd::GetBucketRequestPayment(a) => check_common!(a.common),
+        Cmd::PutBucketRequestPayment(a) => check_common!(a.common),
+        Cmd::GetBucketPolicyStatus(a) => check_common!(a.common),
+        Cmd::RestoreObject(a) => check_common!(a.common),
+        Cmd::Presign(a) => check_common!(a.common),
     }
     Ok(())
 }

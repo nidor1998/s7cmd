@@ -72,6 +72,7 @@ pub mod put_bucket_versioning;
 pub mod put_bucket_website;
 pub mod put_object_tagging;
 pub mod put_public_access_block;
+pub mod rename;
 pub mod restore_object;
 pub mod rm;
 
@@ -120,6 +121,7 @@ pub use put_bucket_versioning::run_put_bucket_versioning;
 pub use put_bucket_website::run_put_bucket_website;
 pub use put_object_tagging::run_put_object_tagging;
 pub use put_public_access_block::run_put_public_access_block;
+pub use rename::run_rename;
 pub use restore_object::run_restore_object;
 pub use rm::run_rm;
 

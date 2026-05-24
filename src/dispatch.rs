@@ -139,6 +139,21 @@ pub async fn dispatch(cmd: Cmd) -> i32 {
             }
         }
 
+        Cmd::Rename(args) => {
+            if let Err(e) = args.validate() {
+                let _ = clap::Error::raw(clap::error::ErrorKind::ValueValidation, e).print();
+                return 2;
+            }
+            let client_config = args.build_client_config();
+            match util_bin::cli::run_rename(args, client_config).await {
+                Ok(status) => status.code(),
+                Err(e) => {
+                    tracing::error!(error = format!("{e:#}"));
+                    util_bin::cli::EXIT_CODE_ERROR
+                }
+            }
+        }
+
         // Rm and bucket/object metadata commands all use the same shape:
         // build_client_config -> run with (args, config) -> map result to i32.
         // Use the helpers below to avoid 35 near-identical arms. Tracing init

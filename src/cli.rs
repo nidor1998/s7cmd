@@ -37,6 +37,7 @@ Object Operations:
   ls                                    List S3 objects
   cp                                    Copy objects from/to S3 (or S3 to S3)
   mv                                    Move objects from/to S3 (copy then delete source)
+  rename                                Rename an S3 object within an Express One Zone bucket
   rm                                    Delete a single S3 object
   restore-object                        Restore an archived S3 object
   presign                               Generate a pre-signed URL for an S3 object (GET only)
@@ -242,6 +243,8 @@ pub enum Cmd {
     Cp(s3util_rs::config::args::CpArgs),
     /// Move objects from/to S3 (copy then delete source)
     Mv(s3util_rs::config::args::MvArgs),
+    /// Rename an S3 object within an Express One Zone bucket (atomic server-side rename)
+    Rename(s3util_rs::config::args::RenameArgs),
     /// Delete a single S3 object
     Rm(s3util_rs::config::args::RmArgs),
     /// Restore an archived S3 object

@@ -80,7 +80,7 @@ pub fn create_sized_file(dir: &Path, name: &str, size: usize) -> PathBuf {
 // the false-positive locally.
 #[cfg(e2e_test)]
 #[allow(unused_imports)]
-pub use e2e::{REGION, TestHelper};
+pub use e2e::{EXPRESS_ONE_ZONE_AZ, REGION, TestHelper};
 
 #[cfg(e2e_test)]
 mod e2e {
@@ -91,8 +91,10 @@ mod e2e {
     use aws_sdk_s3::Client;
     use aws_sdk_s3::config::Region;
     use aws_sdk_s3::operation::get_object_tagging::GetObjectTaggingOutput;
+    use aws_sdk_s3::operation::head_object::HeadObjectOutput;
     use aws_sdk_s3::types::{
-        BucketLocationConstraint, BucketVersioningStatus, CreateBucketConfiguration, Tag, Tagging,
+        BucketInfo, BucketLocationConstraint, BucketType, BucketVersioningStatus,
+        CreateBucketConfiguration, DataRedundancy, LocationInfo, LocationType, Tag, Tagging,
         VersioningConfiguration,
     };
 
@@ -100,6 +102,9 @@ mod e2e {
     /// `S7CMD_E2E_REGION` environment variable, so a single binary can be
     /// pointed at different accounts/regions without recompiling.
     pub const REGION: &str = "ap-northeast-1";
+
+    /// Availability Zone ID used for Express One Zone directory bucket tests.
+    pub const EXPRESS_ONE_ZONE_AZ: &str = "apne1-az4";
 
     pub struct TestHelper {
         pub client: Client,
@@ -425,6 +430,58 @@ mod e2e {
                         .await;
                 }
             }
+        }
+
+        // ---- Express One Zone directory bucket helpers (rename tests) ----
+
+        pub async fn create_directory_bucket(&self, bucket_name: &str, availability_zone: &str) {
+            let location_info = LocationInfo::builder()
+                .r#type(LocationType::AvailabilityZone)
+                .name(availability_zone)
+                .build();
+            let bucket_info = BucketInfo::builder()
+                .data_redundancy(DataRedundancy::SingleAvailabilityZone)
+                .r#type(BucketType::Directory)
+                .build();
+            let configuration = CreateBucketConfiguration::builder()
+                .location(location_info)
+                .bucket(bucket_info)
+                .build();
+            self.client
+                .create_bucket()
+                .create_bucket_configuration(configuration)
+                .bucket(bucket_name)
+                .send()
+                .await
+                .expect("create_directory_bucket");
+        }
+
+        /// HeadObject and return the full output. Used by rename tests to
+        /// obtain the ETag for conditional-check flags.
+        pub async fn head_object(
+            &self,
+            bucket: &str,
+            key: &str,
+            version_id: Option<String>,
+        ) -> HeadObjectOutput {
+            self.client
+                .head_object()
+                .bucket(bucket)
+                .key(key)
+                .set_version_id(version_id)
+                .send()
+                .await
+                .expect("head_object")
+        }
+
+        /// Empty a directory bucket (no versioning support) and delete it.
+        /// Idempotent: no-op when the bucket does not exist.
+        pub async fn delete_directory_bucket_with_cascade(&self, bucket: &str) {
+            if !self.is_bucket_exist(bucket).await {
+                return;
+            }
+            self.delete_all_objects(bucket).await;
+            let _ = self.client.delete_bucket().bucket(bucket).send().await;
         }
     }
 }

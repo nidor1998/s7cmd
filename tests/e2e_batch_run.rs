@@ -17,7 +17,8 @@ mod common;
 
 use assert_cmd::Command as AssertCommand;
 use common::{
-    REGION, TestHelper, create_temp_dir, create_test_file, generate_bucket_name, run, s7cmd_cmd,
+    EXPRESS_ONE_ZONE_AZ, REGION, TestHelper, create_temp_dir, create_test_file,
+    generate_bucket_name, run, s7cmd_cmd,
 };
 use predicates::prelude::*;
 use std::path::Path;
@@ -878,6 +879,10 @@ fn sample_policy_inline(bucket: &str) -> String {
 async fn batch_run_e2e_all_subcommands_via_file() {
     let helper = TestHelper::new().await;
     let bucket = generate_bucket_name();
+    let expr_bucket = format!("s7cmd-e2e-{}--apne1-az4--x-s3", uuid::Uuid::new_v4());
+    helper
+        .create_directory_bucket(&expr_bucket, EXPRESS_ONE_ZONE_AZ)
+        .await;
 
     let local_dir = create_temp_dir();
     let payload = create_test_file(&local_dir, "payload.txt", b"hello all-subcommands");
@@ -923,12 +928,15 @@ async fn batch_run_e2e_all_subcommands_via_file() {
     let notification_path = create_test_file(&local_dir, "notification.json", b"{}");
 
     // Per-line auth flags. Most subcommands take target-only; mv
-    // s3://X → s3://X needs both source and target pairs.
+    // s3://X → s3://X needs both source and target pairs; rename
+    // uses only source-prefixed flags (source and target are in the
+    // same bucket).
     let auth_target = format!("--target-profile s7cmd-e2e-test --target-region {REGION}");
     let auth_both = format!(
         "--source-profile s7cmd-e2e-test --source-region {REGION} \
          --target-profile s7cmd-e2e-test --target-region {REGION}"
     );
+    let auth_source = format!("--source-profile s7cmd-e2e-test --source-region {REGION}");
 
     let payload_p = shell_path(&payload);
     let sync_p = shell_path(&sync_src);
@@ -997,6 +1005,8 @@ ls {auth_target} s3://{bucket}
 sync {auth_target} {sync_p} s3://{bucket}/synced/
 mv {auth_both} s3://{bucket}/object1 s3://{bucket}/object1-moved
 rm {auth_target} s3://{bucket}/object1-moved
+cp {auth_target} {payload_p} s3://{expr_bucket}/rename-src
+rename {auth_source} s3://{expr_bucket}/rename-src s3://{expr_bucket}/rename-dst
 clean --force {auth_target} s3://{bucket}
 
 # ---- versioning subcommand pair, on the now-empty bucket ----
@@ -1012,6 +1022,10 @@ delete-bucket-encryption {auth_target} s3://{bucket}
 delete-bucket-cors {auth_target} s3://{bucket}
 delete-bucket-website {auth_target} s3://{bucket}
 delete-bucket-replication {auth_target} s3://{bucket}
+
+# ---- Express One Zone bucket teardown (rename test) ----
+clean --force {auth_target} s3://{expr_bucket}
+delete-bucket {auth_target} s3://{expr_bucket}
 
 # ---- final teardown ----
 delete-bucket {auth_target} s3://{bucket}
@@ -1033,7 +1047,10 @@ delete-bucket {auth_target} s3://{bucket}
     );
 
     // Defensive cleanup in case any line failed before the final
-    // delete-bucket. delete_bucket_with_cascade is idempotent.
+    // delete-bucket. Both helpers are idempotent on already-gone buckets.
     helper.delete_bucket_with_cascade(&bucket).await;
+    helper
+        .delete_directory_bucket_with_cascade(&expr_bucket)
+        .await;
     let _ = std::fs::remove_dir_all(&local_dir);
 }
