@@ -18,9 +18,11 @@
 //! - Source-not-found: exit 1, no crash.
 //! - Dry run: no actual rename, exit 0, `[dry-run]` in stderr.
 //! - Conditional `--source-if-match`: matching ETag succeeds, wrong ETag fails.
-//! - Conditional `--source-if-none-match`: flag always sends `*`; object exists
-//!   so the condition fails with 412 (precondition failure → exit 1).
-//! - Conditional `--target-if-none-match`: destination absent → succeeds;
+//! - Conditional `--source-if-none-match`: passing `*` means "rename only if
+//!   source has no ETag"; object exists so the condition fails with 412
+//!   (precondition failure → exit 1).
+//! - Conditional `--target-if-none-match`: passing `*` means "rename only if
+//!   destination has no ETag"; destination absent → succeeds;
 //!   destination present → precondition failure → exit 1.
 //! - Conditional `--target-if-match`: matching destination ETag succeeds;
 //!   wrong ETag fails.
@@ -303,9 +305,10 @@ async fn rename_source_if_match_wrong_etag_fails() {
 // Conditional checks — source-if-none-match (1 test)
 // ---------------------------------------------------------------
 
-/// `--source-if-none-match` always sends `*` internally. Because the
-/// source object exists, the condition "none match" is false and the API
-/// returns a 412 precondition failure. The source must remain intact.
+/// `--source-if-none-match *` means "rename only if the source has no ETag".
+/// Because the source object exists it always has an ETag, so the condition
+/// is false and the API returns a 412 precondition failure.
+/// The source must remain intact.
 #[tokio::test]
 async fn rename_source_if_none_match_existing_object_fails() {
     let helper = TestHelper::new().await;
@@ -322,6 +325,7 @@ async fn rename_source_if_none_match_existing_object_fails() {
         "--source-profile",
         PROFILE_NAME,
         "--source-if-none-match",
+        "*",
         &src,
         &dst,
     ]);
@@ -345,9 +349,9 @@ async fn rename_source_if_none_match_existing_object_fails() {
 // Conditional checks — target-if-none-match (2 tests)
 // ---------------------------------------------------------------
 
-/// `--target-if-none-match` always sends `*` internally. When the
-/// destination does not exist, the condition "none match any ETag" is
-/// true, so the rename succeeds.
+/// `--target-if-none-match *` means "rename only if the destination has no
+/// ETag". When the destination does not exist, no ETag is present, so the
+/// condition is true and the rename succeeds.
 #[tokio::test]
 async fn rename_target_if_none_match_destination_absent_succeeds() {
     let helper = TestHelper::new().await;
@@ -364,6 +368,7 @@ async fn rename_target_if_none_match_destination_absent_succeeds() {
         "--source-profile",
         PROFILE_NAME,
         "--target-if-none-match",
+        "*",
         &src,
         &dst,
     ]);
@@ -381,9 +386,10 @@ async fn rename_target_if_none_match_destination_absent_succeeds() {
     helper.delete_directory_bucket_with_cascade(&bucket).await;
 }
 
-/// `--target-if-none-match` always sends `*` internally. When the
-/// destination already exists, the condition is false and the API
-/// returns 412. Source and destination must remain unchanged.
+/// `--target-if-none-match *` means "rename only if the destination has no
+/// ETag". When the destination already exists it has an ETag, so the
+/// condition is false and the API returns 412.
+/// Source and destination must remain unchanged.
 #[tokio::test]
 async fn rename_target_if_none_match_destination_present_fails() {
     let helper = TestHelper::new().await;
@@ -402,6 +408,7 @@ async fn rename_target_if_none_match_destination_present_fails() {
         "--source-profile",
         PROFILE_NAME,
         "--target-if-none-match",
+        "*",
         &src,
         &dst,
     ]);

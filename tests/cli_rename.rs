@@ -153,6 +153,7 @@ fn rename_source_if_match_and_source_if_none_match_are_mutually_exclusive() {
             "--source-if-match",
             "\"abc123\"",
             "--source-if-none-match",
+            "\"def456\"",
         ])
         .assert()
         .failure()
@@ -169,6 +170,67 @@ fn rename_target_if_match_and_target_if_none_match_are_mutually_exclusive() {
             "--target-if-match",
             "\"abc123\"",
             "--target-if-none-match",
+            "\"def456\"",
+        ])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+#[test]
+fn rename_empty_source_if_match_exits_2() {
+    s7cmd()
+        .args([
+            "rename",
+            &format!("{EXPR_BUCKET}/src"),
+            &format!("{EXPR_BUCKET}/dst"),
+            "--source-if-match",
+            "",
+        ])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+#[test]
+fn rename_empty_source_if_none_match_exits_2() {
+    s7cmd()
+        .args([
+            "rename",
+            &format!("{EXPR_BUCKET}/src"),
+            &format!("{EXPR_BUCKET}/dst"),
+            "--source-if-none-match",
+            "",
+        ])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+#[test]
+fn rename_empty_target_if_match_exits_2() {
+    s7cmd()
+        .args([
+            "rename",
+            &format!("{EXPR_BUCKET}/src"),
+            &format!("{EXPR_BUCKET}/dst"),
+            "--target-if-match",
+            "",
+        ])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+#[test]
+fn rename_empty_target_if_none_match_exits_2() {
+    s7cmd()
+        .args([
+            "rename",
+            &format!("{EXPR_BUCKET}/src"),
+            &format!("{EXPR_BUCKET}/dst"),
+            "--target-if-none-match",
+            "",
         ])
         .assert()
         .failure()
