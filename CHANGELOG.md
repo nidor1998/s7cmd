@@ -19,7 +19,7 @@ Monthly update.
 
 ### Fixed
 
-#### s3utils-rs
+#### s3util-rs
 
 - S3 keys are now taken verbatim from `s3://` paths. Previously `.` and `..` segments were resolved away as if the key
   were a filesystem path (e.g. `cp /etc/hosts s3://bucket/..` uploaded to key `hosts`), and `%XX` sequences were
@@ -48,7 +48,7 @@ Monthly update.
 
 ### Added
 
-#### s3utils-rs
+#### s3util-rs
 
 - `rename` subcommand: atomically rename an object within the same S3 Express One Zone directory bucket using the
   RenameObject API.
