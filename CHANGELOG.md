@@ -5,29 +5,67 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-06-27
+
+Monthly update.
+
+### Security
+
+#### s3sync
+
+- Harden directory traversal check used when saving S3 objects to local files: reject `.` and `..` path segments (
+  previously only `../` and`..\` were caught), and detect separators on both `/` and `\`. Does not affect S3 access
+  itself.
+
+### Fixed
+
+#### s3util-rs
+
+- S3 keys are now taken verbatim from `s3://` paths. Previously `.` and `..` segments were resolved away as if the key
+  were a filesystem path (e.g. `cp /etc/hosts s3://bucket/..` uploaded to key `hosts`), and `%XX` sequences were
+  percent-decoded. Keys are now stored exactly as written, matching the AWS CLI.
+- Downloading to a bare filename in the current directory (e.g. `cp s3://bucket/key xyz`) no longer fails with
+  `parent directory does not exist: ''`. Previously this required an explicit `./xyz`; the current directory is now used
+  correctly when the target has no directory component.
+
+### Changed
+
+- aws-sdk-s3 `v1.133.0 -> v1.137.0`
+- Updated other dependencies
+
+### Underlying libraries
+
+```toml
+s3sync = "=1.58.9"
+s3util-rs = "=1.5.3"
+s3rm-rs = "=1.3.8"
+s3ls-rs = "=1.0.3"
+```
+
 ## [1.3.0] - 2026-05-24
 
 Monthly update.
 
 ### Added
 
-#### s3utils-rs
-- `rename` subcommand: atomically rename an object within the same S3 Express One Zone directory bucket using the RenameObject API. 
-Both source and target must be in the same bucket (name must end with --x-s3). Supports optional conditional checks.
+#### s3util-rs
+
+- `rename` subcommand: atomically rename an object within the same S3 Express One Zone directory bucket using the
+  RenameObject API.
+  Both source and target must be in the same bucket (name must end with --x-s3). Supports optional conditional checks.
 
 ### Changed
 
 - aws-sdk-s3 `v1.131.0 -> v1.133.0`
 - Updated other dependencies
 
-
 ### Underlying libraries
 
 ```toml
-s3sync     = "=1.58.8"
-s3util-rs  = "=1.5.2"
-s3rm-rs    = "=1.3.7"
-s3ls-rs    = "=1.0.2"
+s3sync = "=1.58.8"
+s3util-rs = "=1.5.2"
+s3rm-rs = "=1.3.7"
+s3ls-rs = "=1.0.2"
 ```
 
 ## [1.2.4] - 2026-05-17
@@ -35,6 +73,7 @@ s3ls-rs    = "=1.0.2"
 ### Changed
 
 #### s3sync
+
 - AWS SDK for Rust does not support the new checksums XXHash64/3/128, MD5, and SHA-512, so an error check has been added
   to prevent these from being specified as additional checksums. We plan to remove this restriction when AWS SDK for
   Rust supports these new checksums.
@@ -42,10 +81,10 @@ s3ls-rs    = "=1.0.2"
 ### Underlying libraries
 
 ```toml
-s3sync     = "=1.58.7"
-s3util-rs  = "=1.4.0"
-s3rm-rs    = "=1.3.6"
-s3ls-rs    = "=1.0.1"
+s3sync = "=1.58.7"
+s3util-rs = "=1.4.0"
+s3rm-rs = "=1.3.6"
+s3ls-rs = "=1.0.1"
 ```
 
 ## [1.2.3] - 2026-05-09
@@ -76,10 +115,10 @@ s3ls-rs    = "=1.0.1"
 Pinned versions are unchanged from 1.2.2:
 
 ```toml
-s3sync     = "=1.58.6"
-s3util-rs  = "=1.4.0"
-s3rm-rs    = "=1.3.6"
-s3ls-rs    = "=1.0.1"
+s3sync = "=1.58.6"
+s3util-rs = "=1.4.0"
+s3rm-rs = "=1.3.6"
+s3ls-rs = "=1.0.1"
 ```
 
 ## [1.2.2] - 2026-05-09
@@ -95,10 +134,10 @@ s3ls-rs    = "=1.0.1"
 Pinned versions are unchanged from 1.2.1:
 
 ```toml
-s3sync     = "=1.58.6"
-s3util-rs  = "=1.4.0"
-s3rm-rs    = "=1.3.6"
-s3ls-rs    = "=1.0.1"
+s3sync = "=1.58.6"
+s3util-rs = "=1.4.0"
+s3rm-rs = "=1.3.6"
+s3ls-rs = "=1.0.1"
 ```
 
 ## [1.2.1] - 2026-05-09
@@ -125,10 +164,10 @@ s3ls-rs    = "=1.0.1"
 Pinned versions are unchanged from 1.2.0:
 
 ```toml
-s3sync     = "=1.58.6"
-s3util-rs  = "=1.4.0"
-s3rm-rs    = "=1.3.6"
-s3ls-rs    = "=1.0.1"
+s3sync = "=1.58.6"
+s3util-rs = "=1.4.0"
+s3rm-rs = "=1.3.6"
+s3ls-rs = "=1.0.1"
 ```
 
 ## [1.2.0] - 2026-05-07
@@ -164,10 +203,10 @@ This release pins the following exact versions of the underlying
 libraries:
 
 ```toml
-s3sync     = "=1.58.6"
-s3util-rs  = "=1.4.0"
-s3rm-rs    = "=1.3.6"
-s3ls-rs    = "=1.0.1"
+s3sync = "=1.58.6"
+s3util-rs = "=1.4.0"
+s3rm-rs = "=1.3.6"
+s3ls-rs = "=1.0.1"
 ```
 
 ## [1.1.0] - 2026-05-06
@@ -220,10 +259,10 @@ This release pins the following exact versions of the underlying
 libraries:
 
 ```toml
-s3sync     = "=1.58.6"
-s3util-rs  = "=1.3.0"
-s3rm-rs    = "=1.3.6"
-s3ls-rs    = "=1.0.1"
+s3sync = "=1.58.6"
+s3util-rs = "=1.3.0"
+s3rm-rs = "=1.3.6"
+s3ls-rs = "=1.0.1"
 ```
 
 ## [1.0.0] - 2026-05-04
@@ -270,10 +309,10 @@ This release pins the following exact versions of the underlying
 libraries:
 
 ```toml
-s3sync     = "=1.58.6"
-s3util-rs  = "=1.2.0"
-s3rm-rs    = "=1.3.6"
-s3ls-rs    = "=1.0.0"
+s3sync = "=1.58.6"
+s3util-rs = "=1.2.0"
+s3rm-rs = "=1.3.6"
+s3ls-rs = "=1.0.0"
 ```
 
 ## [0.2.0] - 2026-05-02
@@ -284,15 +323,15 @@ s3ls-rs    = "=1.0.0"
   script file (or `-` for stdin). Choose sequential or parallel
   execution (`--parallel N`, `0` picks the CPU count) and pick how
   failures are handled:
-  - default: stop on the first non-zero exit (sequential) or stop
-    spawning new commands (parallel; in-flight lines finish);
-  - `--continue-on-error`: run every line regardless of outcome;
-  - `--continue-on-warning`: keep running past warnings (exit codes
-    `3` and `4`) but still stop on true failures;
-  - `--max-errors N`: stop once `N` failures have been recorded.
-    Parse/validation errors (typos, unknown subcommands, bad
-    arguments) count the same as runtime failures, so
-    `--max-errors 5` tolerates up to 5 broken lines anywhere.
+    - default: stop on the first non-zero exit (sequential) or stop
+      spawning new commands (parallel; in-flight lines finish);
+    - `--continue-on-error`: run every line regardless of outcome;
+    - `--continue-on-warning`: keep running past warnings (exit codes
+      `3` and `4`) but still stop on true failures;
+    - `--max-errors N`: stop once `N` failures have been recorded.
+      Parse/validation errors (typos, unknown subcommands, bad
+      arguments) count the same as runtime failures, so
+      `--max-errors 5` tolerates up to 5 broken lines anywhere.
 
   The final exit code is the worst seen across the whole batch,
   ranked by severity (`1` > `2` > `3` > `4` > any other non-zero >
@@ -355,7 +394,8 @@ s3ls-rs    = "=1.0.0"
 
 ### Changed
 
-- Bumped `s3util-rs` to `1.0.0` and synced vendored CLI sources to upstream `4edffac`. Under `--show-progress`, the destination line (`-> <path>`) is now printed unconditionally on success.
+- Bumped `s3util-rs` to `1.0.0` and synced vendored CLI sources to upstream `4edffac`. Under `--show-progress`, the
+  destination line (`-> <path>`) is now printed unconditionally on success.
 - Expanded README: scope, non-goals, requirements, installation, and AI-development disclosure.
 
 ### Removed
@@ -367,7 +407,8 @@ s3ls-rs    = "=1.0.0"
 ### Changed
 
 - Bumped `nix` from `0.30.1` to `0.31.2`.
-- Dropped `windows-11-arm` runner from CI/CD; pre-built `aarch64-pc-windows-msvc` binaries are not available while the `LNK1322` (Cortex-A53 erratum #843419) build failure is unresolved.
+- Dropped `windows-11-arm` runner from CI/CD; pre-built `aarch64-pc-windows-msvc` binaries are not available while the
+  `LNK1322` (Cortex-A53 erratum #843419) build failure is unresolved.
 
 ## [0.1.0] - 2026-04-29
 
@@ -378,7 +419,8 @@ Initial preview release.
 - Object operations: `ls`, `cp`, `mv`, `rm`, `sync`, `clean`.
 - Object metadata: `head-object`, `get-object-tagging`, `put-object-tagging`, `delete-object-tagging`.
 - Bucket operations: `create-bucket`, `delete-bucket`, `head-bucket`.
-- Bucket-level configuration subcommands: tagging, policy, versioning, lifecycle, encryption, CORS, public-access-block, website, logging, notification.
+- Bucket-level configuration subcommands: tagging, policy, versioning, lifecycle, encryption, CORS, public-access-block,
+  website, logging, notification.
 - Shell completion generation (`--auto-complete-shell`) for bash, elvish, fish, powershell, and zsh.
 - E2E test suite covering object/bucket operations against live AWS S3.
 - Pre-built binaries for Linux (x86_64, aarch64), macOS (aarch64), and Windows (x86_64).
