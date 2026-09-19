@@ -5,6 +5,55 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.3] - 2026-09-19
+
+Monthly update.
+
+Dependency refresh. All four pinned libraries move to their latest patch releases, each of which is itself a
+dependency-only update: none of them changes the behavior, options, or output of any s7cmd subcommand, and no
+vendored code needed porting. The release carries the remediation of RUSTSEC-2026-0285 in the transitive `rustls`
+dependency and moves the AWS SDK to `aws-sdk-s3` v1.146.1.
+
+### Security
+
+- Updated the transitive `rustls` dependency to `v0.23.45`, remediating
+  [RUSTSEC-2026-0285](https://rustsec.org/advisories/RUSTSEC-2026-0285) ("TLS 1.3 handshake messages incorrectly
+  accepted across encryption level boundaries"). `rustls` is the TLS implementation behind every connection s7cmd
+  opens to Amazon S3, through the AWS SDK's HTTP client. Affected versions accepted TLS 1.3 handshake messages sent
+  at the wrong encryption level when they followed a key-changing message in the same record — for example a
+  plaintext `EncryptedExtensions` packed into the same record as the `ServerHello` — where RFC 8446 requires the
+  connection to be terminated with an `unexpected_message` alert. The handshake transcript is still authenticated,
+  so an attacker on the network path cannot use this to alter or complete a handshake; the practical effect is that
+  a peer could send handshake messages in plaintext that should have been encrypted without rustls rejecting the
+  connection. The advisory is rated low severity upstream. Cargo.lock-only, no public API or behavior change.
+- Dependency updates are now resolved under a minimum publish age, as a mitigation against Rust supply chain attacks
+  that land as a freshly published version of an existing crate — the kind of attack seen against the `arrayref`
+  crate. The new `.cargo/min-publish-age.toml` sets `global-min-publish-age = "7 days"`, so a dependency refresh
+  skips any crate version published in the last week, giving the ecosystem time to notice and yank a hijacked
+  release before it can reach a s7cmd build. The setting is honoured by nightly Cargo and is inert on stable, which
+  is why it lives in its own config file rather than `.cargo/config.toml`. The same measure has been adopted across
+  s3sync, s3util-rs, s3rm-rs, and s3ls-rs, so the dependency graph each library ships with is resolved under the
+  same rule. This affects only how `Cargo.lock` is produced for a release; no s7cmd behavior, option, or output
+  changes.
+
+### Changed
+
+- s3sync `v1.62.1 -> v1.62.2`
+- s3util-rs `v1.10.2 -> v1.10.3`
+- s3rm-rs `v1.6.2 -> v1.6.3`
+- s3ls-rs `v1.3.2 -> v1.3.3`
+- aws-sdk-s3 `v1.143.0 -> v1.146.1`
+- Updated other dependencies
+
+### Underlying libraries
+
+```toml
+s3sync = "=1.62.2"
+s3util-rs = "=1.10.3"
+s3rm-rs = "=1.6.3"
+s3ls-rs = "=1.3.3"
+```
+
 ## [1.8.2] - 2026-08-22
 
 Monthly update.
