@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a clear, reproducible bug in s7cmd, s3sync, s3ls, s3rm, or s3util. Bug reports only. These projects accept no feature requests and no questions of any kind.
+description: Report a clear, reproducible bug in s7cmd, s3sync, s3ls, s3rm, or s3util. Bug reports only. These projects accept no feature requests; questions and usage help belong in Discussions (Q&A).
 title: "[Bug] "
 labels: ["bug"]
 body:
@@ -28,6 +28,11 @@ body:
 
         - Bug reports are welcome, but responses are not guaranteed.
         - Since these projects are considered functionally complete, I will not accept any feature requests.
+        - Questions, usage help, and configuration help are not handled here. Please
+          ask in
+          [Discussions (Q&A)](https://github.com/nidor1998/s7cmd/discussions/categories/q-a)
+          instead. One Discussions space covers all of the projects listed above.
+          Answers there are best-effort and not guaranteed.
         - If you find these projects useful, feel free to fork and modify them as you wish.
 
         ## Before opening an issue
@@ -35,7 +40,14 @@ body:
         Please read the Scope section of the selected project's README (and its
         Non-Goals section, where the README has one), and the
         [Maintenance Model](https://github.com/nidor1998/s7cmd/blob/main/README.md#maintenance-model)
-        section, first. 
+        section, first.
+
+        If you are not sure whether what you are seeing is a bug — or you are
+        asking how to do something, or why a command behaves the way it does —
+        open a
+        [Discussion (Q&A)](https://github.com/nidor1998/s7cmd/discussions/categories/q-a)
+        rather than an issue. Issues opened as questions are converted to a
+        discussion or closed.
 
         ## Issue lifecycle
 
@@ -72,7 +84,7 @@ body:
           required: true
         - label: This issue is a bug report. It is NOT a request for a new feature. I understand that these projects are functionally complete and accept no new feature requests of any kind, under any circumstances.
           required: true
-        - label: This issue is a report of a clear, reproducible bug in the selected project itself. It is not a question, nor a request for usage or configuration help.
+        - label: This issue is a report of a clear, reproducible bug in the selected project itself. It is not a question, nor a request for usage or configuration help. I understand those belong in Discussions (Q&A) and will be converted or closed if filed here.
           required: true
         - label: I have reproduced this on the latest release of the selected project. Only the latest release is supported.
           required: true
