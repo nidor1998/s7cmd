@@ -35,20 +35,7 @@ body:
         Please read the Scope section of the selected project's README (and its
         Non-Goals section, where the README has one), and the
         [Maintenance Model](https://github.com/nidor1998/s7cmd/blob/main/README.md#maintenance-model)
-        section, first. **Issues asking about behavior already documented in that
-        README will be closed without further discussion.** This is not a
-        rejection of your input; it is the project's documented scope and
-        maintenance posture.
-
-        This form is for bug reports only. **Anything that is not a clear, reproducible
-        bug in the selected project itself, including feature requests, questions,
-        usage help, configuration help, and discussion threads, will be closed
-        unconditionally.**
-
-        **These projects are intended for users who can self-resolve usage questions,
-        configuration issues, and environment-specific problems. Only clear,
-        reproducible bugs in the projects themselves are accepted. Nothing else.**
-        No support, no questions, no feature requests, no usage help.
+        section, first. 
 
         ## Issue lifecycle
 
@@ -75,8 +62,7 @@ body:
     attributes:
       label: Prerequisites
       description: >
-        Every box must be checked. Issues that do not qualify, or whose actual
-        content contradicts a box that was checked, are closed without review.
+        Every box must be checked. 
       options:
         - label: I have read and understood all of the explanatory text in this template above, including Scope of this issue tracker, Contributing, Before opening an issue, and Issue lifecycle.
           required: true
@@ -89,10 +75,6 @@ body:
         - label: This issue is a report of a clear, reproducible bug in the selected project itself. It is not a question, nor a request for usage or configuration help.
           required: true
         - label: I have reproduced this on the latest release of the selected project. Only the latest release is supported.
-          required: true
-        - label: I am using Amazon S3. For s7cmd, reports about S3-compatible storage (MinIO, Cloudflare R2, Ceph RGW, and similar) are accepted on a best-effort basis only, at lower priority than Amazon S3 issues and with no guarantee of a fix; for every other project, such issues are closed automatically, unconditionally, and without exception.
-          required: true
-        - label: I understand that if the actual content of this issue contradicts any box I have checked above, it will be treated as a violation of these prerequisites and closed unconditionally, without further discussion.
           required: true
 
   - type: input
