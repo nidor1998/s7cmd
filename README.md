@@ -924,19 +924,30 @@ succession or compatibility.
 
 ## Maintenance Model
 
-s7cmd is maintained as a personal project. Dependency updates and
-critical bug fixes are applied on a best-effort basis. New features
-are not actively solicited. If you need guaranteed enterprise
-support, this is not the tool for you.
+s7cmd is maintained as a personal project. The project is considered
+functionally complete, and development going forward is limited to
+maintenance. New features are not actively solicited. If you need
+guaranteed enterprise support, this is not the tool for you.
+
+**Dependency update policy**
+
+The AWS SDK for Rust and the other dependencies are updated on a
+regular, roughly monthly cadence, and sooner when a security advisory
+requires it.
+
+When an update introduces new S3 features, API additions, or client
+settings, they are evaluated and adopted as needed — that is, when
+they matter for correctness, safety, or the existing feature set. Not
+every new SDK capability will be surfaced as a s7cmd option; additions
+that fall outside the [Scope](#scope) above are intentionally left out.
+
+Critical bug fixes are applied on a best-effort basis.
 
 ## Contributing
 
 - Bug reports are welcome, but responses are not guaranteed.
 - Since this project is considered functionally complete, I will not accept any feature requests.
 - If you find this project useful, feel free to fork and modify it as you wish.
-
-🔒 I consider this project “complete” and will maintain it only minimally going forward.
-However, I intend to keep the AWS SDK for Rust and other dependencies up to date monthly.
 
 **Issue and PR lifecycle**
 
