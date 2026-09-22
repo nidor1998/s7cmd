@@ -519,8 +519,6 @@ Human verification is a permanent policy, not a one-time event applied only to t
 
 Every underlying library maintains 96%+ automated test coverage. This serves a dual purpose: it verifies that AI-generated code meets its specifications, and it ensures the project remains maintainable by hand — whether because AI tooling becomes unavailable, or because a future maintainer prefers to work without AI assistance. Combined with the modular library design and Apache-2.0 licensing, this means s7cmd can be safely forked and maintained without AI assistance if the need arises.
 
-Discussions about the legitimacy, licensing, or ethics of AI-generated code in general are out of scope for this issue tracker. Issues opened on those grounds — without a concrete, reproducible defect in s7cmd's behavior — will be closed.
-
 ### Quality verification (by AI self-assessment)
 
 Measurements below are taken at commit `635da2d` on `main` (v1.8.2 plus one build-config commit; measured 2026-09-12). The coverage figures are sourced from `llvm-cov-report.txt` (`cargo llvm-cov`; `lcov.info` is the matching machine-readable LCOV artifact) and reflect a single combined run — `cargo llvm-cov` with `RUSTFLAGS="--cfg e2e_test"` on the maintainer's machine, 2026-09-12 — so the unit tests, the process-level CLI and batch-run tests, and the live-AWS e2e suite are all included in the report.
