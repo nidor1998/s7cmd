@@ -76,12 +76,6 @@ body:
       description: >
         Every box must be checked. 
       options:
-        - label: I have read and understood all of the explanatory text in this template above, including Scope of this issue tracker, Contributing, Before opening an issue, and Issue lifecycle.
-          required: true
-        - label: I have read the selected project's README (including its Scope section, and its Non-Goals section where the README has one) and confirmed this issue is not already documented.
-          required: true
-        - label: I have searched existing issues (open and closed) and this is not a duplicate.
-          required: true
         - label: This issue is a bug report. It is NOT a request for a new feature. I understand that these projects are functionally complete and accept no new feature requests of any kind, under any circumstances.
           required: true
         - label: This issue is a report of a clear, reproducible bug in the selected project itself. It is not a question, nor a request for usage or configuration help. I understand those belong in Discussions (Q&A) and will be converted or closed if filed here.

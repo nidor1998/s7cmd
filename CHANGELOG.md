@@ -17,7 +17,7 @@ Documentation and support policy release. No code changes.
   Amazon S3 remains the only platform in the test matrix.
 - Questions and usage help now belong in
   [Discussions (Q&A)](https://github.com/nidor1998/s7cmd/discussions/categories/q-a) instead of being closed. The
-  bug report template drops the "I am using Amazon S3" and contradiction checkboxes.
+  bug report template's required prerequisites are cut from eight checkboxes to three.
 - Removed the README Non-Goals and "Intended Audience and Issue Tracker Scope" sections. Maintenance Model now
   states the dependency update policy: roughly monthly, sooner when a security advisory requires it.
 - s3sync `v1.62.2 -> v1.62.3`
