@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.4] - 2026-09-22
+
+Documentation and support policy release. No code changes.
+
+### Changed
+
+- S3-compatible storage (MinIO, Cloudflare R2, Backblaze B2, Wasabi, Ceph RGW, and similar) is now documented as
+  supported on a **best-effort basis** rather than strictly as-is with no support, and Amazon S3 as the *primary*
+  platform rather than the only supported one. Bug reports about such services are now welcome at lower priority.
+  Amazon S3 remains the only platform in the test matrix.
+- Questions and usage help now belong in
+  [Discussions (Q&A)](https://github.com/nidor1998/s7cmd/discussions/categories/q-a) instead of being closed. The
+  bug report template's required prerequisites are cut from eight checkboxes to three.
+- Removed the README Non-Goals and "Intended Audience and Issue Tracker Scope" sections. Maintenance Model now
+  states the dependency update policy: roughly monthly, sooner when a security advisory requires it.
+- s3sync `v1.62.2 -> v1.62.3`
+- s3util-rs `v1.10.3 -> v1.10.4`
+- s3rm-rs `v1.6.3 -> v1.6.4`
+- s3ls-rs `v1.3.3 -> v1.3.4`
+- No other dependencies updated; `aws-sdk-s3` unchanged at `v1.146.1`
+
+### Underlying libraries
+
+```toml
+s3sync = "=1.62.3"
+s3util-rs = "=1.10.4"
+s3rm-rs = "=1.6.4"
+s3ls-rs = "=1.3.4"
+```
+
 ## [1.8.3] - 2026-09-19
 
 Monthly update.
