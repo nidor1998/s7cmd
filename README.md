@@ -949,6 +949,9 @@ Critical bug fixes are applied on a best-effort basis.
 - Since this project is considered functionally complete, I will not accept any feature requests.
 - If you find this project useful, feel free to fork and modify it as you wish.
 
+🔒 I consider this project “complete” and will maintain it only minimally going forward.
+However, I intend to keep the AWS SDK for Rust and other dependencies up to date monthly.
+
 **Issue and PR lifecycle**
 
 To keep the tracker focused, an issue or PR with no activity for 30 days is labeled `stale` and closed 7 days later unless a new comment (or, for PRs, a new commit) is added. Items labeled `pinned` or `security` are exempt; PRs are also exempt from `pinned`. Closed items can always be reopened.
