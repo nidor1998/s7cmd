@@ -10,14 +10,14 @@ body:
 
         This tracker handles bug reports for all of the following projects.
         Select the affected one in the **Project** field below, and read that
-        project's Scope and Non-Goals before filing:
+        project's Scope (and Non-Goals, where the README has one) before filing:
 
         | Project | Repository | Scope and Non-Goals |
         | --- | --- | --- |
-        | `s7cmd` | [nidor1998/s7cmd](https://github.com/nidor1998/s7cmd) | [Scope](https://github.com/nidor1998/s7cmd/blob/main/README.md#scope) / [Non-Goals](https://github.com/nidor1998/s7cmd/blob/main/README.md#non-goals) |
-        | `s3sync` | [nidor1998/s3sync](https://github.com/nidor1998/s3sync) | [Scope](https://github.com/nidor1998/s3sync/blob/main/README.md#scope) / [Non-Goals](https://github.com/nidor1998/s3sync/blob/main/README.md#non-goals) |
+        | `s7cmd` | [nidor1998/s7cmd](https://github.com/nidor1998/s7cmd) | [Scope](https://github.com/nidor1998/s7cmd/blob/main/README.md#scope) |
+        | `s3sync` | [nidor1998/s3sync](https://github.com/nidor1998/s3sync) | [Scope](https://github.com/nidor1998/s3sync/blob/main/README.md#scope) |
         | `s3ls` | [nidor1998/s3ls-rs](https://github.com/nidor1998/s3ls-rs) | [Scope](https://github.com/nidor1998/s3ls-rs/blob/main/README.md#scope) / [Non-Goals](https://github.com/nidor1998/s3ls-rs/blob/main/README.md#non-goals) |
-        | `s3rm` | [nidor1998/s3rm-rs](https://github.com/nidor1998/s3rm-rs) | [Scope](https://github.com/nidor1998/s3rm-rs/blob/main/README.md#scope) / [Non-Goals](https://github.com/nidor1998/s3rm-rs/blob/main/README.md#non-goals) |
+        | `s3rm` | [nidor1998/s3rm-rs](https://github.com/nidor1998/s3rm-rs) | [Scope](https://github.com/nidor1998/s3rm-rs/blob/main/README.md#scope) |
         | `s3util` | [nidor1998/s3util-rs](https://github.com/nidor1998/s3util-rs) | [Scope](https://github.com/nidor1998/s3util-rs/blob/main/README.md#scope) / [Non-Goals](https://github.com/nidor1998/s3util-rs/blob/main/README.md#non-goals) |
 
         Note that s7cmd is built on the s3sync, s3util-rs, s3rm-rs, and s3ls-rs
@@ -30,18 +30,15 @@ body:
         - Since these projects are considered functionally complete, I will not accept any feature requests.
         - If you find these projects useful, feel free to fork and modify them as you wish.
 
-        I consider these projects "complete" and will maintain them only minimally
-        going forward. However, I intend to keep the AWS SDK for Rust and other
-        dependencies up to date monthly.
-
         ## Before opening an issue
 
-        Please read the Scope and Non-Goals sections of the selected project's
-        README, and the [Maintenance Model](https://github.com/nidor1998/s7cmd/blob/main/README.md#maintenance-model)
+        Please read the Scope section of the selected project's README (and its
+        Non-Goals section, where the README has one), and the
+        [Maintenance Model](https://github.com/nidor1998/s7cmd/blob/main/README.md#maintenance-model)
         section, first. **Issues asking about behavior already documented in that
-        README, including anything listed under Non-Goals, will be closed without
-        further discussion.** This is not a rejection of your input; it is the
-        project's documented scope and maintenance posture.
+        README will be closed without further discussion.** This is not a
+        rejection of your input; it is the project's documented scope and
+        maintenance posture.
 
         This form is for bug reports only. **Anything that is not a clear, reproducible
         bug in the selected project itself, including feature requests, questions,
@@ -83,7 +80,7 @@ body:
       options:
         - label: I have read and understood all of the explanatory text in this template above, including Scope of this issue tracker, Contributing, Before opening an issue, and Issue lifecycle.
           required: true
-        - label: I have read the selected project's README (including its Scope and Non-Goals sections) and confirmed this issue is not already documented.
+        - label: I have read the selected project's README (including its Scope section, and its Non-Goals section where the README has one) and confirmed this issue is not already documented.
           required: true
         - label: I have searched existing issues (open and closed) and this is not a duplicate.
           required: true
@@ -93,7 +90,7 @@ body:
           required: true
         - label: I have reproduced this on the latest release of the selected project. Only the latest release is supported.
           required: true
-        - label: I am using Amazon S3. Issues regarding MinIO, Cloudflare R2, Ceph RGW or any other S3-compatible service are closed automatically, unconditionally, and without exception.
+        - label: I am using Amazon S3. For s7cmd, reports about S3-compatible storage (MinIO, Cloudflare R2, Ceph RGW, and similar) are accepted on a best-effort basis only, at lower priority than Amazon S3 issues and with no guarantee of a fix; for every other project, such issues are closed automatically, unconditionally, and without exception.
           required: true
         - label: I understand that if the actual content of this issue contradicts any box I have checked above, it will be treated as a violation of these prerequisites and closed unconditionally, without further discussion.
           required: true
