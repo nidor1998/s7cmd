@@ -871,7 +871,7 @@ replication, transfer acceleration, request payment). For any S3 use
 case outside that scope, use a more comprehensive tool such as the
 [AWS CLI](https://aws.amazon.com/cli/) (`aws s3api`).
 
-s7cmd targets **Amazon S3** as its only supported platform and is
+s7cmd targets **Amazon S3** as its primary platform and is
 optimized for Amazon S3 performance.
 
 > Note that "optimized for Amazon S3 performance" includes the
@@ -886,25 +886,30 @@ optimized for Amazon S3 performance.
 > `--rate-limit-objects` for `clean` and `sync`).
 
 S3-compatible storage (MinIO, Cloudflare R2, Backblaze B2, Wasabi,
-Ceph RGW, DigitalOcean Spaces, IBM COS, and similar) is provided
-strictly **as-is**, with **absolutely no support or assistance** —
-such services may work via `--endpoint-url` (and
-`--source-force-path-style` / `--target-force-path-style` when
-path-style addressing is required), but they are not part of the
-official test matrix and behavior may change between releases. This
-is a structural consequence of building on `aws-sdk-rust`, which is
-generated from AWS service models and assumes Amazon S3 semantics
+Ceph RGW, DigitalOcean Spaces, IBM COS, and similar) is supported on
+a **best-effort basis**. Such services are generally usable via
+`--endpoint-url` (and `--source-force-path-style` /
+`--target-force-path-style` when path-style addressing is required),
+but they are not part of the official test matrix, so behavior can
+differ between services and change between releases.
+
+This is a structural consequence of building on `aws-sdk-rust`, which
+is generated from AWS service models and assumes Amazon S3 semantics
 (checksum headers, endpoint resolution, signing variants, response
-schemas); features that depend on AWS-specific semantics, such as
-CRC64NVME checksums or newer S3 API additions, may not work against
-non-AWS endpoints. In practice, most s7cmd subcommands are not
-supported on S3-compatible storage and are therefore unlikely to
-work: the bucket-configuration family drives management APIs that
-such services implement partially or not at all, and `rename`,
-`restore-object`, and the object-annotation subcommands depend on
-Amazon-S3-only APIs and checksum semantics. Bug reports, questions,
-and assistance requests regarding S3-compatible storage will not be
-addressed.
+schemas). Features that depend on AWS-specific semantics may be
+unavailable or behave differently against non-AWS endpoints — notably
+CRC64NVME checksums and newer S3 API additions, `rename`,
+`restore-object`, and the object-annotation subcommands, and parts of
+the bucket-configuration family, whose management APIs such services
+implement partially or not at all. Core object operations (`ls`,
+`cp`, `mv`, `rm`, `sync`, `clean`, `presign`) are the most likely to
+work as documented.
+
+Bug reports and questions about S3-compatible storage are welcome and
+will be looked at on a best-effort basis, but they are lower priority
+than Amazon S3 issues, fixes are not guaranteed, and problems that
+originate in the storage service itself belong with that service's
+operator.
 
 s7cmd is **not** intended to be a drop-in replacement for, or
 behaviorally compatible with, any other S3 client — including the
@@ -919,116 +924,12 @@ work with `s7cmd` unmodified. The numeric progression in the name
 (`s3cmd` → `s4cmd` → `s5cmd` → `s6cmd` → `s7cmd`) does **not** imply
 succession or compatibility.
 
-## Non-Goals
-
-The following are explicitly out of scope and will not be added,
-regardless of demand:
-
-- Support, testing, or guaranteed compatibility for any
-  storage service other than Amazon S3. S3-compatible storage is
-  provided strictly as-is, with no support or assistance, as
-  described in the Scope section above; adding dedicated code
-  paths, provider-specific workarounds, or backends for services
-  such as MinIO, Cloudflare R2, Backblaze B2, Wasabi, Ceph RGW,
-  DigitalOcean Spaces, IBM COS, Tencent COS, Alibaba OSS, Azure
-  Blob Storage, or Google Cloud Storage is out of scope.
-- Feature parity with, or porting features from, other S3 clients.
-  Feature requests of the form "tool X has feature Y, please add
-  it to s7cmd" — including variants such as "feature Y would also
-  be useful in s7cmd," "many users expect Y because tool X has it,"
-  or "Y is missing compared to tool X" — will be closed without
-  further discussion. The existence of a feature, flag, command,
-  output format, or behavior in `aws s3`, `aws s3api`, `s3cmd`,
-  `s4cmd`, `s5cmd`, `s6cmd`, `rclone`, or any other S3 tool carries no weight
-  in s7cmd's design decisions, regardless of how the request is
-  framed. Each feature is evaluated solely against s7cmd's own
-  scope and the design principles of its underlying libraries. If
-  the feature you need exists in another tool, use that tool.
-- Outperforming other S3 tools on raw speed or memory usage.
-  Performance and resource consumption are addressed only when they
-  compromise practical workflows — not for edge cases or benchmark
-  wins. Issues of the form "tool X transfers Y MB/s faster",
-  "tool X transfers Y objects/second faster", or
-  "tool X uses less RAM than s7cmd in benchmark Z" will be closed.
-  If raw throughput is your top criterion, use a tool optimized
-  for it.
-- FUSE filesystem mounting, daemon mode, or any persistent
-  background process. s7cmd is a one-shot CLI; it runs, transfers,
-  and exits.
-- Workflow orchestration features — scheduling, cross-run state
-  databases, retry queues that survive process restart, or DAG
-  execution. Use a workflow engine such as Airflow, Argo Workflows,
-  or AWS Step Functions for orchestration.
-- A graphical user interface, a TUI, or an interactive shell mode.
-- A plugin or extension mechanism.
-- AWS service coverage beyond S3. s7cmd will not add subcommands for
-  IAM, KMS, CloudFront, or any other AWS service, even when they
-  interact closely with S3.
-- Edge cases that are more reasonably addressed by using the AWS
-  SDK directly, shell scripting, or other purpose-built tooling.
-  s7cmd is not intended to cover every conceivable S3 use case;
-  niche or one-off requirements that can be straightforwardly
-  handled by combining the AWS SDK, shell pipelines, or existing
-  tools fall outside its scope.
-- Changes to flag names, subcommand names, default values, output
-  formats, log formats, or exit code assignments based on subjective
-  preference. Such interfaces are stabilized once shipped; breaking
-  changes are made only when required by an underlying library, an
-  upstream SDK, or a clear correctness bug.
-- Additional platform targets, distribution channels, or package
-  manager registrations beyond those listed in Requirements and
-  Installation. Community-maintained packages are welcome but will
-  not be endorsed or supported.
-
-Issues and pull requests requesting any of the above will be closed.
-
 ## Maintenance Model
 
 s7cmd is maintained as a personal project. Dependency updates and
 critical bug fixes are applied on a best-effort basis. New features
 are not actively solicited. If you need guaranteed enterprise
 support, this is not the tool for you.
-
-## Intended Audience and Issue Tracker Scope
-
-s7cmd assumes operational familiarity with Amazon S3 and the AWS
-SDK. It is aimed at engineers who already run S3 workloads — not
-at learners or general AWS users.
-
-The issue tracker accepts:
-
-- Reproducible defects in s7cmd's own behavior (with version,
-  exact command, and observed vs. expected output).
-- Scope-aligned feature discussion, subject to the Non-Goals
-  section above.
-
-The issue tracker does **not** accept:
-
-- General questions about S3, IAM, AWS credentials, or AWS
-  account configuration. See the [AWS documentation](https://docs.aws.amazon.com/s3/).
-- Usage questions about other S3 clients.
-- Help with user shell scripts, pipelines, or CI configurations
-  that do not isolate an s7cmd-specific defect.
-- Tutorials or design consulting.
-- Diagnosing or fixing performance degradation, resource exhaustion,
-  or errors caused by raising concurrency settings.
-- Questions and issues that belong with AWS, with the operator
-  of an S3-compatible storage service, or with the operating
-  system vendor rather than with s7cmd — including general S3,
-  IAM, KMS, networking, and account-configuration questions;
-  S3 (or S3-compatible) service behavior such as request rate
-  limits, 503 SlowDown, consistency semantics, or regional
-  availability; operating-system configuration and behavior such
-  as `ulimit` and file-descriptor limits, kernel networking
-  parameters, filesystem quirks, shell quoting, path-length
-  limits, code signing, or antivirus interference; and anything
-  that reproduces with the AWS CLI, the AWS SDK, or the vendor's
-  own client directly. Refer to the [AWS documentation](https://docs.aws.amazon.com/s3/),
-  AWS Support, your storage vendor's documentation, or your OS
-  vendor's documentation. If the issue is not specific to s7cmd's
-  own code, it belongs there, not here.
-
-Out-of-scope issues will be closed without further discussion.
 
 ## Contributing
 
