@@ -903,11 +903,10 @@ implement partially or not at all. Core object operations (`ls`,
 `cp`, `mv`, `rm`, `sync`, `clean`, `presign`) are the most likely to
 work as documented.
 
-Bug reports and questions about S3-compatible storage are welcome and
-will be looked at on a best-effort basis, but they are lower priority
-than Amazon S3 issues, fixes are not guaranteed, and problems that
-originate in the storage service itself belong with that service's
-operator.
+Bug reports about S3-compatible storage are welcome and will be looked
+at on a best-effort basis, but they are lower priority than Amazon S3
+issues, fixes are not guaranteed, and problems that originate in the
+storage service itself belong with that service's operator.
 
 s7cmd is **not** intended to be a drop-in replacement for, or
 behaviorally compatible with, any other S3 client — including the
