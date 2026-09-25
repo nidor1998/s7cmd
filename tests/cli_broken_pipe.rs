@@ -239,3 +239,36 @@ fn clean_config_error_with_closed_stderr_still_exits_two() {
          (None = killed by SIGPIPE, 101 = panicked)"
     );
 }
+
+/// The deliberate counter-case to every test above: `get-object-annotation
+/// <BUCKET>/<KEY> -` delivers object bytes, so a vanished reader means the
+/// payload was lost and the command must fail loudly. A one-byte payload
+/// with no newline is the worst case — it fits entirely inside stdout's
+/// `LineWriter` buffer, so `write_all` alone returns `Ok` and only the
+/// runtime's exit-time flush (whose error is discarded) would ever touch
+/// the pipe. Without an explicit flush before returning success the command
+/// exited 0 having delivered nothing.
+#[test]
+fn annotation_payload_to_stdout_with_closed_stdout_exits_one() {
+    let server = MockS3Server::start(vec![MockResponse::new(200, "x")]);
+    let mut cmd = s7cmd_cmd_clean_env();
+    cmd.args(["get-object-annotation", "--annotation-name", "note"])
+        .args(mock_target_args(&server.endpoint_url()))
+        .args(["s3://mock-bucket/mock-key", "-"]);
+    let (code, stderr) = run_with_closed_stdout(&mut cmd);
+    assert!(
+        !stderr.contains("panicked"),
+        "annotation payload output must not panic on a closed stdout pipe; \
+         stderr: {stderr}"
+    );
+    assert_eq!(
+        code,
+        Some(1),
+        "a lost annotation payload must exit 1, not report success \
+         (None = killed by SIGPIPE); stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("writing annotation payload to stdout"),
+        "expected the payload write error on stderr; got: {stderr}"
+    );
+}

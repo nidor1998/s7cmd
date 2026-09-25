@@ -8,6 +8,10 @@
 //              detect_checksum / check_integrity unsupported-algorithm handling
 //              tracks upstream 1.7.0.
 //              Report println made pipe-safe (ported from s3util-rs 1.9.2).
+//              Payload stdout output flushes explicitly before reporting
+//              success, so a lost payload fails instead of exiting 0
+//              (upstream relies on the exit-time flush, whose error is
+//              discarded); pinned by tests/cli_broken_pipe.rs.
 
 use std::io::Write as _;
 use std::path::Path;
@@ -360,8 +364,18 @@ pub async fn run_get_object_annotation(
 
     // Output.
     if outfile == "-" {
-        std::io::stdout()
+        // Flush before reporting success: stdout is a `LineWriter`, so a
+        // payload tail with no newline in it (object bytes are arbitrary
+        // binary) stays buffered and `write_all` alone returns `Ok` even
+        // when the pipe is already gone. The runtime's exit-time flush
+        // discards its error, so an unflushed failure would surface as
+        // exit 0 with nothing delivered. Unlike the report paths, a
+        // vanished reader here means lost object bytes, so BrokenPipe is
+        // propagated rather than swallowed (see `crate::pipe_safe`).
+        let mut stdout = std::io::stdout().lock();
+        stdout
             .write_all(&payload)
+            .and_then(|()| stdout.flush())
             .context("writing annotation payload to stdout")?;
         return Ok(ExitStatus::Success);
     }
