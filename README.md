@@ -521,19 +521,19 @@ Every underlying library maintains 96%+ automated test coverage. This serves a d
 
 ### Quality verification (by AI self-assessment)
 
-Measurements below are taken at commit `635da2d` on `main` (v1.8.2 plus one build-config commit; measured 2026-09-12). The coverage figures are sourced from `llvm-cov-report.txt` (`cargo llvm-cov`; `lcov.info` is the matching machine-readable LCOV artifact) and reflect a single combined run — `cargo llvm-cov` with `RUSTFLAGS="--cfg e2e_test"` on the maintainer's machine, 2026-09-12 — so the unit tests, the process-level CLI and batch-run tests, and the live-AWS e2e suite are all included in the report.
+Measurements below are taken at commit `37d493d` on branch `fix/annotation-stdout-flush` (version 1.8.5, not yet tagged — `v1.8.4` plus five commits; measured 2026-09-26). The coverage figures are sourced from `lcov_report.txt` (`cargo llvm-cov`; `lcov.info` is the matching machine-readable LCOV artifact) and reflect a single combined run — `cargo llvm-cov` with `RUSTFLAGS="--cfg e2e_test"` on the maintainer's machine, 2026-09-26 — so the unit tests, the process-level CLI and batch-run tests, and the live-AWS e2e suite are all included in the report.
 
 | Metric                         | Value                                                         |
 |--------------------------------|---------------------------------------------------------------|
 | Production code                | ~17,900 lines of Rust across 85 source files in `src/`        |
 | Unit tests (in `src/`)         | 506 `#[test]` / `#[tokio::test]` annotations                  |
-| CLI integration tests          | 730 annotations across 65 files (64 `tests/cli_*.rs` files plus `tests/batch_run.rs`); they spawn the real binary with no AWS credentials — S3 interactions, where exercised, hit an in-process loopback mock server; run in CI |
+| CLI integration tests          | 732 annotations across 65 files (64 `tests/cli_*.rs` files plus `tests/batch_run.rs`); they spawn the real binary with no AWS credentials — S3 interactions, where exercised, hit an in-process loopback mock server; run in CI |
 | E2E integration tests          | 258 annotations across 28 `tests/e2e_*.rs` files (gated behind `--cfg e2e_test`; run only by the maintainer against live AWS) |
-| Code coverage (llvm-cov, combined unit + CLI + e2e run) | 97.53% regions (377 / 15,256 missed), 97.08% functions (35 / 1,200 missed), 98.50% lines (163 / 10,873 missed) |
+| Code coverage (llvm-cov, combined unit + CLI + e2e run) | 97.54% regions (376 / 15,262 missed), 97.09% functions (35 / 1,201 missed), 98.50% lines (163 / 10,876 missed) |
 | Static analysis (clippy)       | 0 warnings (`cargo clippy --all-features`)                    |
 | Formatting                     | 0 diffs (`cargo fmt --all --check`)                           |
 | Supply chain (cargo-deny)      | Clean (`cargo deny -L error check`); runs on every push and PR in `ci.yml` and daily at 01:34 UTC in `cargo-deny.yml`; `advisories.ignore = []` |
-| Code adapted from the underlying projects | CLI frontends vendored from the upstream binaries — `src/sync_bin/` ([s3sync](https://github.com/nidor1998/s3sync)), `src/util_bin/` ([s3util-rs](https://github.com/nidor1998/s3util-rs)), `src/clean_bin/` ([s3rm-rs](https://github.com/nidor1998/s3rm-rs)), `src/ls_bin/` ([s3ls-rs](https://github.com/nidor1998/s3ls-rs)) — plus adapted dispatch arms in `src/dispatch.rs`; the engines themselves are consumed as exact-pinned library dependencies (s3sync 1.62.1, s3util-rs 1.10.2, s3rm-rs 1.6.2, s3ls-rs 1.3.2). `src/batch_run/` is s7cmd-original |
+| Code adapted from the underlying projects | CLI frontends vendored from the upstream binaries — `src/sync_bin/` ([s3sync](https://github.com/nidor1998/s3sync)), `src/util_bin/` ([s3util-rs](https://github.com/nidor1998/s3util-rs)), `src/clean_bin/` ([s3rm-rs](https://github.com/nidor1998/s3rm-rs)), `src/ls_bin/` ([s3ls-rs](https://github.com/nidor1998/s3ls-rs)) — plus adapted dispatch arms in `src/dispatch.rs`; the engines themselves are consumed as exact-pinned library dependencies (s3sync 1.62.3, s3util-rs 1.10.5, s3rm-rs 1.6.4, s3ls-rs 1.3.4). `src/batch_run/` is s7cmd-original |
 
 What these numbers do and do not show:
 - They show what the combined test run exercises — including the live-AWS e2e suite — not how the binary behaves under production load over time. CI asserts only the non-e2e build (unit, CLI, and batch-run tests) on every push and PR, across seven build targets; it neither runs the e2e suite nor produces or gates on coverage.
