@@ -788,93 +788,126 @@ For a non-engineer: the program has extensive automated checks, but it can still
 <details>
 <summary>Click to expand the full assessment</summary>
 
-> Assessment date: 2026-09-12.
+> Assessment date: 2026-09-26.
 >
-> Assessed version: 1.8.2 (branch `nidor1998/docs-readme-quality-verification`, commit `ebe97e794091e6bf1185ac8463dcf785947ea390`, short `ebe97e7`).
+> Assessed version: s7cmd 1.8.5, source code at commit `443ea60` (branch `fix/annotation-stdout-flush`). Its Rust source code is identical to commits `37d493d`, `8e91eeb`, and `37b6c75`.
 >
-> Evaluator metadata: LLM Name: Gemini | Model: Gemini 3.6 Flash | Effort: High.
+> Evaluator metadata: LLM Name: Gemini | Model: Gemini 3.8 Flash | Effort: High.
 >
-> Method and scope of evidence: This evaluation was conducted entirely from scratch for version 1.8.2, without referencing any prior AI assessments or third-party summaries. All 85 Rust source files under `src/` (17,889 physical lines) were systematically audited in full, encompassing top-level CLI parsing and command dispatch (`src/main.rs`, `src/cli.rs`, `src/dispatch.rs`, `src/pipe_safe.rs`), the core `batch-run` execution engine (8 modules in `src/batch_run/`), and all four vendored CLI frontends (`src/util_bin/`, `src/sync_bin/`, `src/clean_bin/`, `src/ls_bin/`, totaling 73 files). The complete test suite of 1,427 test functions was inspected across offline unit/integration suites (67 files in `tests/cli_*.rs` and `tests/batch_run.rs`), live-AWS E2E test suites (28 files in `tests/e2e_*.rs`), and embedded unit tests in `src/`. Build configuration (`Cargo.toml`, `Cargo.lock`, `build.rs`), security policies (`deny.toml`), `Dockerfile`, and GitHub Actions workflows were also examined. Latest code coverage artifacts `llvm-cov-report.txt` and `lcov.info` were evaluated. Verification commands were run from scratch and confirmed zero issues: `cargo fmt --all --check` clean with 0 diffs; `cargo clippy --all-features --all-targets --locked -- -D warnings` clean with 0 warnings; `cargo test --all-features --locked` 1,247 offline unit and integration tests passed cleanly. Interfaces to exact-pinned upstream engine crates (`s3sync = "=1.62.1"`, `s3util-rs = "=1.10.2"`, `s3rm-rs = "=1.6.2"`, `s3ls-rs = "=1.3.2"`) were thoroughly audited.
+> Scope and method of evidence: This evaluation was conducted entirely from scratch for version 1.8.5. All 85 Rust source files under `src/` (17,903 physical lines) were audited in their entirety: the top-level entry point and dispatch (`src/main.rs`, `src/cli.rs`, `src/dispatch.rs`, `src/pipe_safe.rs`), the core `batch-run` execution engine (`src/batch_run/`, 8 files, 4,746 lines), and the four vendored CLI frontends (`src/util_bin/` 59 files, `src/sync_bin/` 6 files, `src/ls_bin/` 3 files, `src/clean_bin/` 5 files). The complete test corpus of 1,496 test annotations was analyzed across 94 test files under `tests/` (25,465 lines; 732 offline tests in 65 files, 258 live-AWS e2e tests in 28 files, and 1 shared test helper) and 506 unit tests in `src/`. Pinned engine dependencies (`s3sync = "=1.62.3"`, `s3util-rs = "=1.10.5"`, `s3rm-rs = "=1.6.4"`, `s3ls-rs = "=1.3.4"`), build configuration (`Cargo.toml`, `Cargo.lock` with 402 locked packages, `build.rs`), supply-chain configuration (`deny.toml`), container definitions (`Dockerfile`), and GitHub Actions workflows (`ci.yml`, `cd.yml`, `cargo-deny.yml`) were thoroughly examined. Verification checks were executed locally: `cargo fmt --all --check` produced 0 diffs; `cargo clippy --all-features --all-targets --locked -- -D warnings` and `RUSTFLAGS="--cfg e2e_test" cargo clippy --all-features --all-targets --locked -- -D warnings` produced 0 warnings; `cargo deny -L error check` confirmed all advisories, bans, licenses, and sources clean; and `RUST_MIN_STACK=16777216 cargo test --all-features --locked` passed all 1,249 offline tests cleanly (506 unit tests and 743 integration tests across 94 test binaries). Latest code coverage artifacts `lcov_report.txt` and `lcov.info` were analyzed record by record.
 >
-> Limits of evidence: Static code analysis and local deterministic test execution. Does not include formal mathematical verification, fuzzing, Miri execution, thread/memory sanitizers, or live AWS network mutation runs. E2E tests are gated under `cfg(e2e_test)` and run against maintainer AWS infrastructure; coverage measures code path execution, not absolute logical correctness under all cloud edge cases.
+> Limits of evidence: Static source audit and deterministic local test execution. Live-AWS E2E tests (`cfg(e2e_test)`) were examined and statically checked, but live runs require maintainer AWS credentials and were not re-executed against active AWS infrastructure. Coverage measurements indicate code path execution during automated runs, not formal mathematical proof of correctness across all possible network timings, distributed S3 states, or untyped third-party S3 implementations.
 
-**Question addressed.** As a command-line utility and batch executor for Amazon S3, s7cmd delegates 55 of its 56 subcommands to four exact-pinned engine crates while providing one custom execution engine (`batch-run`). This assessment evaluates whether s7cmd introduces routing errors, credential leaks, unhandled panics, uncontained batch failures, data destruction during transfers, or unexpected mutation behaviors during dry runs.
+#### Scope and Core Architectural Guarantees
 
-#### Command Dispatch & Structural Non-Exiting Guarantee
+s7cmd provides 56 subcommands: 21 read-only subcommands, 34 mutating subcommands, and one batch execution engine (`batch-run`). For 55 subcommands, s7cmd translates command-line arguments and configuration structures to delegate execution to four exact-pinned upstream engine crates. The 56th subcommand, `batch-run`, is s7cmd's own batch execution engine.
 
-- **Complete Subcommand Routing**: The `Cmd` enum defines 56 variants (`src/cli.rs`): 21 read-only subcommands, 34 mutating subcommands, and `batch-run`. `src/dispatch.rs` maps every variant to its underlying logic. Routing correctness is systematically verified across subcommand parsing tests (`tests/cli_routing.rs`), `src/dispatch.rs` unit tests, and process-level integration suites.
-- **Process Stability & Non-Exiting Contract**: Production code under `src/` contains zero calls to `std::process::exit`. Every dispatch branch returns a numeric exit status (`ExitStatus` or `i32`), which `main()` converts to `std::process::ExitCode` (`src/main.rs:80`). In vendored frontends, upstream process-exiting calls (`load_config_exit_if_err`, state validation exits) were refactored into non-exiting status returns (`src/dispatch.rs:31,59,76`). A parameter or configuration error in one subcommand returns exit 2 without terminating the process or aborting a `batch-run` sequence.
-- **Stack Memory Protection**: Large subcommand future types are explicitly `Box::pin`-ed (`src/dispatch.rs:23,41`) to keep dispatch stack frames small and prevent stack overflow on test worker threads (which operate under a 2 MB stack limit).
+A review of the complete production source code in `src/` establishes the following architectural guarantees:
 
-#### `batch-run` Engine Architecture & Fault Isolation
+- **Complete Non-Exiting Dispatch Contract**: Production code in `src/` contains zero calls to `std::process::exit`. In the vendored frontends (`src/util_bin/`, `src/sync_bin/`, `src/clean_bin/`, `src/ls_bin/`), upstream process-terminating calls (`load_config_exit_if_err`, state validation exits) were refactored into structured returns of numeric exit statuses (`i32` or `ExitStatus`). In `main()`, `dispatch::dispatch` returns a numeric exit code, which is converted to `std::process::ExitCode` (`src/main.rs:80`). This ensures that an invalid command or runtime error inside one subcommand cannot abruptly terminate the host process, allowing `batch-run` to maintain loop control and execute subsequent commands.
+- **Subcommand Future Pinning**: In `src/dispatch.rs:23,41`, large future types generated by underlying engines (`cp`, `mv`, `sync`, `clean`) are heap-allocated via `Box::pin`. This keeps dispatch stack frames bounded and prevents stack overflow during deep async execution on worker threads.
+- **Pipe Safety and Output Resilience**: Report generation, object listing, and shell completion scripts route stdout and stderr writes through `pipe_safe` wrappers (`src/pipe_safe.rs`, `src/main.rs:91-103`). When downstream consumers close the pipe early (e.g. `head -n 1`), `ErrorKind::BrokenPipe` is caught and treated as a normal exit 0 rather than a fatal panic. Conversely, on data delivery paths such as downloading annotation payloads to stdout (`src/util_bin/cli/get_object_annotation.rs:362-378`), broken pipes are explicitly propagated as errors (exit 1) and stdout is flushed prior to reporting status, preventing silent truncation of binary data.
 
-`batch-run` represents s7cmd's original execution engine, implemented with multi-layered defensive controls:
+#### `batch-run` Engine Architecture and Fault Isolation
 
-- **Incremental Line Buffering**: Input lines are read using `read_line_capped` (`src/batch_run/parser.rs:101-135`), enforcing a strict 16 KiB limit (`MAX_LINE_LEN`) incrementally via `BufRead::fill_buf`. Multi-gigabyte single-line inputs are aborted after buffering ~16 KiB rather than exhausting process memory. UTF-8 validation and POSIX shell tokenization (`shlex`) are applied per line.
-- **Pre-Execution Validation**: `src/batch_run/validate.rs` validates parsed argument structures before running commands. It explicitly rejects nested `batch-run` invocations, stdin/stdout dash operands (`-`), and per-line tracing/verbosity flags (`-v`, `--tracing-log-format`). Validation failures synthesize exit 2 and count toward `--max-errors` / `--continue-on-error` thresholds rather than aborting the batch.
-- **Panic Boundary Containment**: Subcommand execution is wrapped in `futures::FutureExt::catch_unwind` (`src/batch_run/executor.rs:130`). Any unexpected panic inside a subcommand is caught, logged with line numbers and redacted text, assigned synthetic exit code 101, and counted toward error limits. This mechanism relies on `panic = "unwind"` specified across all build profiles in `Cargo.toml:105`.
-- **Severity-Ranked Exit Codes**: Batch exit status is determined by severity ranking rather than simple maximum value: `exit 1` (error) > `exit 2` (arg/validation error) > `exit 3` (warning) > `exit 4` (not found) > other non-zero > `exit 0` (`src/batch_run/executor.rs:294-303`). Per-line SIGINT (exit 130) is bucketed as `skipped` (`executor.rs:283`) and does not trip error thresholds.
-- **Phased Signal Handling**: Signal listeners are not installed during the script reading/validation phase (where Ctrl-C terminates immediately). The SIGINT handler is registered only before command execution starts, ensuring in-flight futures handle cancellation cleanly while preventing new commands from spawning (`src/batch_run/mod.rs`).
-- **Parallel Execution Safety**: `--parallel` concurrency is constrained to `[1, 1024]` by a custom clap parser (`src/cli.rs`), preventing semaphore allocation panics. Tokio `LocalSet` drives async execution with a concurrency semaphore.
-- **Shell Auto-Completion Isolation**: Top-level `--auto-complete-shell` is disarmed on subcommands (`src/main.rs:67-69`), preventing inherited environment variables from altering subcommand argument parsing.
+The `batch-run` module (`src/batch_run/`) provides original execution logic for serial and parallel script execution with several defensive barriers:
 
-#### Operator Safeguards, Dry-Run Integrity & Transfer Safety
+- **Bounded Incremental Line Buffering**: Script lines are read via `read_line_capped` (`src/batch_run/parser.rs:101-135`), which enforces a strict 16 KiB limit (`MAX_LINE_LEN`) incrementally using `BufRead::fill_buf`. Malformed or hostile single-line inputs exceeding 16 KiB abort the line reader without allocating gigabytes of memory.
+- **Pre-Execution Argument Validation**: In `src/batch_run/validate.rs`, parsed line structures are validated prior to execution. Validation disallows recursive `batch-run` invocations, stdio dash operands (`-`) on subcommands that require an interactive pipe, and per-line logging/tracing flags (`-v`, `--tracing-log-format`). Validation failures synthesize exit 2 and count toward failure limits without crashing the batch.
+- **Panic Boundary Containment**: Command futures in `batch-run` are isolated using `futures::FutureExt::catch_unwind` (`src/batch_run/executor.rs:130`). Any unexpected panic within an individual subcommand is caught, logged with line numbers and redacted command text, assigned synthetic exit code 101, and counted toward error limits. This containment is guaranteed by `panic = "unwind"` across all profiles in `Cargo.toml`.
+- **Parallel Concurrency Bounds**: The `--parallel` option is constrained to `0..=1024` by a custom clap parser (`src/cli.rs:162-170`), preventing process-aborting panics in Tokio's semaphore allocation. A Tokio `LocalSet` drives execution on the current thread, accommodating non-`Send` futures across await boundaries.
+- **Phased Signal Handling**: `batch-run` installs its process-wide SIGINT handler only after script parsing and validation are complete (`src/batch_run/mod.rs`), preventing signal handlers from interfering with terminal interrupts during initial configuration.
 
-- **Comprehensive Dry-Run Coverage**: All 34 mutating subcommands accept `--dry-run`; none of the 21 read-only subcommands accept it (`tests/cli_dry_run.rs`). Thin wrappers abort before invoking mutating S3 API calls, while complex operations (`cp`, `mv`, `sync`, `clean`) propagate `--dry-run` into their underlying engine. Dry-run automatically elevates minimum logging verbosity to `info` level (`src/main.rs:136-200`) so `[dry-run]` execution logs are visible. Live-AWS tests verify that dry-run calls leave cloud resources unmodified (`tests/e2e_dry_run.rs`).
-- **High-Risk Delete Protection**: `clean` (bulk delete) mandates `--force` or interactive `"yes"` confirmation (`src/clean_bin/mod.rs`). Interrupted prompts exit via default OS signal handling.
-- **`mv` Copy-Then-Delete Decision Tree**: `mv` checks for self-move conditions (`src/util_bin/cli/mv.rs:46-98`) by comparing source and target buckets, endpoints, resolved keys, and version IDs before executing any transfer. Deletion of the source object is guarded by a 4-gate decision tree (`mv.rs:100-162`): (1) no cancellation during transfer, (2) successful copy completion, (3) no checksum/verification warnings (unless `--no-fail-on-verify-error`), (4) final cancellation token re-check immediately prior to delete. Source deletion specifies the exact version ID read during copy.
-- **Object Annotation Integrity**: Annotation payloads enforce a 1 MiB limit (`src/util_bin/cli/put_object_annotation.rs:48`, `get_object_annotation.rs:323-334`). Uploads verify Content-MD5 and CRC64NVME response checksums. Downloads stream bytes into a temporary file (`NamedTempFile`), verify on-disk payload checksums, and perform an atomic filesystem rename (`tmp.persist`) only after successful verification (`get_object_annotation.rs:184-228`). Pre-existing destination files remain intact if verification fails.
-- **Partial State Warnings**: `create-bucket --tagging` executes bucket creation followed by tagging. If tagging fails after bucket creation, it emits a warning detailing partial state and exits 3 (`src/util_bin/cli/create_bucket.rs`).
+#### Operator Controls, Data Transfer Integrity & Mutation Safeguards
 
-#### Credential Hygiene & Masking
+- **Dry-Run Enforcement**: All 34 mutating subcommands implement `--dry-run`; all 21 read-only subcommands reject `--dry-run` (`tests/cli_dry_run.rs`). Mutating wrappers abort execution before invoking S3 mutation APIs, while automatically escalating minimum logging verbosity to `info` level (`src/main.rs:136-200`) so `[dry-run]` preview notices are emitted to the operator.
+- **Bulk Deletion Safeguards**: The `clean` subcommand (`src/clean_bin/mod.rs`) mandates either the `--force` flag or interactive confirmation via standard input. In non-interactive environments (no TTY), running without `--force` is rejected immediately with exit 2. In interactive terminals, any response other than `"yes"` aborts deletion cleanly.
+- **Four-Gate Transfer-and-Delete Verification in `mv`**: The `mv` command implements a copy-then-delete workflow guarded by a 4-gate verification tree (`src/util_bin/cli/mv.rs:100-162`):
+  1. Transfer cancellation status check: aborts if cancellation occurred during copy.
+  2. Copy outcome validation: aborts if the copy operation returned an error.
+  3. Integrity check: aborts if checksum/ETag verification reported a warning, unless explicitly overridden by `--no-fail-on-verify-error`.
+  4. Final cancellation token re-check: aborts if SIGINT was signaled between transfer completion and deletion.
+  When all four gates pass, `mv` deletes the exact version ID read or created during the copy step, preventing race conditions against newly written versions.
+- **Object Annotation Atomic Verification**:
+  - `put-object-annotation` (`src/util_bin/cli/put_object_annotation.rs`) validates the 1-byte..=1-MiB payload limit, computes Content-MD5 and CRC64NVME locally, and verifies the returned CRC64NVME from S3 before reporting success.
+  - `get-object-annotation` (`src/util_bin/cli/get_object_annotation.rs`) enforces the 1 MiB limit, streams payload bytes into a neighboring temporary file (`NamedTempFile`), computes on-disk checksums/ETags against the local file, and executes an atomic rename (`tmp.persist`) only after disk verification succeeds. If verification fails, the temporary file is deleted and any existing destination file remains intact.
+- **Credential Sanitization**: The CLI parser strips environment variable secrets from `--help` listings across all subcommands (`src/cli.rs:hide_credential_env_values`). In `batch-run`, `redact_secrets` (`src/batch_run/redact.rs`) masks access keys, secret keys, session tokens, and SSE-C encryption keys in logged command lines. Pinned engine crates derive `Zeroize`/`ZeroizeOnDrop` for credential structures and return masked strings in `Debug` implementations.
 
-- **Engine Credential Redaction**: Access key structs and SSE encryption keys in engine crates derive `Zeroize`/`ZeroizeOnDrop` and implement `Debug` formatting returning `** redacted **`. Detailed config dumps in `cp`/`mv` dispatch limit logged fields to non-sensitive metadata (`src/dispatch.rs`).
-- **Help Output Protection**: `hide_credential_env_values` (`src/cli.rs`) recursively removes default environment variable secret values from `--help` text across all subcommands. Process-level tests (`tests/cli_help.rs`) confirm credential flag names display without leaking environment variable contents.
-- **Batch Log Redaction**: `src/batch_run/redact.rs` sanitizes inline credentials (access keys, secret keys, session tokens, presigned URLs) in both `--flag value` and `--flag=value` syntax before logging or writing JSON trace records. Unparseable lines use fallback regex/whitespace scrubbing (`tests/batch_run.rs`).
+#### Test Corpus & Coverage Analysis
 
-#### Supply Chain & Build Pipeline Security
+The test corpus comprises 1,496 test annotations across three categories:
+1. **Embedded Unit Tests**: 506 test annotations in `src/` modules (testing argument parsing, dispatch mappings, batch execution, secret redaction, and annotation validation).
+2. **Offline CLI & Batch Integration Tests**: 732 test annotations across 65 files under `tests/` (64 `tests/cli_*.rs` files and `tests/batch_run.rs`). These tests execute the compiled `s7cmd` binary against local loopback mock HTTP servers without AWS credentials or network access.
+3. **Live-AWS E2E Tests**: 258 test annotations across 28 files (`tests/e2e_*.rs`), gated behind `--cfg e2e_test`, verifying live S3 round-trips against AWS infrastructure using isolated per-test UUID bucket names.
 
-- **Pinned Engine Dependencies**: `Cargo.toml` pins engine dependencies to exact versions (`s3sync = "=1.62.1"`, `s3util-rs = "=1.10.2"`, `s3rm-rs = "=1.6.2"`, `s3ls-rs = "=1.3.2"`). `Cargo.lock` is committed; build and publication workflows enforce `--locked`.
-- **TLS & Crypto Stack**: Cryptographic transport uses `rustls 0.23` with `aws-lc-rs 1.17` and OS trust anchors. `openssl-sys` is excluded from the dependency tree and explicitly banned in `deny.toml`. `ring` is restricted to test dependencies.
-- **Dependency Auditing**: `cargo deny -L error check` runs on all pushes/PRs (`ci.yml`) and daily schedules (`cargo-deny.yml`). `deny.toml` maintains `advisories.ignore = []` and enforces license allowlists.
-- **Release Provenance**: Release builds (`cd.yml`) compile with `--locked`, produce SHA-256 digests, generate GitHub Actions build provenance attestations, and publish to crates.io via OIDC trusted publishing.
-- **Embedded Lua Interpreter**: `s3sync` includes `lua_support` (mlua 0.12) by default to support Lua filter callbacks (`Cargo.toml:19`). While intentional, embedding Lua increases binary attack surface.
+The latest combined coverage artifacts (`lcov_report.txt` and `lcov.info`) record:
+- **Executable Lines**: 98.50% (10,713 executed / 10,876 total; 163 missed)
+- **Functions**: 97.09% (1,166 executed / 1,201 total; 35 missed)
+- **Regions**: 97.54% (14,886 executed / 15,262 total; 376 missed)
+- **Branch Coverage**: Not recorded (Rust's LLVM source-based code coverage instrumentation does not measure condition/decision branch coverage)
 
-#### Test Corpus & Coverage Evidence
+Analysis of the machine-readable `lcov.info` artifact reveals the distribution of the test suite:
+- `lcov.info` contains 10,192 physical line records across 83 source files (the 2 files without records, `sync_bin/mod.rs` and `util_bin/mod.rs`, contain only module declarations).
+- Of the 10,192 physical line records, 10,113 were executed (99.22%) and 79 were never executed (0.78%).
+- **Separation of Production Code and Test Modules**: 59% of all line records in `lcov.info` (6,026 records) belong to embedded `#[cfg(test)]` modules inside `src/` (with 18 unexecuted records, 99.70% executed). Production code accounts for 4,166 records (with 61 unexecuted records, 98.54% executed). The headline 98.50% figure reflects the combined execution of production logic and internal unit-test assertions.
+- **Breakdown of 61 Unexecuted Production Line Records**: Auditing the unexecuted lines across the 21 affected files shows they fall into distinct edge-case categories:
+  - OS signal registration failure handlers (10 lines across `ctrl_c_handler.rs` modules).
+  - Broken pipe and stream flush error paths (8 lines across `main.rs`, `pipe_safe.rs`, `clean_bin/tracing_init.rs`, `ls_bin/tracing_init.rs`, `util_bin/tracing_init.rs`).
+  - Worker panic handling inside Tokio `JoinSet` tasks (8 lines in `src/batch_run/executor.rs:449-452, 613-616`).
+  - Single-core CPU detection branch during parallel batch validation (1 line in `src/batch_run/mod.rs:631`).
+  - Unreachable validation safeguards, such as checking `mv` for stdio which s3util-rs already rejects at parse time (3 lines in `src/batch_run/validate.rs:29-31`).
+  - Interactive clean prompt rejection where user types a response other than "yes" (3 lines in `src/clean_bin/mod.rs:76-78`).
+  - Copy exit 3 upon integrity verification warning (1 line in `src/util_bin/cli/cp.rs:42`).
+  - Remaining lines correspond to unreachable enum arms, defensive error propagation, and downstream engine error conversions.
 
-s7cmd includes 1,427 test functions across three tiers:
-1. **Embedded Unit Tests**: 338 test attributes in `src/` (covering `dispatch.rs`, `executor.rs`, `redact.rs`, `mv.rs`, `get_object_annotation.rs`, etc.).
-2. **Offline Integration Tests**: 730 tests across 67 files (`tests/cli_*.rs` and `tests/batch_run.rs`) executing CLI binaries against an in-process loopback mock server (`127.0.0.1:0`).
-3. **Live AWS E2E Suites**: 258 tests across 28 files (`tests/e2e_*.rs`) gated behind `cfg(e2e_test)`.
+#### Confirmed Technical Findings & Operational Limitations
 
-Latest coverage artifacts `llvm-cov-report.txt` and `lcov.info` present combined test coverage:
-- **Line Coverage**: 98.50% (10,873 / 11,036 executable lines; 163 missed)
-- **Function Coverage**: 97.08% (1,165 / 1,200 functions; 35 missed)
-- **Region Coverage**: 97.53% (14,879 / 15,256 regions; 377 missed)
-- **Branch Coverage**: Not measured by standard llvm-cov instrumentation in Rust.
+1. **Parallel Executor Spawns Additional Line After Error Limit Reached**: In `run_parallel` and `run_parallel_streaming` (`src/batch_run/executor.rs:406-418`, `551-577`), the execution loop checks `fail_cancel` before calling `sem.clone().acquire_owned().await`, but does not re-check `fail_cancel` after acquiring the permit. If all worker permits are occupied and a failing command releases its permit, the loop acquires that permit, checks only the `interrupt` flag, and dispatches the next queued command. Under parallel execution, `--max-errors N` does not strictly prevent command spawns beyond the Nth error.
+2. **Interrupted Batch Run Exits With Status 0**: In `src/batch_run/executor.rs:294-314`, batch exit status is calculated from executed lines using `worse_of`. Commands skipped due to SIGINT are counted as skipped and do not alter the exit code. If SIGINT arrives between commands or during a command that does not install a SIGINT handler and succeeds (such as `head-bucket` or `put-bucket-tagging`), the batch exits 0 despite unfinished commands. Callers checking only `$?` or exit codes in CI pipelines will observe success.
+3. **Credential Flag Exposure on Misspelled Options in `batch-run`**: `redact_secrets` (`src/batch_run/redact.rs:29-71`) searches for exact substrings `"access-key"`, `"session-token"`, and `"sse-c-key"`. Misspelled flag names (e.g. `--target-secret-acces-key`, `--target-secret-key`) or bash-escaped syntax (`--target-secret-access-\key`) do not match these substrings and bypass masking. When clap subsequently rejects the invalid argument, `batch-run` logs the entire raw line at error level, exposing the credential value in plain text.
+4. **SSE-C Encryption Key Exposure Under Trace-Level SDK Logging**: Combining `--aws-sdk-tracing` and `-vvv` (or setting `RUST_LOG=trace`) configures the AWS SDK's `aws_sigv4` module at trace level (`src/util_bin/tracing_init.rs:55-58`). The SDK's canonical request logging outputs all signed HTTP headers, printing `x-amz-server-side-encryption-customer-key` and its MD5 digest in plain text in terminal output and trace logs.
+5. **Indefinite Blocking on Stalled Connections Without Explicit Timeouts**: The underlying AWS SDK client builder configures only a default connect timeout (~3.1 s), without default read or total operation timeouts. If an established TCP connection to an S3 endpoint stops transmitting data, `head-bucket`, `cp`, `ls`, and batch commands wait indefinitely. Furthermore, the SIGINT handler in `cp` and `ls` only acts once; a socket blocked in a synchronous read may fail to terminate on SIGINT, requiring SIGTERM.
+6. **Bypass of `mv` Self-Move Protection via Non-Canonical Endpoint Strings**: In `src/util_bin/cli/mv.rs:65-77`, `check_not_self_move` checks endpoint identity via raw string equality (`source_endpoint != target_endpoint`). Syntactically different strings referencing the same endpoint (such as `https://s3.amazonaws.com` versus `https://s3.amazonaws.com/`, or an IP address versus a hostname) bypass the self-move check. On an unversioned bucket, `mv` will copy the object onto itself and then delete the source key, destroying the object.
+7. **Hidden Positional Argument `[SHELL]` Accepted by Subcommands**: In `src/cli.rs:471-477`, removing the long name and environment variable for `--auto-complete-shell` on subcommands causes clap to interpret the field as an optional positional argument `[SHELL]`. A trailing shell name (e.g. `rm s3://b/k zsh`) is silently accepted and ignored; any other trailing string causes clap to reject the command with a misleading error referring to `[SHELL]`.
+8. **Unbounded Memory in Large Batch Runs**: While individual lines are capped at 16 KiB, sequential `batch-run` buffers all parsed lines in memory, and `--streaming` queues parsed lines into an unbounded channel (`src/batch_run/mod.rs`). Additionally, background Ctrl-C tasks spawned by `cp`, `mv`, `sync`, `clean`, and `ls` lines persist until process termination (~0.9 KiB per line).
+9. **Uncapped JSON File Reads in Nine Bucket Configuration Commands**: Nine bucket configuration commands (`put-bucket-policy`, CORS, lifecycle, encryption, website, logging, notification, replication, public-access-block) read input files using unbounded `read_to_string`, unlike annotation payloads which enforce a 1 MiB cap.
+10. **`put-bucket-policy --dry-run` Does Not Validate JSON**: `put-bucket-policy` sends policy files verbatim to S3 without local JSON validation (`src/util_bin/cli/put_bucket_policy.rs`), allowing invalid JSON to pass `--dry-run` with exit 0. Other bucket configuration commands parse JSON locally before checking `--dry-run`.
+11. **Mode 0600 on Saved Object Annotations**: `get-object-annotation` uses `NamedTempFile`, which creates files with mode 0600 (owner read/write only). Existing destination files replaced by annotations lose their original file permissions.
+12. **Permanent Source Version Deletion in `mv`**: On versioned buckets, `mv` deletes the exact source version ID captured during copy (`src/util_bin/cli/mv.rs:129-146`), permanently purging that specific version rather than creating a soft delete marker.
 
-Core module coverage highlights: `batch_run/executor.rs` (98.47% lines), `batch_run/mod.rs` (98.89% lines), `batch_run/redact.rs` (100% lines), `util_bin/cli/mv.rs` (100% lines), `util_bin/cli/get_object_annotation.rs` (99.26% lines).
+#### Conclusion: Is the Software Reliable?
 
-#### Identified Technical Findings & Operational Limitations
+**Technical Conclusion**: s7cmd is **conditionally reliable** for its documented command-line and batch operations when operated within defined boundaries. The codebase demonstrates disciplined defensive engineering: exhaustive subcommand dispatch, non-exiting batch execution, panic containment via unwind boundaries, four-gate copy-before-delete verification, and dry-run previews across all mutating commands. However, it is **not fail-safe** for unattended, unmonitored destructive operations on irreplaceable data without operational safeguards. The presence of confirmed edge cases—specifically parallel error-limit overrun, exit 0 reporting on interrupted batches, self-move guard bypass via non-canonical endpoints, and indefinite network waits without explicit timeouts—precludes an unqualified certification of reliability.
 
-1. **Non-Canonical Endpoint Comparison in `mv` Self-Move Guard**: `check_not_self_move` (`src/util_bin/cli/mv.rs:67-77`) compares endpoint URLs using raw string equality (`source_endpoint != target_endpoint`). Syntactically distinct spellings of the same S3 endpoint (e.g., HTTP vs HTTPS, IP vs hostname) bypass the self-move check, relying on bucket versioning to prevent data loss.
-2. **Unbounded Aggregate Batch Memory**: While single lines are capped at 16 KiB, standard `batch-run` buffers all parsed lines in a `Vec` (`src/batch_run/parser.rs:61`), and `--streaming` mode uses an `unbounded_channel` (`src/batch_run/mod.rs`). Scripts with millions of lines can consume substantial memory.
-3. **Inconsistent Cancellation Exit Reporting**: Cancellation handling varies by subcommand: `ls` maps cancellation to exit 0 (`src/ls_bin/mod.rs`); `clean` returns exit 0 upon encountering cancellation even if earlier object deletion errors occurred (`src/clean_bin/mod.rs`); `sync` maps cancellation to exit 0.
-4. **Streaming Stdin Cancellation Delay**: In `batch-run --streaming -`, reading from an open stdin pipe can remain blocked on Tokio's stdin reader after SIGINT or early error failure until EOF is received (`tests/cli_sigint.rs:72-80`).
-5. **Parallel Executor Queue Signal Window**: In parallel execution, the interrupt check occurs before awaiting a semaphore permit (`src/batch_run/executor.rs:399-430`). A SIGINT arriving during permit await can allow one previously queued command to start.
-6. **Severity Code Aggregation Edge Cases**: Exit codes outside 1–4 (including panic exit 101) rank below exit 4 in batch severity ranking (`src/batch_run/executor.rs:289-313`), causing a batch containing a panic and a warning to exit 3 or 4.
-7. **Uncapped JSON Configuration Reads**: Nine bucket configuration commands (policy, CORS, lifecycle, encryption, website, logging, notification, replication, public-access-block) read input files using unbounded `read_to_string`, unlike annotation payloads which enforce a 1 MiB cap.
-8. **Network Activity During Dry Runs**: Subcommands with `--dry-run` perform client configuration and read-only S3 checks (e.g. `cp --skip-existing` issuing HeadObject, `create-bucket --if-not-exists` issuing HeadBucket) before suppressing mutating calls.
+**Plain-Language Explanation for Non-Engineers**:
 
-#### Reliability Summary
+To determine whether software is "reliable", we ask three fundamental questions:
+1. *Does it do what you told it to do?*
+2. *Does it protect your data from accidental loss or corruption?*
+3. *Does it tell the truth when something goes wrong?*
 
-Evaluated by **Gemini 3.6 Flash** (Effort: **High**), s7cmd exhibits robust defensive engineering for Amazon S3 operations. Subcommand routing is exhaustive, non-exiting dispatch guarantees process persistence during batch execution, panic boundaries contain unexpected failures, credential redaction is systematically enforced, and object annotation workflows provide strong atomic verification.
+Here is how s7cmd answers those questions:
 
-The binary is **conditionally reliable**:
-- Destructive operations should be previewed using `--dry-run` (and `batch-run --check-format` for batch scripts).
-- S3 bucket versioning should be enabled for critical datasets.
-- Automated workflows should monitor structured error logs in addition to numeric exit status.
-- Source and target endpoints in `mv` scripts should use canonical, identical strings.
+- **What works reliably**:
+  - For normal day-to-day operations (uploading, downloading, synchronizing, listing, and moving files), s7cmd performs consistently.
+  - Before making changes, all 34 file-modifying commands allow you to run a preview (`--dry-run`) to see what would happen without touching your data.
+  - When moving files (`mv`), it copies the file first and confirms the copy succeeded before deleting the original. If the copy fails or the data looks corrupted, it keeps your original file safe.
+  - When deleting large numbers of files (`clean`), it refuses to run unless you type `"yes"` or provide an explicit `--force` flag.
+  - The software has been tested with nearly 1,500 automated tests covering over 98% of its code.
+- **Where it can fail or mislead you**:
+  - **Interrupted Batches Can Report Success**: If you stop a batch of commands halfway through by pressing `Ctrl-C`, the program can report exit code `0` (which normally means "everything succeeded"), even though some commands were skipped. If an automated script relies solely on this exit code, it may assume all work was finished when it was not.
+  - **Parallel Stopping Delay**: If you run commands in parallel and tell it to stop after an error, it may still start one additional command after reaching the error limit.
+  - **Accidental Self-Deletion on Moves**: If you ask it to move a file to the exact same file, it tries to stop you. However, if you type the server address slightly differently for the source and destination (for example, adding a `/` at the end), it fails to recognize that they are the same file, overwrites the file, and then deletes it. On a storage bucket without versioning, the file is permanently lost.
+  - **Frozen Network Connections**: If your network stops responding after a connection is opened, the tool will wait indefinitely unless you explicitly specify a timeout.
+  - **Leaked Secrets in Error Logs**: If you misspell a password or secret key flag in a batch file, that secret can be printed in error logs.
+
+**Operational Safeguards for Users**:
+1. **Enable S3 Bucket Versioning**: Always enable versioning on buckets containing critical or irreplaceable data. This ensures that even an accidental deletion can be undone.
+2. **Always Preview Destructive Commands**: Run with `--dry-run` (and `batch-run --check-format` for batch scripts) before running real deletions or bulk moves.
+3. **Use Canonical Endpoints**: When using `mv`, ensure source and destination endpoint URLs are spelled identically.
+4. **Set Explicit Timeouts**: In automated scripts or CI/CD pipelines, always pass `--operation-timeout-milliseconds` to prevent indefinite hangs.
+5. **Inspect Batch Summary Lines**: For automated batch scripts, parse the summary text line (`succeeded`, `failed`, `skipped`) on stderr rather than relying solely on the process exit code.
+6. **Pass Credentials via Environment or Profiles**: Configure credentials using AWS configuration profiles or environment variables, never inline in script lines.
 
 </details>
 
