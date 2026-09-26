@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.5] - 2026-09-26
+
+Bug-fix release. No dependency changes.
+
+### Fixed
+
+#### get-object-annotation
+
+- `get-object-annotation <BUCKET>/<KEY> -` could exit 0 while delivering nothing. stdout is a `LineWriter`, so a
+  payload whose tail contains no newline stayed buffered: `write_all` returned `Ok` even when the reader of the pipe
+  was already gone, and the error from the exit-time flush was discarded. Only payloads large enough to escape the
+  buffer, or ending in a newline, failed loudly. The payload is now flushed explicitly before success is reported, so
+  a lost payload exits non-zero with a write error. Unlike report output, a vanished reader is not treated as benign
+  here, because it means lost object bytes.
+- This did not affect normal use: it required stdout to be failing already — a closed descriptor, or a pipe whose
+  reader had exited — together with a payload small enough to fit stdout's 1 KiB line buffer with no newline in it, so
+  that no write ever reached the operating system. With a reader still present, or with a file as `<OUTFILE>`, the
+  payload was delivered correctly. The fix changes only how the failure is reported, never the success path.
+
+### Underlying libraries
+
+```toml
+s3sync = "=1.62.3"
+s3util-rs = "=1.10.4"
+s3rm-rs = "=1.6.4"
+s3ls-rs = "=1.3.4"
+```
+
 ## [1.8.4] - 2026-09-22
 
 Documentation and support policy release. No code changes.
