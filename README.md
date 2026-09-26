@@ -712,116 +712,74 @@ This assessment judged the program by its code and by its observed behavior, nei
 <details>
 <summary>Click to expand the full assessment</summary>
 
-Evaluation date: 2026-09-13. LLM name: Codex (OpenAI). Model: GPT-5-based Codex
-(exact runtime model identifier not exposed). Effort: comprehensive full-source review
-(configured reasoning-effort setting not exposed).
+#### Scope and evidence
 
-#### Scope and overall judgment
+Assessed on **2026-09-26**, for **s7cmd 1.8.5**, at source commit `37b6c7598f6109f8c2233188242c8bee454c60a2`.
+The application-source review covered **all 85 Rust files under `src/` (17,903 physical lines, including embedded tests)** and `build.rs`: command parsing and dispatch, every batch module, every object and bucket command, all four command frontends, cancellation, tracing, output, and progress reporting. Build and dependency configuration, the Dockerfile, CI/release workflows, test infrastructure, and relevant process-level tests were also examined. Findings below come from this source review, the supplied coverage artifacts, and fresh local checks.
 
-This assessment was made from scratch, without consulting any earlier or other AI assessment.
-The review covered every repository Rust source file: all 85 files under `src/`, including
-their unit tests, all 94 files under `tests/`, and `build.rs`. Cargo manifests and lockfile,
-build configuration, Dockerfile, dependency policy, and CI/release workflows were also examined.
-The reviewed snapshot is `245c245da13188650fefb8ba4d974e2725f0711b`; its code and build inputs
-are unchanged from the snapshot used for the September 12 checks below.
+The reviewed repository delegates storage operations, transfer algorithms, retries, configuration conversion, and substantial validation to dependencies. `Cargo.toml` and `Cargo.lock` specify `s3sync 1.62.3`, `s3util-rs 1.10.5`, `s3rm-rs 1.6.4`, and `s3ls-rs 1.3.4`. Reviewing every application source file does **not** constitute a complete audit of those libraries, the AWS SDK, their transitive dependencies, or AWS itself. No claim of defect-free operation follows from this review.
 
-Overall judgment: substantial safeguards and broad test coverage support confidence in ordinary
-validated workflows, but confirmed credential-redaction, batch scheduling, and payload-output
-defects limit confidence in unattended automation. This is not an unconditional safety endorsement
-or a proof of correctness. The complete repository review does not constitute a full audit of the
-implementations of `s3sync`, `s3util-rs`, `s3rm-rs`, `s3ls-rs`, their transitive dependencies,
-or AWS service behavior.
+#### Latest coverage and fresh verification
 
-#### Safeguards observed
+The supplied [`lcov.info`](lcov.info) and `lcov_report.txt`, identified for this assessment as the latest combined E2E/unit coverage results, agree on file, line, and function totals. Summing the per-file report rows also reproduces its region totals:
 
-- Command parsing, target validation, and destructive-operation prerequisites reject many invalid
-  invocations before mutation. Batch commands are parsed and dispatched in-process, without an
-  implicit shell. Dry-run paths suppress the intended mutations, although some still construct
-  clients or perform reads. Credential environment values are hidden in help output.
-- `mv` checks for self-moves, transfer failure, cancellation, and verification warnings before
-  deleting the source; verification warnings block deletion unless explicitly overridden.
-  Deletion uses an explicit source version or the version captured by the transfer.
-  These are meaningful data-loss safeguards. See [move handling](src/util_bin/cli/mv.rs).
-- Annotation downloads enforce a 1 MiB payload limit and check length and applicable integrity
-  information. File output uses a same-directory temporary file, verifies it before replacement,
-  and leaves the existing destination untouched on pre-replacement failure.
-  See [annotation output](src/util_bin/cli/get_object_annotation.rs).
-- No production repository Rust `unsafe` blocks were found. This does not establish memory safety
-  for dependencies; test-only tracing code does contain unsafe process-environment mutations.
+| Metric | Executed | Total | Unexecuted | Coverage |
+|---|---:|---:|---:|---:|
+| Lines | 10,713 | 10,876 | 163 | 98.50% |
+| Functions | 1,166 | 1,201 | 35 | 97.09% |
+| Regions | 14,886 | 15,262 | 376 | 97.54% |
+| Branches | No measurements | No measurements | Not established | Not established |
 
-#### Confirmed findings
+There are **83 source-file records**. The two `src/` files without records, `sync_bin/mod.rs` and `util_bin/mod.rs`, contain only module declarations. `build.rs` and dependency implementations are outside these reported totals. The totals **include embedded unit-test functions and test helpers**, including fake-storage methods; they are not production-code-only percentages. In particular, 100% line coverage for `mv.rs` does not establish that every move scenario is safe.
 
-1. **Malformed batch lines can disclose inline credentials.** The whitespace fallback in
-   [credential redaction](src/batch_run/redact.rs#L119) does not recognize a quoted credential
-   flag when another token has an unterminated quote. A fake secret following
-   `"--target-secret-access-key"` appeared verbatim in diagnostics for both ordinary batch
-   execution and `--check-format`. Existing masking therefore does not make malformed input
-   safe to echo into logs. Avoid inline secrets in batch files pending a fix.
-2. **Parallel fail-fast can dispatch another command after the failure threshold is reached.**
-   [Both parallel executors](src/batch_run/executor.rs#L370) check the failure-stop flag before
-   waiting for a worker permit, but recheck only interruption afterward. With two workers,
-   two invalid commands followed by two harmless copy dry-runs produced
-   `1 succeeded, 2 failed, 0 warnings, 1 skipped`: the third command ran after the failures.
-   This is additional dispatch, not merely completion of already-running work.
-   The streaming executor has the same missing post-wait failure check.
-3. **Annotation payload output can report success after losing data.**
-   [The stdout path](src/util_bin/cli/get_object_annotation.rs#L361) calls `write_all` without
-   an explicit flush before returning success. A loopback response containing one byte without
-   a newline, with the stdout pipe's reader already closed, returned exit 0. Buffered payload
-   delivery errors can therefore escape the command's result.
-4. **Some ordinary CLI tests can perform real mutations.**
-   [Versioning parsing tests](tests/cli_put_bucket_versioning.rs#L74), and similar acceleration,
-   request-payment, and restore tests, inherit configuration and execute valid mutating commands
-   without a dry-run or mandatory mock endpoint. A loopback-only check of the existing versioning
-   test observed `PUT /example/?versioning` while the test passed. Its assertion only excludes
-   exit 2, so runtime failures can also pass. These tests should be isolated from privileged
-   ambient credentials and real endpoints.
+These artifacts record execution, not whether every assertion passed or whether the assertions were sufficient. They provide no separate E2E-only and unit-only percentages, no measured branch coverage, and no embedded source revision or run configuration establishing exact provenance. A line executed once can still behave incorrectly for another input, scheduling order, or service response.
 
-#### Operational limits
+Fresh checks on macOS with Rust/Cargo 1.98.1 produced these results:
 
-Batch interruption is not uniformly reflected in the exit status: the executors aggregate
-command results but do not independently promote an interruption to exit 130. An idle streaming
-batch with stdin held open remained alive after SIGINT and returned 0 once stdin closed.
-Existing [signal tests](tests/cli_sigint.rs#L82) explicitly accept this behavior.
-Streaming failure-stop drains input until the producer closes it, so a slow or never-ending
-producer can delay termination. Its [unbounded input channel](src/batch_run/mod.rs#L368) and
-retained parallel task results also mean worker limits and the per-line size cap are not total
-memory bounds.
+- `cargo fmt --all --check`: passed.
+- `cargo clippy --all-features --all-targets --locked --offline -- -D warnings`: passed.
+- `cargo test --all-features --locked --offline`: **1,249 passed, 0 failed, 0 ignored**: 506 binary unit tests and 743 integration tests. The initial sandboxed attempt failed while loading native TLS root certificates; the same command passed outside the sandbox.
 
-`mv` remains copy-then-delete, not a transaction. Concurrent changes to unversioned or local
-sources need external coordination, and the self-move guard compares endpoint strings rather
-than canonical service identity. Neither batch execution nor a dry-run provides rollback or a
-stable snapshot of later operations. Annotation payloads without applicable integrity information
-are accepted with a warning and exit 0; successful file replacement is not an explicit
-power-loss durability guarantee.
+The fresh test run did **not** enable `cfg(e2e_test)`, so live-AWS E2E tests were not rerun. The supplied coverage remains separate evidence from that fresh run. Some E2E tests return early when optional account/role configuration is absent; these artifacts alone cannot establish that those scenarios ran. Local reproductions below used synthetic secrets, invalid commands, or dry-runs and did not mutate live S3 data.
 
-#### Coverage and verification evidence
+#### Safeguards present in the code
 
-The supplied `lcov.info` and `llvm-cov-report.txt`, last modified on 2026-09-12 at approximately
-15:25 JST, agree on these totals:
+- **Moves check the copy outcome before deletion.** [`mv.rs`](src/util_bin/cli/mv.rs) retains the source after a reported copy failure, cancellation, or verification warning unless the warning override is enabled. It checks cancellation again before deletion and uses an explicit source version, or the version returned by the transfer, when available. It also rejects matching source/destination bucket, resolved key, and endpoint strings, subject to its explicit-version exception. The endpoint limitation is described below.
+- **Mutating commands have dry-run paths.** The object and bucket runners return before their mutating API calls; the move dry-run omits source deletion. Sync status reporting forces dry-run. Dry-run is not necessarily network-free: existence checks and annotation inspection can still read remote state. It does not establish that a later write will be authorized or succeed.
+- **Annotation downloads protect an existing output file during verification.** [`get_object_annotation.rs`](src/util_bin/cli/get_object_annotation.rs) limits payload size, checks reported length and applicable integrity metadata, writes to a neighboring temporary file, rereads it, and persists it only after those checks. Verification errors leave the existing destination untouched. This path uses `flush`, not a file-and-directory durability protocol, so it does not establish survival of a power failure.
+- **Batch lines are parsed as arguments, not executed by a shell.** The parser limits each input line to 16 KiB. Validation rejects nested batches and specified stdin-consuming operations. Explicit parallelism is limited to 1,024. Dispatch returns command statuses, and batch execution catches unwinding panics from command futures. These mechanisms do not undo completed writes or make a batch transactional.
+- **Output errors have explicit handling.** Report printing and listing treat a closed output pipe as normal pipeline termination. Annotation payload output propagates write/flush errors. Credential environment values are hidden in CLI help, and batch logging masks ordinary spellings of known credential flags. That masking has confirmed gaps below.
 
-| Measure | Covered / total | Coverage |
-| --- | ---: | ---: |
-| Lines | 10,710 / 10,873 | 98.50% |
-| Functions | 1,165 / 1,200 | 97.08% |
-| Regions | 14,879 / 15,256 | 97.53% |
+#### Confirmed findings and their consequences
 
-There are 83 source-file records; the two module-only files `src/sync_bin/mod.rs` and
-`src/util_bin/mod.rs` have no records. The totals include in-source test code, and branch
-coverage is not measured. These supplied reports were not regenerated for this assessment;
-coverage percentages neither establish assertion quality nor rule out the reproduced defects.
+**1. The move self-target check compares endpoint strings, not storage identity.** In [`check_not_self_move`](src/util_bin/cli/mv.rs), unequal endpoint strings bypass the same-bucket/key rejection. A local `mv --dry-run s3://b/k s3://b/k` with source endpoint `https://s3.ap-northeast-1.amazonaws.com` and target endpoint `https://s3.ap-northeast-1.amazonaws.com/` exited 0 and reported both a copy and source deletion. This confirms the guard bypass, not an observed live deletion. If two endpoint spellings reach the same unversioned object and the copy succeeds, the subsequent source deletion targets that same object. The existing guard therefore does not cover every self-move.
 
-The following checks passed on macOS with Rust/Cargo 1.98.1 during this review:
+**2. Batch secret redaction is incomplete.** [`redact.rs`](src/batch_run/redact.rs) scans the raw line for literal flag substrings before tokenizing it. The spelling `--target-secret-access-\key` is accepted by shell-style tokenization as `--target-secret-access-key`, but misses that raw substring check. A format-check invocation with this spelling and an invalid argument printed the synthetic secret in its error log. A quoted credential flag followed by malformed quoting also exposed the synthetic value through the whitespace fallback. Thus batch diagnostics cannot be treated as reliably free of inline credentials.
 
-- `cargo test --locked --all-features --all-targets`
-- `cargo check --locked --no-default-features --all-targets`
-- `cargo clippy --locked --all-features --all-targets -- -D warnings`
-- `cargo fmt --all --check`
-- `cargo deny -L error check` (advisories, bans, licenses, and sources)
+**3. Parallel fail-fast can dispatch another line after the failure threshold is reached.** Both parallel executors in [`executor.rs`](src/batch_run/executor.rs) check the failure flag before waiting for a worker permit, but do not recheck that flag after the wait. Already-running tasks are intentionally allowed to finish; additionally, the waiting producer can start another task after a failure releases a permit. With eight invalid lines and the default first-error threshold, a local run recorded one failure and seven skips sequentially, but three failures and five skips with `--parallel 2`. A failure threshold is therefore not a strict boundary on subsequent command starts or side effects.
 
-The live-AWS tests gated by `cfg(e2e_test)` were reviewed but were not enabled by these commands.
-The additional reproductions used malformed input, dry-runs, signals, or loopback mocks with
-fake credentials. No production fixes are included in this README-only assessment.
+**4. SIGINT does not always produce a non-success batch exit.** Batch exit status is derived from command results; the interrupt flag itself does not force exit 130. A local streaming batch waiting for its first command received SIGINT, then had stdin closed, and exited **0** with no commands recorded. This matters to automation that interprets exit 0 as uninterrupted completion. Transfer frontends have their own cancellation handling, so this finding is not a claim that every interrupted transfer returns success.
+
+**5. Streaming does not bound total queued work or guarantee immediate fail-fast exit.** [`batch_run/mod.rs`](src/batch_run/mod.rs) sends prepared lines through an unbounded channel. The streaming executors drain remaining input after reaching their error threshold, so an input producer that keeps the stream open can delay termination. Read-all mode retains the script in memory; parallel executors also retain completed task results until their spawning loop finishes. The line-length and worker-count limits do not impose a total memory limit.
+
+#### Other limits relevant to reliability
+
+`--check-format` checks parsing and selected batch restrictions, not all execution-time validation. Local checks accepted `put-bucket-versioning s3://b` without a state flag and `delete-bucket not-an-s3-url`, returning “format OK”; execution rejects those inputs later. A successful format check is not authorization to assume a script will execute successfully. Likewise, `put-bucket-policy --dry-run` reads its input but does not parse the policy JSON in the runner.
+
+Several successful or partially successful outcomes require interpretation:
+
+- `cp --skip-existing` returns success when the target exists without comparing its contents. Its existence check and later transfer are separate operations, not an atomic reservation.
+- `get-object-annotation` logs a warning but returns success when no applicable integrity check can verify the payload. For `mv`, `--no-fail-on-verify-error` permits deletion despite the warning flag and returns success if deletion succeeds.
+- A move's copy and deletion are separate operations. Deletion failure can leave both copies; there is no rollback. Without a specific source version, the runner does not condition deletion on the copied object's identity, so concurrent source changes require consideration.
+- Bucket creation followed by tagging is also separate: tagging failure leaves the bucket created and returns warning status 3. Batch continuation options do not reverse earlier operations. Parallel commands have no dependency ordering or per-destination coordination, and their stdout results have no batch-level record framing.
+
+The repository's CI configuration includes formatting, tests, linting, and dependency-policy checks; release builds use `--locked` and produce checksum/provenance artifacts. Those workflow definitions do not prove that a particular release passed those checks. This assessment did not perform a fresh vulnerability-database audit, verify distributed binaries, or establish behavior on every supported platform, S3-compatible service, or configuration.
+
+#### Conclusion: is the software reliable?
+
+**The evidence supports reliability in the scenarios actually tested, but s7cmd is not established as a fail-safe tool for unattended destructive work.** The passing tests and implemented safeguards provide concrete evidence of working behavior. The reproduced redaction, stopping, interruption-status, and self-move-guard problems prevent an unconditional statement that the software is reliable or safe in all supported uses.
+
+For a non-engineer: the program has extensive automated checks, but it can still expose a secret in a log, do more batch work after an error than expected, report success after an interruption, or fail to recognize a move onto the same stored object. It also cannot undo a completed deletion. **The current evidence does not justify relying on it as the sole protection for irreplaceable data.** Recoverable copies, permissions that limit destructive actions, and checking the resulting data remain necessary where a mistake would be costly. Neither the AI origin of the code nor a 98.50% coverage figure supplies a guarantee; no real-world failure rate has been established here.
 
 </details>
 
