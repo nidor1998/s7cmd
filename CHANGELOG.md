@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.8.5] - 2026-09-26
 
-Bug-fix release. No dependency changes.
+Bug-fix release. Carries one pinned-library bump and no other dependency changes.
 
 ### Fixed
 
@@ -24,11 +24,19 @@ Bug-fix release. No dependency changes.
   that no write ever reached the operating system. With a reader still present, or with a file as `<OUTFILE>`, the
   payload was delivered correctly. The fix changes only how the failure is reported, never the success path.
 
+### Changed
+
+- s3util-rs `v1.10.4 -> v1.10.5`. That release is the same stdout-flush fix, applied to s3util-rs's own
+  `get-object-annotation` binary. s7cmd runs its vendored copy of that code rather than the library's binary, so the
+  bump changes no s7cmd behavior on its own; it exists so the vendored file stops diverging from upstream, and the
+  divergence note has been dropped from its vendor header.
+- No other dependencies updated; `aws-sdk-s3` unchanged at `v1.146.1`
+
 ### Underlying libraries
 
 ```toml
 s3sync = "=1.62.3"
-s3util-rs = "=1.10.4"
+s3util-rs = "=1.10.5"
 s3rm-rs = "=1.6.4"
 s3ls-rs = "=1.3.4"
 ```
