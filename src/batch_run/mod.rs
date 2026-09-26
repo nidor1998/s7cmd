@@ -369,9 +369,10 @@ async fn run_streaming(args: BatchRunArgs) -> i32 {
 
     // Spawn reader task. It reads the script line-by-line, tokenizes/
     // parses/validates each, and forwards a `PreparedLine` on the
-    // channel. On EOF, parse error, validate error, ctrl-c, or receiver-
-    // dropped, the task returns. File-open failure is reported here
-    // before any executor work and short-circuits the run.
+    // channel — invalid lines included, as `Invalid` entries. On EOF,
+    // read I/O error, ctrl-c, or receiver-dropped, the task returns.
+    // File-open failure is reported here before any executor work and
+    // short-circuits the run.
     let interrupt_for_reader = Arc::clone(&interrupt);
     let source = script_source_label(&args.script).to_string();
     let reader_handle: tokio::task::JoinHandle<Result<()>> = if args.script == "-" {

@@ -420,3 +420,21 @@ fn mock_endpoint_write_to_unwritable_outfile_exits_1_without_outfile() {
         "the missing parent dir must not be created"
     );
 }
+
+#[test]
+fn mock_endpoint_payload_to_stdout_is_delivered_verbatim() {
+    // `-` as <OUTFILE> streams the payload to stdout instead of writing a
+    // file, with no trailing newline added and no JSON report printed. The
+    // one-byte body is the case that stays inside stdout's LineWriter
+    // buffer until the explicit flush, so this pins that the flush added
+    // for the closed-pipe case (see cli_broken_pipe.rs) still delivers the
+    // bytes when someone is reading.
+    let server = MockS3Server::start(vec![MockResponse::new(200, "x")]);
+    let mut cmd = s7cmd_cmd_clean_env();
+    cmd.args(["get-object-annotation", "--annotation-name", "note"])
+        .args(mock_target_args(&server.endpoint_url()))
+        .args(["s3://mock-bucket/mock-key", "-"]);
+    let (code, stdout, stderr) = common::run(&mut cmd);
+    assert_eq!(code, Some(0), "expected success; stderr: {stderr}");
+    assert_eq!(stdout, "x", "the payload must reach stdout verbatim");
+}

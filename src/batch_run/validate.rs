@@ -111,9 +111,10 @@ fn reject_per_line_tracing(_line_no: usize, _raw: &str, cmd: &Cmd) -> Result<()>
         // s3sync::CLIArgs has private tracing fields, but exposes them
         // through `Config::try_from(...).tracing_config`. The conversion
         // can also fail for unrelated reasons (storage validation,
-        // conflicting options, etc.); surface those at validate time so
-        // read-all mode bails before any earlier line in the batch
-        // executes — matching the Cp/Mv branches above. With the default
+        // conflicting options, etc.); surface those at validate time —
+        // matching the Cp/Mv branches above — so `--check-format`
+        // reports them, and a run fails the line with exit 2 at its
+        // own position (earlier lines still run). With the default
         // WarnLevel verbosity, `tracing_config` is `Some(_)`; with `-qq`
         // (silent) it is `None`, in which case the tracing flag values
         // cannot raise the level so the user-visible behaviour is
@@ -484,8 +485,9 @@ mod tests {
     #[test]
     fn rejects_invalid_sync_config_at_validate_time() {
         // Local-to-local sync without `--allow-both-local-storage` is a
-        // config error in s3sync. Validate must surface this so read-all
-        // mode bails before earlier lines in the batch run.
+        // config error in s3sync. Validate must surface this so the line
+        // becomes an exit-2 `Invalid` failure (and `--check-format`
+        // reports it) rather than being dispatched.
         let cmd = parse_cmd(&["s7cmd", "sync", "/tmp/src", "/tmp/dst"]);
         let err = validate(4, "sync /tmp/src /tmp/dst", &cmd).unwrap_err();
         let msg = err.to_string();

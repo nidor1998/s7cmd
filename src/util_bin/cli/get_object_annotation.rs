@@ -360,8 +360,19 @@ pub async fn run_get_object_annotation(
 
     // Output.
     if outfile == "-" {
-        std::io::stdout()
+        // Flush before reporting success: stdout is a `LineWriter`, so a
+        // payload tail with no newline in it (annotation payloads are
+        // arbitrary binary) stays buffered and `write_all` alone returns
+        // `Ok` even when the pipe's reader is already gone. `main` returns
+        // an `ExitCode`, so that buffer is flushed by the runtime's exit
+        // cleanup, which discards the error after the exit code is fixed —
+        // leaving exit 0 with nothing delivered. Unlike the report paths,
+        // a vanished reader here means lost object bytes, so BrokenPipe is
+        // propagated rather than swallowed (see `crate::pipe_safe`).
+        let mut stdout = std::io::stdout().lock();
+        stdout
             .write_all(&payload)
+            .and_then(|()| stdout.flush())
             .context("writing annotation payload to stdout")?;
         return Ok(ExitStatus::Success);
     }

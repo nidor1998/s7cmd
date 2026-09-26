@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.5] - 2026-09-26
+
+Bug-fix release. Carries one pinned-library bump and no other dependency changes.
+
+### Fixed
+
+#### get-object-annotation
+
+- `get-object-annotation <BUCKET>/<KEY> -` could exit 0 while delivering nothing. stdout is a `LineWriter`, so a
+  payload whose tail contains no newline stayed buffered: `write_all` returned `Ok` even when the reader of the pipe
+  was already gone, and the error from the exit-time flush was discarded. Only payloads large enough to escape the
+  buffer, or ending in a newline, failed loudly. The payload is now flushed explicitly before success is reported, so
+  a lost payload exits non-zero with a write error. Unlike report output, a vanished reader is not treated as benign
+  here, because it means lost object bytes.
+- This did not affect normal use: it required stdout to be failing already — a closed descriptor, or a pipe whose
+  reader had exited — together with a payload small enough to fit stdout's 1 KiB line buffer with no newline in it, so
+  that no write ever reached the operating system. With a reader still present, or with a file as `<OUTFILE>`, the
+  payload was delivered correctly. The fix changes only how the failure is reported, never the success path.
+
+### Changed
+
+- Corrected the README's `batch-run` execution-modes table, which claimed the default mode catches bad lines before
+  any line runs. A line that can't be parsed or validated fails with exit 2 when execution reaches it, so the lines
+  before it still run; `--check-format` checks a script without running it. No behavior change.
+- s3util-rs `v1.10.4 -> v1.10.5`. That release is the same stdout-flush fix, applied to s3util-rs's own
+  `get-object-annotation` binary. s7cmd runs its vendored copy of that code rather than the library's binary, so the
+  bump changes no s7cmd behavior on its own; it exists so the vendored file stops diverging from upstream, and the
+  divergence note has been dropped from its vendor header.
+- No other dependencies updated; `aws-sdk-s3` unchanged at `v1.146.1`
+
+### Underlying libraries
+
+```toml
+s3sync = "=1.62.3"
+s3util-rs = "=1.10.5"
+s3rm-rs = "=1.6.4"
+s3ls-rs = "=1.3.4"
+```
+
 ## [1.8.4] - 2026-09-22
 
 Documentation and support policy release. No code changes.
