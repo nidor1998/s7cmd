@@ -217,7 +217,7 @@ freely combined:
 
 | Flag | Effect |
 |------|--------|
-| (default) | Read the whole script first, validate every line, then execute. Catches bad lines before any line runs. Shows a progress bar when stderr is a TTY. |
+| (default) | Read the whole script first, validate every line, then execute. A line that can't be parsed or validated is not rejected up front: it fails with exit code `2` when execution reaches it, so the lines before it still run (see **Failure handling** below). To catch bad lines before any line runs, use `--check-format` first. Shows a progress bar when stderr is a TTY. |
 | `--streaming` | Execute commands as they are read. No progress bar. Use for unbounded or pipelined input where buffering the whole script is undesirable. |
 | `--parallel 1` (default) | Sequential execution. Lines run in script order. |
 | `--parallel N` | Run up to *N* commands concurrently (max 1024; a larger value is rejected at parse time). Completion order is not guaranteed. |

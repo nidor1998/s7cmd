@@ -26,6 +26,9 @@ Bug-fix release. Carries one pinned-library bump and no other dependency changes
 
 ### Changed
 
+- Corrected the README's `batch-run` execution-modes table, which claimed the default mode catches bad lines before
+  any line runs. A line that can't be parsed or validated fails with exit 2 when execution reaches it, so the lines
+  before it still run; `--check-format` checks a script without running it. No behavior change.
 - s3util-rs `v1.10.4 -> v1.10.5`. That release is the same stdout-flush fix, applied to s3util-rs's own
   `get-object-annotation` binary. s7cmd runs its vendored copy of that code rather than the library's binary, so the
   bump changes no s7cmd behavior on its own; it exists so the vendored file stops diverging from upstream, and the
