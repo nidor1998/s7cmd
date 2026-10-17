@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.6] - 2026-10-17
+
+Monthly update. This release only updates the underlying libraries and dependencies; there are no functional
+changes.
+
+### Security
+
+#### All subcommands
+
+- Bump `rustls` `v0.23.45 -> v0.23.46` to address [RUSTSEC-2026-0349](https://rustsec.org/advisories/RUSTSEC-2026-0349)
+  (GHSA-w44r-93j7-qv28). `rustls` recorded the key-exchange group from a server's unauthenticated ServerHello and
+  reused it for later connections to the same server name, so a network attacker could silently downgrade s7cmd's
+  subsequent TLS connections to S3 and other AWS endpoints from the post-quantum hybrid X25519MLKEM768 exchange to
+  classical X25519. The impact is loss of post-quantum confidentiality on those connections; there is no key compromise
+  or authentication bypass. Transitive dependency (pulled in via the AWS SDK's HTTPS client); `Cargo.lock`-only, with
+  no public API or behavior change. All four underlying libraries carry the same fix.
+
+### Changed
+
+- s3sync `v1.62.3 -> v1.62.4`
+- s3util-rs `v1.10.5 -> v1.10.6`
+- s3rm-rs `v1.6.4 -> v1.6.5`
+- s3ls-rs `v1.3.4 -> v1.3.5`
+- aws-sdk-s3 `v1.146.1 -> v1.152.0`
+- Updated other dependencies
+
+### Underlying libraries
+
+```toml
+s3sync = "=1.62.4"
+s3util-rs = "=1.10.6"
+s3rm-rs = "=1.6.5"
+s3ls-rs = "=1.3.5"
+```
+
 ## [1.8.5] - 2026-09-26
 
 Bug-fix release. Carries one pinned-library bump and no other dependency changes.
