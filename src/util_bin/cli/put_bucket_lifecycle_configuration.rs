@@ -1,7 +1,7 @@
 // Vendored from s3util-rs@1.10.7
 //   src/bin/s3util/cli/put_bucket_lifecycle_configuration.rs
 // Adjustments: no tests stripped; rewrote crate::cli → super
-// The 1.8.0 library rejects unknown JSON fields (`deny_unknown_fields`), so a
+// The library rejects unknown JSON fields (`deny_unknown_fields`), so a
 // top-level `TransitionDefaultMinimumObjectSize` — as produced by
 // `get-bucket-lifecycle-configuration` — fails the parse; the runner maps that
 // error to a hint pointing at `--transition-default-minimum-object-size`,

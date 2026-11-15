@@ -1,6 +1,6 @@
-// Vendored from s3util-rs@0.2.0
+// Vendored from s3util-rs@1.10.7
 //   src/bin/s3util/cli/get_bucket_policy.rs
-// Adjustments: stripped #[cfg(test)] mod tests; rewrote crate::cli → super
+// Adjustments: no tests stripped; rewrote crate::cli → super
 //              Report println made pipe-safe (ported from s3util-rs 1.9.2).
 //              --policy-only re-indents the stored policy verbatim instead of
 //              normalising it via serde_json::Value (ported from s3util-rs 1.10.7).
