@@ -1,4 +1,4 @@
-// Vendored from s3util-rs@1.8.0
+// Vendored from s3util-rs@1.10.7
 //   src/bin/s3util/cli/put_bucket_lifecycle_configuration.rs
 // Adjustments: no tests stripped; rewrote crate::cli → super
 // The 1.8.0 library rejects unknown JSON fields (`deny_unknown_fields`), so a
@@ -77,7 +77,7 @@ pub async fn run_put_bucket_lifecycle_configuration(
 /// correct (silently dropping it would reset the bucket to S3's default), but
 /// the bare serde error is a dead end; point at the flag that sends it.
 fn parse_lifecycle_configuration(body: &str) -> Result<LifecycleConfigurationJson> {
-    serde_json::from_str(body).map_err(|e| {
+    s3util_rs::input::json::from_json_str(body).map_err(|e| {
         if e.to_string()
             .contains("unknown field `TransitionDefaultMinimumObjectSize`")
         {

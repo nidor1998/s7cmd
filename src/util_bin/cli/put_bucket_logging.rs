@@ -1,4 +1,4 @@
-// Vendored from s3util-rs@1.1.0
+// Vendored from s3util-rs@1.10.7
 //   src/bin/s3util/cli/put_bucket_logging.rs
 // Adjustments: no tests stripped; rewrote crate::cli → super
 use anyhow::{Context, Result};
@@ -43,8 +43,8 @@ pub async fn run_put_bucket_logging(
             .with_context(|| format!("reading bucket-logging-status from {config_arg}"))?
     };
 
-    let parsed: BucketLoggingStatusJson =
-        serde_json::from_str(&body).with_context(|| format!("parsing JSON from {config_arg}"))?;
+    let parsed: BucketLoggingStatusJson = s3util_rs::input::json::from_json_str(&body)
+        .with_context(|| format!("parsing JSON from {config_arg}"))?;
     let status = parsed.into_sdk()?;
 
     let client = client_config.create_client().await;
