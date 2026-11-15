@@ -5,6 +5,67 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.7] - 2026-11-15
+
+Security and bug-fix release: dependency advisories remediated, plus JSON input and output fixes from s3util-rs.
+
+### Security
+
+#### All subcommands
+
+- Bump `rustls-webpki` `v0.103.15 -> v0.103.16` for [RUSTSEC-2026-0382](https://rustsec.org/advisories/RUSTSEC-2026-0382)
+  (CVE-2026-111943). TLS certificate verification could accept chains through the distrusted emSign intermediates,
+  whose private keys are public. The related [RUSTSEC-2026-0381](https://rustsec.org/advisories/RUSTSEC-2026-0381)
+  (`webpki-roots` `v1.0.9 -> v1.0.11`) affects only the test suite.
+- Bump `crypto-bigint` `v0.5.5 -> v0.7.10` (via `aws-sigv4` `v1.6.0 -> v1.6.4`) and `ctutils` `v0.4.3 -> v0.4.8` for
+  [RUSTSEC-2026-0387](https://rustsec.org/advisories/RUSTSEC-2026-0387) and
+  [RUSTSEC-2026-0385](https://rustsec.org/advisories/RUSTSEC-2026-0385): constant-time operations used by SigV4a
+  signing could branch on secret values (timing side channel). No practical attack is known.
+- Bump `tokio` `v1.53.2 -> v1.54.1` for [RUSTSEC-2026-0386](https://rustsec.org/advisories/RUSTSEC-2026-0386), an
+  I/O-safety issue in `AsyncFd` constructors. s7cmd does not use `AsyncFd`.
+- Bump `libz-sys` `v1.1.29 -> v1.1.32` for [RUSTSEC-2026-0418](https://rustsec.org/advisories/RUSTSEC-2026-0418): its
+  build script wrote the full build environment, including any secrets, under `target/`. Affects only building s7cmd
+  from source (e.g. `cargo install`); prebuilt binaries are unaffected.
+- Remove the unmaintained `pin-utils` crate ([RUSTSEC-2026-0441](https://rustsec.org/advisories/RUSTSEC-2026-0441))
+  by updating `aws-smithy-runtime` to `v1.16.2`.
+
+### Fixed
+
+#### s3util-rs
+
+- `head-object` now emits `ObjectLockEventHold`, `ObjectLockEventHoldDurationDays` and
+  `ObjectLockEventHoldDurationYears` when S3 returns them; an object under an event hold was previously shown as having
+  none.
+- `list-object-annotations` now emits each entry's `ReplicationStatus` (`null` when absent).
+- `get-bucket-policy --policy-only` now prints the stored policy re-indented but otherwise verbatim. Previously keys
+  were sorted, duplicate keys collapsed and numbers re-spelled (`1.50` became `1.5`).
+- `put-bucket-replication` and `put-bucket-notification-configuration` now accept members that are optional in the S3
+  model (`DeleteMarkerReplication.Status`, `ReplicationTimeValue.Minutes`, `FilterRule.Name`/`Value`), so
+  `get-bucket-replication` output can be fed back in.
+- `put-bucket-lifecycle-configuration` no longer panics on a leap-second `Date` (it is now an ordinary error), and
+  accepts the other `Date` spellings the AWS CLI accepts (ISO 8601 without seconds/minutes, comma decimals, RFC 2822,
+  Unix epoch seconds).
+- The eight `put-*` commands that read a JSON document now accept a duplicate object key (last occurrence wins), as the
+  AWS CLI does, instead of failing with `duplicate field`.
+
+### Changed
+
+- s3sync `v1.62.4 -> v1.62.5`
+- s3util-rs `v1.10.6 -> v1.10.7`
+- s3rm-rs `v1.6.5 -> v1.6.6`
+- s3ls-rs `v1.3.5 -> v1.3.6`
+- aws-sdk-s3 `v1.152.0 -> v1.157.0`
+- Updated other dependencies
+
+### Underlying libraries
+
+```toml
+s3sync = "=1.62.5"
+s3util-rs = "=1.10.7"
+s3rm-rs = "=1.6.6"
+s3ls-rs = "=1.3.6"
+```
+
 ## [1.8.6] - 2026-10-17
 
 Monthly update. This release only updates the underlying libraries and dependencies; there are no functional

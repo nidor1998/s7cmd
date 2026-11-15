@@ -1,4 +1,4 @@
-// Vendored from s3util-rs@1.3.0
+// Vendored from s3util-rs@1.10.7
 //   src/bin/s3util/cli/put_bucket_replication.rs
 // Adjustments: no tests stripped; rewrote crate::cli → super
 use anyhow::{Context, Result};
@@ -38,8 +38,8 @@ pub async fn run_put_bucket_replication(
             .with_context(|| format!("reading replication configuration from {config_arg}"))?
     };
 
-    let parsed: ReplicationConfigurationJson =
-        serde_json::from_str(&body).with_context(|| format!("parsing JSON from {config_arg}"))?;
+    let parsed: ReplicationConfigurationJson = s3util_rs::input::json::from_json_str(&body)
+        .with_context(|| format!("parsing JSON from {config_arg}"))?;
     let cfg = parsed.into_sdk()?;
 
     let client = client_config.create_client().await;

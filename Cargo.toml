@@ -1,13 +1,12 @@
 [package]
 name = "s7cmd"
-version = "1.8.6"
+version = "1.8.7"
 edition = "2024"
 rust-version = "1.94.1"
 license = "Apache-2.0"
 description = "Reliable, flexible, and fast command-line tool for Amazon S3"
 authors = ["nidor1998 <nidor1998@gmail.com>"]
 repository = "https://github.com/nidor1998/s7cmd"
-homepage = "https://github.com/nidor1998/s7cmd"
 keywords = ["AWS", "Amazon", "S3", "cli", "sync"]
 categories = ["command-line-utilities", "filesystem"]
 
@@ -16,11 +15,11 @@ categories = ["command-line-utilities", "filesystem"]
 # s3sync's `lua_support` is in its default features; Lua flags
 # (--filter-callback-lua-script, etc.) automatically appear under
 # `s7cmd sync --help`. Use default-features = false to opt out.
-s3sync     = "=1.62.4"
-s3util-rs  = "=1.10.6"
+s3sync     = "=1.62.5"
+s3util-rs  = "=1.10.7"
 # Vendored bin code is sourced from these versions; pin minor.
-s3rm-rs    = "=1.6.5"
-s3ls-rs    = "=1.3.5"
+s3rm-rs    = "=1.6.6"
+s3ls-rs    = "=1.3.6"
 
 # Build-info for `s7cmd --version` (gated behind the `version` feature).
 shadow-rs = { version = "2", optional = true, default-features = false }
@@ -28,10 +27,10 @@ shadow-rs = { version = "2", optional = true, default-features = false }
 # Re-export the same AWS SDK minor versions both libs use so Cargo unifies
 # the dep tree (otherwise you get two compiled copies and possible type
 # incompatibilities at API boundaries).
-aws-sdk-s3 = { version = "1.152", default-features = false, features = ["sigv4a", "http-1x", "default-https-client", "rt-tokio"] }
-aws-config = { version = "1.12", default-features = false, features = ["behavior-version-latest", "default-https-client", "rt-tokio", "credentials-process", "sso"] }
-aws-smithy-runtime-api = "1.19"
-aws-smithy-types       = "1.8"
+aws-sdk-s3 = { version = "1.157", default-features = false, features = ["sigv4a", "http-1x", "default-https-client", "rt-tokio"] }
+aws-config = { version = "1.13", default-features = false, features = ["behavior-version-latest", "default-https-client", "rt-tokio", "credentials-process", "sso"] }
+aws-smithy-runtime-api = "1.20"
+aws-smithy-types       = "1.9"
 
 # CLI / runtime
 anyhow       = "1"
@@ -46,7 +45,7 @@ clap-verbosity-flag = "3"
 # guard. Already a transitive dep via the AWS SDK; declared directly so
 # the version is locked.
 futures      = "0.3"
-tokio        = { version = "1.53", features = ["full"] }
+tokio        = { version = "1.54", features = ["full"] }
 tracing      = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "local-time"] }
 log          = "0.4"
