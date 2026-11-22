@@ -30,6 +30,8 @@ Update for the end of life (EOL) of the `chrono` crate and Lua 5.4.
 
 ### Changed
 
+- Renamed the `restore-object` subcommand to `restore`. `restore-object` is still accepted as an alias for backward
+  compatibility.
 - s3sync `v1.62.5 -> v1.63.0`
 - s3util-rs `v1.10.7 -> v1.11.0`
 - s3rm-rs `v1.6.6 -> v1.7.0`

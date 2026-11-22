@@ -39,7 +39,7 @@ Object Operations:
   mv                                    Move objects from/to S3 (copy then delete source)
   rename                                Rename an S3 object within an Express One Zone bucket
   rm                                    Delete a single S3 object
-  restore-object                        Restore an archived S3 object
+  restore                               Restore an archived S3 object (formerly restore-object)
   presign                               Generate a pre-signed URL for an S3 object (GET only)
   sync                                  Synchronize files between local and S3 (or S3 to S3)
   clean                                 Bulk-delete S3 objects
@@ -279,7 +279,13 @@ pub enum Cmd {
     Rename(s3util_rs::config::args::RenameArgs),
     /// Delete a single S3 object
     Rm(s3util_rs::config::args::RmArgs),
+    // Renamed from `restore-object`; the old name is kept as a hidden
+    // alias for backward compatibility.
     /// Restore an archived S3 object
+    ///
+    /// This subcommand was formerly named `restore-object`. The old name is
+    /// still accepted for backward compatibility.
+    #[command(name = "restore", alias = "restore-object")]
     RestoreObject(s3util_rs::config::args::RestoreObjectArgs),
     /// Generate a pre-signed URL for an S3 object (GET only)
     Presign(s3util_rs::config::args::PresignArgs),
