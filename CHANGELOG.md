@@ -12,7 +12,8 @@ Update for the end of life (EOL) of the `chrono` crate and Lua 5.4.
 **Upgrade notes:**
 
 - Timestamp options now accept only strict RFC 3339 (see *Changed*). Scripts passing forms such as
-  `2023-02-19T12:00:00+0900` or `2023-02-19T12:00:00 UTC` must switch to `2023-02-19T12:00:00+09:00`.
+  `2023-02-19T12:00:00+0900` or `2023-02-19T12:00:00 UTC` must switch to `2023-02-19T12:00:00+09:00` or
+  `2023-02-19T12:00:00Z` respectively.
 - `sync` and `clean` Lua callback scripts now run on Lua 5.5 and may need updating.
 - Building from source now requires Rust 1.99.0 or later.
 
