@@ -36,14 +36,42 @@ rather than trading one for the other.
 
 - **Single binary, full coverage.** Object transfer, bulk delete, and
   every common bucket-level configuration in one tool.
-- **Strong integrity verification.** Native support for SHA256, SHA1,
-  CRC32, CRC32C, and CRC64NVME — aligned with S3's 2026 default
-  checksum policy.
+- **Strong integrity verification.** `sync` and `cp` verify every
+  object end to end, so that what arrives at the target is what was
+  read from the source, and a finished transfer can be verified again
+  afterwards. See
+  [End-to-end object integrity check](#end-to-end-object-integrity-check).
 - **Predictable performance.** Configurable workers, multipart
   thresholds, and chunk sizes; bounded memory footprint suitable for
   small instances and large CI runners alike.
 - **Apache-2.0 licensed.** No copyleft concerns for enterprise
   deployment or container distribution.
+
+### End-to-end object integrity check
+
+The most notable feature of s7cmd is the end-to-end object integrity
+check implemented by the `sync` and `cp` commands.
+
+s7cmd was designed to meet strict requirements: every transfer is
+required to complete with no single-bit errors or transfer errors. It
+also allows for post-transfer verification using the
+`sync --report-sync-status` option.
+
+- s7cmd calculates the ETag (MD5 or equivalent) for each object and
+  compares it with the ETag in the target.
+- An object that exists on the local disk is read from the disk and
+  compared with the checksum in the source or target.
+- In the case of S3 to S3, s7cmd simply compares the ETags calculated
+  by S3.
+- Optionally, s7cmd can also calculate and compare additional checksums
+  (SHA256/SHA1/CRC32/CRC32C/CRC64NVME) for each object.
+
+At this time, CRC64NVME is not enabled by default, given the current
+status of additional checksum support in S3-compatible storage.
+
+For the details, see
+[Object integrity check detail](https://github.com/nidor1998/s3sync/blob/main/FULL_README.md#object-integrity-check-detail)
+in the s3sync documentation.
 
 ### About the name
 
