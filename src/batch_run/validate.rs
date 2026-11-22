@@ -552,6 +552,7 @@ mod tests {
             "head-object",
             "get-object-tagging",
             "delete-object-tagging",
+            "restore",
             "restore-object",
             "presign",
         ];

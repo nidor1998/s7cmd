@@ -63,7 +63,7 @@ Object Operations:
   mv                                    Move objects from/to S3 (copy then delete source)
   rename                                Rename an S3 object within an Express One Zone bucket
   rm                                    Delete a single S3 object
-  restore-object                        Restore an archived S3 object
+  restore                               Restore an archived S3 object (formerly restore-object)
   presign                               Generate a pre-signed URL for an S3 object (GET only)
   sync                                  Synchronize files between local and S3 (or S3 to S3)
   clean                                 Bulk-delete S3 objects
@@ -917,7 +917,7 @@ s7cmd is designed to cover **Amazon S3 object operations and bucket
 management** — listing (`ls`), single- and bulk-object transfers
 (`cp` / `mv` / `rm`), atomic server-side rename (`rename`), recursive
 synchronization (`sync`), bulk delete (`clean`), archive restoration
-(`restore-object`), pre-signed URL generation (`presign`), and the
+(`restore`), pre-signed URL generation (`presign`), and the
 common bucket-level configurations
 (tagging, versioning, policy, policy-status, lifecycle, encryption,
 CORS, public-access-block, website, logging, notification,
@@ -953,7 +953,7 @@ is generated from AWS service models and assumes Amazon S3 semantics
 schemas). Features that depend on AWS-specific semantics may be
 unavailable or behave differently against non-AWS endpoints — notably
 CRC64NVME checksums and newer S3 API additions, `rename`,
-`restore-object`, and the object-annotation subcommands, and parts of
+`restore`, and the object-annotation subcommands, and parts of
 the bucket-configuration family, whose management APIs such services
 implement partially or not at all. Core object operations (`ls`,
 `cp`, `mv`, `rm`, `sync`, `clean`, `presign`) are the most likely to

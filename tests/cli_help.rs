@@ -506,7 +506,33 @@ fn top_level_help_lists_v1_3_subcommands() {
         .stdout(predicate::str::contains("get-bucket-request-payment"))
         .stdout(predicate::str::contains("put-bucket-request-payment"))
         .stdout(predicate::str::contains("get-bucket-policy-status"))
-        .stdout(predicate::str::contains("restore-object"));
+        .stdout(predicate::str::contains("  restore "));
+}
+
+#[test]
+fn restore_help_works() {
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args(["restore", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("formerly named `restore-object`"));
+}
+
+/// `restore-object` is a backward-compatibility alias of `restore`. The
+/// top-level help lists only `restore`, noting the old name in its
+/// description rather than as a separate entry.
+#[test]
+fn top_level_help_notes_restore_object_alias() {
+    Command::cargo_bin("s7cmd")
+        .unwrap()
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Restore an archived S3 object (formerly restore-object)",
+        ))
+        .stdout(predicate::str::contains("\n  restore-object ").not());
 }
 
 #[test]

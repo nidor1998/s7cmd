@@ -526,6 +526,21 @@ fn parses_restore_object() {
 }
 
 #[test]
+fn parses_restore() {
+    let cli = Cli::try_parse_from([
+        "s7cmd",
+        "restore",
+        "s3://bucket/key",
+        "--days",
+        "1",
+        "--tier",
+        "Standard",
+    ])
+    .expect("restore should parse");
+    assert!(matches!(cli.command, Some(Cmd::RestoreObject(_))));
+}
+
+#[test]
 fn parses_presign() {
     let cli =
         Cli::try_parse_from(["s7cmd", "presign", "s3://bucket/key"]).expect("presign should parse");

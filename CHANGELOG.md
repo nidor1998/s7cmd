@@ -5,6 +5,87 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0] - 2026-11-22
+
+Update for the end of life (EOL) of the `chrono` crate and Lua 5.4.
+
+**Upgrade notes:**
+
+- Timestamp options now accept only strict RFC 3339 (see *Changed*). Scripts passing forms such as
+  `2023-02-19T12:00:00+0900` or `2023-02-19T12:00:00 UTC` must switch to `2023-02-19T12:00:00+09:00` or
+  `2023-02-19T12:00:00Z` respectively.
+- `sync` and `clean` Lua callback scripts now run on Lua 5.5 and may need updating.
+- Building from source now requires Rust 1.99.0 or later.
+
+### Security
+
+#### All subcommands
+
+- Replaced the unmaintained `chrono` crate with `time`
+  ([RUSTSEC-2026-0543](https://rustsec.org/advisories/RUSTSEC-2026-0543)), both in the underlying libraries and as a
+  direct dependency of s7cmd.
+- Updated `libz-sys` to `v1.1.33` to address
+  [RUSTSEC-2026-0544](https://rustsec.org/advisories/RUSTSEC-2026-0544).
+- Shortened the minimum publish age for dependency resolution (`.cargo/min-publish-age.toml`) from 7 days to 3 days
+  so that security fixes in dependencies can be adopted sooner.
+
+### Changed
+
+- Renamed the `restore-object` subcommand to `restore`. `restore-object` is still accepted as an alias for backward
+  compatibility.
+- s3sync `v1.62.5 -> v1.63.0`
+- s3util-rs `v1.10.7 -> v1.11.0`
+- s3rm-rs `v1.6.6 -> v1.7.0`
+- s3ls-rs `v1.3.6 -> v1.4.0`
+- aws-sdk-s3 `v1.157.0 -> v1.161.0`
+- MSRV `1.94.1 -> 1.99.0`
+- Updated other dependencies
+
+#### sync, clean, ls
+
+- [Breaking change] `--filter-mtime-before` and `--filter-mtime-after` (and, for `sync`, `--point-in-time` and
+  `--expires`), together with their environment variables, now accept only strict RFC 3339 timestamps. Inputs that
+  were previously accepted, such as an offset without a colon (`2023-02-19T12:00:00+0900`), a ` UTC` suffix
+  (`2023-02-19T12:00:00 UTC`) or leading whitespace, are now rejected with an argument error. A leap second (`:60`)
+  is accepted only at 23:59 UTC on the last day of a month and is treated as `23:59:59.999999999`; elsewhere it is
+  rejected. Standard RFC 3339 timestamps such as `2023-02-19T12:00:00Z` and `2023-02-19T12:00:00+09:00` work as
+  before.
+
+#### sync, clean
+
+- [Breaking change] The embedded Lua engine is now Lua 5.5 (previously Lua 5.4, which has reached end of life). Lua
+  5.5 is not fully compatible with Lua 5.4 (for example, `for` loop control variables are now read-only, and `global`
+  is now a reserved word), so existing `--filter-callback-lua-script` / `--event-callback-lua-script` scripts may need
+  to be updated. See [Incompatibilities with the Previous Version](https://www.lua.org/manual/5.5/manual.html#8) in
+  the Lua 5.5 manual.
+
+#### cp, mv
+
+- [Breaking change] `--expires` (and `EXPIRES`) now accepts only strict RFC 3339 timestamps; an offset without a colon
+  (`2023-02-19T12:00:00+0900`) and a leap second (`23:59:60`) are now rejected with an argument error. A value outside
+  `0001-01-01T00:00:00Z`..`9999-12-31T23:59:59Z` (after conversion to UTC) is now rejected at argument parsing instead
+  of failing the upload.
+
+#### put-bucket-lifecycle-configuration
+
+- [Breaking change] A lifecycle `Date` written as an RFC 2822 date with a year before 1900
+  (`Mon, 01 Jan 1800 00:00:00 GMT`) is now rejected. The ISO 8601 spelling of the same date is still accepted.
+
+#### ls
+
+- Listing output is unchanged, including `--show-local-time`. An object, version or delete marker whose
+  `LastModified` falls outside years -9999 to 9999 is now skipped with a warning, and a bucket whose `CreationDate`
+  falls outside that range is listed without a creation date.
+
+### Underlying libraries
+
+```toml
+s3sync = "=1.63.0"
+s3util-rs = "=1.11.0"
+s3rm-rs = "=1.7.0"
+s3ls-rs = "=1.4.0"
+```
+
 ## [1.8.7] - 2026-11-15
 
 Security and bug-fix release: dependency advisories remediated, plus JSON input and output fixes from s3util-rs.
