@@ -82,6 +82,19 @@ own README. Read them to decide whether s7cmd is worth adopting:
   useful, but it is not intended for high-throughput transfer of large
   workloads; use `sync` for that.
 
+  For example, this empties every bucket whose name contains
+  `test-data-bucket`, all object versions included, 32 buckets at a
+  time (explained under [`batch-run`](#batch-run)):
+
+  ```console
+  $ s7cmd ls -1 \
+          | rg 'test-data-bucket' \
+          | sed 's|^|clean -f --show-no-progress --delete-all-versions s3://|' \
+          | s7cmd batch-run - --parallel 32
+  [========================================] 148/148 (148 successes, 0 failures, 0 warnings, 0 skipped) 00:00:01
+  batch-run: 148 succeeded, 0 failed, 0 warnings, 0 skipped, elapsed 1.8s
+  ```
+
 The remaining subcommands (`cp`, `mv`, `rm`, bucket and object
 configuration, and so on) come from
 [s3util-rs](https://github.com/nidor1998/s3util-rs)
@@ -521,6 +534,27 @@ level — only warnings and errors are logged, plus the trailing
 summary line on stderr. That is why the safety guidance pairs
 `--dry-run` with `-v`: you need info-level output to see what
 *would* happen.
+
+A script can also be generated on the fly and piped in via `-`.
+The following empties every bucket whose name contains
+`test-data-bucket` — all object versions and delete markers
+included — 32 buckets at a time. `ls -1` prints one bucket name
+per line, `rg` keeps the matching ones, and `sed` turns each name
+into a `clean` line:
+
+```console
+$ s7cmd ls -1 \
+        | rg 'test-data-bucket' \
+        | sed 's|^|clean -f --show-no-progress --delete-all-versions s3://|' \
+        | s7cmd batch-run - --parallel 32
+[========================================] 148/148 (148 successes, 0 failures, 0 warnings, 0 skipped) 00:00:01
+batch-run: 148 succeeded, 0 failed, 0 warnings, 0 skipped, elapsed 1.8s
+```
+
+`-f` skips `clean`'s confirmation prompt, so nothing asks before
+deleting. Check the generated lines first by running the pipeline
+without its last stage, or preview the deletions by adding
+`--dry-run` to the `clean` line and `-v` to `batch-run`.
 
 **Restrictions.**
 
