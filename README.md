@@ -31,12 +31,12 @@ migrations.
 
 ## Who is this for?
 
-s7cmd covers most of the S3 API, but what sets it apart from other S3
-tools is the advanced functionality of three subcommands: `sync`,
-`ls`, and `clean`. Depending on how you use it, `batch-run` is another
-reason. **If you do not need those features, there may be no reason to
-use s7cmd**: the AWS CLI or another S3 tool you already use is likely
-sufficient for plain copies, listings, and bucket configuration.
+s7cmd covers most of the S3 API, but four things set it apart from
+other S3 tools: the advanced functionality of the `sync`, `ls`, and
+`clean` subcommands, and `batch-run`. **If you do not need those
+features, there may be no reason to use s7cmd**: the AWS CLI or
+another S3 tool you already use is likely sufficient for plain copies,
+listings, and bucket configuration.
 
 `sync`, `ls`, and `clean` are each a tool in its own right, with its
 own README. Read them to decide whether s7cmd is worth adopting:
@@ -56,22 +56,23 @@ own README. Read them to decide whether s7cmd is worth adopting:
   ([README](https://github.com/nidor1998/s3ls-rs/blob/main/README.md)).
   An alternative to `aws s3 ls` for buckets with hundreds of thousands
   or millions of objects: it discovers prefixes and lists them
-  concurrently instead of one page at a time. Depending on how the
-  objects are arranged under prefixes, it can list over 300,000
-  objects per second. It supports versioning (all versions, including
-  delete markers), and offers filtering (regex, size, modified time,
-  storage class), sorting, and text, TSV, one-per-line, or JSON
-  output.
+  concurrently instead of one page at a time. Against Amazon S3 from
+  an EC2 instance, and depending on how the objects are arranged under
+  prefixes, it can list over 300,000 objects per second. It supports
+  versioning (all versions, including delete markers), and offers
+  filtering (regex, size, modified time, storage class), sorting, and
+  text, TSV, one-per-line, or JSON output.
 - **`clean`** — [s3rm-rs](https://github.com/nidor1998/s3rm-rs)
   ([README](https://github.com/nidor1998/s3rm-rs/blob/main/README.md)).
   An alternative to `aws s3 rm --recursive` for bulk deletion: batch
-  deletion with parallel workers and constant memory usage. It can
-  delete approximately 2,000 to 3,000 objects per second. It
-  supports versioning (delete all versions, keep only the latest
-  versions, or delete only delete markers) and advanced filtering:
-  regex, size, modified time, user-defined metadata, and tagging, plus
-  a Lua script that decides, object by object, what to delete. Safety
-  features include dry-run, confirmation, and a deletion limit.
+  deletion with parallel workers and constant memory usage, at
+  approximately 2,000 to 3,000 objects per second against a standard
+  Amazon S3 bucket. It supports versioning (delete all versions, keep
+  only the latest versions, or delete only delete markers) and
+  advanced filtering: regex, size, modified time, user-defined
+  metadata, and tagging, plus a Lua script that decides, object by
+  object, what to delete. Safety features include dry-run,
+  confirmation, and a deletion limit.
 - **`batch-run`** — s7cmd-only; see [`batch-run`](#batch-run) below.
   It reads s7cmd commands from a file or stdin, one per line, and
   executes them in the same process, optionally in parallel, so that
@@ -86,8 +87,8 @@ configuration, and so on) come from
 [s3util-rs](https://github.com/nidor1998/s3util-rs)
 ([README](https://github.com/nidor1998/s3util-rs/blob/main/README.md)).
 They are included so that one binary covers day-to-day S3 work, and
-`cp` and `mv` also verify transfers end to end, but they are not, on
-their own, the reason to choose s7cmd.
+`cp` and `mv` also verify transfers end to end. That breadth is a
+convenience, not what sets s7cmd apart.
 
 ## Features highlights
 
