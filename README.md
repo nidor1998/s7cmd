@@ -36,10 +36,10 @@ rather than trading one for the other.
 
 - **Single binary, full coverage.** Object transfer, bulk delete, and
   every common bucket-level configuration in one tool.
-- **Strong integrity verification.** `sync` and `cp` verify every
-  object end to end, so that what arrives at the target is what was
-  read from the source, and a finished transfer can be verified again
-  afterwards. See
+- **Strong integrity verification.** `sync`, `cp`, and `mv` verify
+  transferred objects end to end, so that what arrives at the target
+  is what was read from the source, and a finished `sync` can be
+  verified again afterwards. See
   [End-to-end object integrity check](#end-to-end-object-integrity-check).
 - **Predictable performance.** Configurable workers, multipart
   thresholds, and chunk sizes; bounded memory footprint suitable for
@@ -50,11 +50,11 @@ rather than trading one for the other.
 ### End-to-end object integrity check
 
 The most notable feature of s7cmd is the end-to-end object integrity
-check implemented by the `sync` and `cp` commands.
+check implemented by the transfer commands: `sync`, `cp`, and `mv`.
 
-s7cmd was designed to meet strict requirements: every transfer is
-required to complete with no single-bit errors or transfer errors. It
-also allows for post-transfer verification using the
+s7cmd was designed for strict requirements, where a transfer must
+complete with no single-bit errors or transfer errors. It also
+supports post-transfer verification with the
 `sync --report-sync-status` option.
 
 - s7cmd calculates the ETag (MD5 or equivalent) for each object and
@@ -66,12 +66,58 @@ also allows for post-transfer verification using the
 - Optionally, s7cmd can also calculate and compare additional checksums
   (SHA256/SHA1/CRC32/CRC32C/CRC64NVME) for each object.
 
-At this time, CRC64NVME is not enabled by default, given the current
-status of additional checksum support in S3-compatible storage.
+For example, a sync with an additional SHA256 checksum reports the
+verification result in its summary line:
 
-For the details, see
+```bash
+$ s7cmd sync --additional-checksum-algorithm SHA256 test_data s3://xxxxx
+772.00 KiB | 772.00 KiB/sec,  transferred 100 objects | 100 objects/sec,  etag verified 100 objects,  checksum verified 100 objects ...(omitted)
+```
+
+`transferred 100 objects | 100 objects/sec,  etag verified 100 objects,  checksum verified 100 objects`
+means that all objects have been transferred and ETag (MD5 or
+equivalent) and additional checksum (SHA256 in this case) have been
+verified successfully.
+
+Note that when a verification fails in `sync`, it is treated as a
+warning rather than an error: the transfer continues, a warning message
+is shown, and the summary counts the object under `warning`. You can
+detect this from the process exit code, which is `3` (exit with
+warning) instead of `0`. `cp` and `mv` report a mismatch as a warning
+(exit code `3`) or as an error (exit code `1`), depending on the
+transfer direction.
+
+The reason is that a mismatch does not always mean corruption. The
+ETag and composite checksums of a multipart object depend on the
+chunk size used for the multipart upload, so the values can differ
+between source and target even when the data was transferred
+accurately. Full-object checksums such as CRC64NVME are the exception:
+they do not depend on the chunk size.
+
+Two cases are not fully verified by the ETag alone:
+
+- For objects encrypted with SSE-KMS, SSE-C, or DSSE-KMS, the ETag is
+  not an MD5 digest and cannot be verified. Use an additional checksum
+  to verify these objects.
+- For multipart objects downloaded from S3 or copied from S3 to S3,
+  s7cmd verifies as much as possible, because the ETag depends on the
+  part sizes used at upload. With `--auto-chunksize`, s7cmd matches
+  the source part sizes and always verifies, at the cost of more API
+  calls and time.
+
+At this time, CRC64NVME is not enabled by default, given the current
+status of additional checksum support in S3-compatible storage. The
+exception is Amazon S3 Express One Zone, which does not support the
+ETag as verification: there, s7cmd verifies with an additional
+checksum (CRC64NVME) by default.
+
+For details, see
 [Object integrity check detail](https://github.com/nidor1998/s3sync/blob/main/FULL_README.md#object-integrity-check-detail)
 in the s3sync documentation.
+
+The `sync` subcommand has many features, so this README cannot cover
+everything here; please refer to the
+[s3sync FULL_README](https://github.com/nidor1998/s3sync/blob/main/FULL_README.md).
 
 ### About the name
 
