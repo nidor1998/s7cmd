@@ -62,7 +62,9 @@ own README. Read them to decide whether s7cmd is worth adopting:
   prefixes, it can list over 300,000 objects per second. It supports
   versioning (all versions, including delete markers), and offers
   filtering (regex, size, modified time, storage class), sorting, and
-  text, TSV, one-per-line, or JSON output.
+  text, TSV, one-per-line, or JSON output. Each format is designed for
+  its reader: aligned text for people, and TSV, one-per-line, or JSON
+  for other commands.
 - **`clean`** — [s3rm-rs](https://github.com/nidor1998/s3rm-rs)
   ([README](https://github.com/nidor1998/s3rm-rs/blob/main/README.md)).
   An alternative to `aws s3 rm --recursive` for bulk deletion: batch
