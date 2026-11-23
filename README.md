@@ -8,26 +8,27 @@
 
 A reliable, flexible, and fast command-line tool for Amazon S3.
 
-s7cmd combines the speed of a Rust async runtime with the breadth of
-the AWS S3 API surface, providing high-throughput object operations
-(`ls`, `cp`, `mv`, `rename`, `rm`, `sync`, `clean`) alongside comprehensive
-bucket administration (lifecycle, policy, encryption, object annotations, CORS, public
-access block, website, logging, notification, and more) — all from a
-single static binary.
+s7cmd covers most of the S3 API from one binary: object operations
+(`ls`, `cp`, `mv`, `rename`, `rm`, `sync`, `clean`), bucket
+administration (lifecycle, policy, encryption, CORS, public access
+block, website, logging, notification, and more), and `batch-run`
+for executing many s7cmd commands in a single process. Its emphasis
+is on `sync`, `ls`, `clean`, and `batch-run`; see
+[Who is this for?](#who-is-this-for).
+
+It is aimed at work where both performance and correctness matter:
+data engineering pipelines, ML training data preparation,
+multi-account bucket governance, and integrity-critical migrations.
 
 s7cmd is a thin command-line wrapper over four Rust libraries by the
-same author: [s3sync](https://github.com/nidor1998/s3sync),
+same author, [s3sync](https://github.com/nidor1998/s3sync),
 [s3ls-rs](https://github.com/nidor1998/s3ls-rs),
 [s3util-rs](https://github.com/nidor1998/s3util-rs), and
-[s3rm-rs](https://github.com/nidor1998/s3rm-rs). Originally, only
-s3sync and s3rm-rs existed and were not intended to be merged, but
-in response to user requests for a unified interface, the
-functionality was split into focused libraries and bundled together
-into a single binary as s7cmd. Built on `aws-sdk-rust` and `tokio`,
-s7cmd targets workloads that demand both performance and operational
-completeness: data engineering pipelines, ML training data
-preparation, multi-account bucket governance, and integrity-critical
-migrations.
+[s3rm-rs](https://github.com/nidor1998/s3rm-rs), built on
+`aws-sdk-rust` and `tokio`. s3sync and s3rm-rs began as separate
+tools; in response to user requests for a unified interface, their
+functionality was split into focused libraries and bundled into
+s7cmd.
 
 ## Who is this for?
 
