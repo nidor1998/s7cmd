@@ -9,6 +9,10 @@ pub struct Summary {
     pub warning: u64,
     pub skipped: u64,
     pub elapsed: Duration,
+    /// Set by the streaming executors when the `--max-errors` threshold
+    /// was reached. Not printed; `run_streaming` uses it to decide how a
+    /// reader error is reported.
+    pub threshold_reached: bool,
 }
 
 impl Summary {
@@ -107,6 +111,7 @@ mod tests {
             failed: 2,
             warning: 5,
             skipped: 1,
+            threshold_reached: false,
             elapsed: Duration::from_millis(12_400),
         };
         assert_eq!(
@@ -131,6 +136,7 @@ mod tests {
             failed: 1,
             warning: 2,
             skipped: 1,
+            threshold_reached: false,
             elapsed: Duration::from_millis(3400),
         };
         let json: serde_json::Value = serde_json::from_str(&s.format_json()).unwrap();

@@ -62,8 +62,12 @@ pub fn read_all<R: BufRead>(mut reader: R) -> Result<Vec<ParsedLine>> {
     let mut line_no: usize = 0;
     loop {
         line_no += 1;
-        let line = match read_line_capped(&mut reader) {
-            Ok(Some(s)) if line_no == 1 => strip_bom(s),
+        let read = if line_no == 1 {
+            read_first_line(&mut reader)
+        } else {
+            read_line_capped(&mut reader)
+        };
+        let line = match read {
             Ok(Some(s)) => s,
             Ok(None) => break,
             Err(e) => return Err(anyhow!("read error at line {line_no}: {e}")),
@@ -101,6 +105,29 @@ pub(crate) fn strip_bom(line: String) -> String {
     }
 }
 
+/// UTF-8 encoding of U+FEFF.
+const BOM_LEN: usize = '\u{FEFF}'.len_utf8();
+
+/// Read the first line of a script: like [`read_line_capped`], with any
+/// leading BOM stripped. The BOM is an encoding marker, not part of the
+/// line, so it does not count toward `MAX_LINE_LEN`: the read allows
+/// `BOM_LEN` extra bytes and the cap is applied to the stripped line.
+pub(crate) fn read_first_line<R: BufRead>(reader: &mut R) -> io::Result<Option<String>> {
+    finish_first_line(read_line_capped_to(reader, FIRST_LINE_READ_CAP)?)
+}
+
+/// Shared tail of the sync and async first-line readers: strip the BOM
+/// from a line read with the `BOM_LEN` allowance, then apply the real cap.
+pub(crate) fn finish_first_line(line: Option<String>) -> io::Result<Option<String>> {
+    match line.map(strip_bom) {
+        Some(l) if l.len() > MAX_LINE_LEN => Err(too_long_err()),
+        other => Ok(other),
+    }
+}
+
+/// Byte cap for reading the first line before its BOM is stripped.
+pub(crate) const FIRST_LINE_READ_CAP: usize = MAX_LINE_LEN + BOM_LEN;
+
 /// Read one line from `reader`, capped at `MAX_LINE_LEN` bytes (excluding
 /// the terminating `\n`). Returns:
 ///   - `Ok(Some(line))` for a successfully read line (newline stripped)
@@ -112,6 +139,11 @@ pub(crate) fn strip_bom(line: String) -> String {
 /// `consume`, so a single multi-GB line is rejected after roughly one
 /// buffer's worth of memory rather than after fully buffering the line.
 pub(crate) fn read_line_capped<R: BufRead>(reader: &mut R) -> io::Result<Option<String>> {
+    read_line_capped_to(reader, MAX_LINE_LEN)
+}
+
+/// [`read_line_capped`] with an explicit byte cap.
+fn read_line_capped_to<R: BufRead>(reader: &mut R, cap: usize) -> io::Result<Option<String>> {
     let mut buf: Vec<u8> = Vec::new();
     loop {
         let available = reader.fill_buf()?;
@@ -128,7 +160,7 @@ pub(crate) fn read_line_capped<R: BufRead>(reader: &mut R) -> io::Result<Option<
             Some(idx) => {
                 buf.extend_from_slice(&available[..idx]);
                 reader.consume(idx + 1);
-                if buf.len() > MAX_LINE_LEN {
+                if buf.len() > cap {
                     return Err(too_long_err());
                 }
                 return String::from_utf8(buf)
@@ -139,7 +171,7 @@ pub(crate) fn read_line_capped<R: BufRead>(reader: &mut R) -> io::Result<Option<
                 buf.extend_from_slice(available);
                 let n = available.len();
                 reader.consume(n);
-                if buf.len() > MAX_LINE_LEN {
+                if buf.len() > cap {
                     return Err(too_long_err());
                 }
             }
@@ -157,6 +189,37 @@ pub(crate) fn too_long_err() -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A BOM does not count toward the line cap: a first line of exactly
+    /// `MAX_LINE_LEN` bytes after the BOM is accepted, one byte more is not,
+    /// and without a BOM the first line gets no extra allowance.
+    #[test]
+    fn first_line_bom_does_not_count_toward_cap() {
+        let body = "x".repeat(MAX_LINE_LEN);
+        let input = format!("\u{FEFF}{body}\n");
+        let mut r = io::BufReader::new(input.as_bytes());
+        assert_eq!(read_first_line(&mut r).unwrap(), Some(body.clone()));
+
+        let input = format!("\u{FEFF}{body}x\n");
+        let mut r = io::BufReader::new(input.as_bytes());
+        assert!(read_first_line(&mut r).is_err());
+
+        let input = format!("{body}xy\n");
+        let mut r = io::BufReader::new(input.as_bytes());
+        assert!(read_first_line(&mut r).is_err());
+    }
+
+    #[test]
+    fn read_all_accepts_bom_on_max_length_first_line() {
+        let body = format!(
+            "ls s3://b/{}",
+            "x".repeat(MAX_LINE_LEN - "ls s3://b/".len())
+        );
+        let input = format!("\u{FEFF}{body}\n");
+        let lines = read_all(io::BufReader::new(input.as_bytes())).unwrap();
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].raw, body);
+    }
 
     #[test]
     fn tokenize_simple_command() {

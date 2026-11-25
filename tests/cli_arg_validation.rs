@@ -64,11 +64,11 @@ fn sync_and_clean_no_args_print_formatted_error_with_usage() {
 }
 
 /// `--version` belongs to the top level only. The upstream parsers for
-/// sync / ls / clean declare their own, which reported the engine crate's
+/// sync / ls / clean (s3rm-rs) declare their own, which reported the engine crate's
 /// version (`s7cmd-sync 1.63.0`) instead of s7cmd's.
 #[test]
 fn subcommand_version_flag_is_rejected() {
-    for sub in ["sync", "ls", "clean", "cp"] {
+    for sub in ["sync", "ls", "clean", "cp", "rm"] {
         for flag in ["--version", "-V"] {
             let (code, stdout, stderr) = run(s7cmd_cmd().args([sub, flag]));
             assert_eq!(

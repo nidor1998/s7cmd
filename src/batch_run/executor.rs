@@ -267,6 +267,17 @@ pub struct ExecutorOptions {
     pub continue_on_warning: bool,
     pub streaming: bool,
     pub no_progress: bool,
+    /// Streaming only: after an early stop (`--max-errors`, Ctrl-C),
+    /// close the channel so the reader stops at once instead of reading
+    /// the script to EOF. Set for a script that may never end — stdin, a
+    /// FIFO, `/dev/stdin`, a process substitution (`tail -f cmds | ...`);
+    /// there the summary's skipped count covers only the lines already
+    /// queued. Unset for a regular file, which always ends, so after a
+    /// `--max-errors` stop every remaining line up to EOF (or the first
+    /// read error) is counted as skipped.
+    /// (Ctrl-C stops the reader itself in both cases, so after an
+    /// interrupt only the queued lines are counted.)
+    pub close_on_stop: bool,
 }
 
 /// Returns true when this exit code should count toward the
@@ -416,6 +427,11 @@ pub async fn run_parallel(
                 if interrupt.load(Ordering::SeqCst) {
                     break;
                 }
+                // Same for the error threshold: a running task may have
+                // tripped it while this loop waited for a permit.
+                if fail_cancel.load(Ordering::SeqCst) {
+                    break;
+                }
                 let dispatch = Arc::clone(&dispatch);
                 let progress = Arc::clone(&progress);
                 let fail_cancel = Arc::clone(&fail_cancel);
@@ -493,10 +509,7 @@ pub async fn run_sequential_streaming(
     while let Some(line) = rx.recv().await {
         if interrupt.load(Ordering::SeqCst) {
             summary.skipped += 1;
-            // Drain remaining items the reader has already produced.
-            while rx.recv().await.is_some() {
-                summary.skipped += 1;
-            }
+            summary.skipped += close_and_drain(&mut rx, opts.close_on_stop).await;
             break;
         }
         let (_, code) = execute_line(line, &dispatch).await;
@@ -506,10 +519,8 @@ pub async fn run_sequential_streaming(
         if is_stop_worthy(code, opts.continue_on_warning) {
             fail_count += 1;
             if opts.error_threshold.is_some_and(|t| fail_count >= t) {
-                // Drain remaining items already in the channel as skipped.
-                while rx.recv().await.is_some() {
-                    summary.skipped += 1;
-                }
+                summary.threshold_reached = true;
+                summary.skipped += close_and_drain(&mut rx, opts.close_on_stop).await;
                 break;
             }
         }
@@ -536,6 +547,10 @@ pub async fn run_parallel_streaming(
 
     let sem = Arc::new(Semaphore::new(opts.workers));
     let fail_cancel = Arc::new(AtomicBool::new(false));
+    // Wakes the spawn loop when a task trips the threshold while the loop
+    // is parked on `rx.recv()`; otherwise a stalled input (`tail -f`)
+    // would keep the run alive until the next line arrived.
+    let fail_notify = Arc::new(tokio::sync::Notify::new());
     let fail_count = Arc::new(std::sync::atomic::AtomicU64::new(0));
 
     // Use LocalSet because dispatch futures are not Send.
@@ -556,10 +571,15 @@ pub async fn run_parallel_streaming(
                 }
 
                 // Pull the next line from the channel, OR notice channel
-                // closed (meaning reader is done).
-                let line = match rx.recv().await {
-                    Some(line) => line,
-                    None => break, // channel closed, reader finished
+                // closed (meaning reader is done), OR a task tripping the
+                // error threshold while we wait. `recv` is cancel-safe.
+                let line = tokio::select! {
+                    biased;
+                    _ = fail_notify.notified() => break,
+                    line = rx.recv() => match line {
+                        Some(line) => line,
+                        None => break, // channel closed, reader finished
+                    },
                 };
 
                 let permit = sem.clone().acquire_owned().await.expect("sem closed");
@@ -575,9 +595,17 @@ pub async fn run_parallel_streaming(
                     summary.skipped += 1;
                     break;
                 }
+                // Same for the error threshold: a running task may have
+                // tripped it while this loop waited for a permit, and the
+                // line pulled above must not start after the stop.
+                if fail_cancel.load(Ordering::SeqCst) {
+                    summary.skipped += 1;
+                    break;
+                }
                 let dispatch = Arc::clone(&dispatch);
                 let progress = Arc::clone(&progress);
                 let fail_cancel = Arc::clone(&fail_cancel);
+                let fail_notify = Arc::clone(&fail_notify);
                 let fail_count = Arc::clone(&fail_count);
                 let error_threshold = opts.error_threshold;
                 let continue_on_warning = opts.continue_on_warning;
@@ -590,6 +618,7 @@ pub async fn run_parallel_streaming(
                             && new_count >= threshold
                         {
                             fail_cancel.store(true, Ordering::SeqCst);
+                            fail_notify.notify_one();
                         }
                     }
                     progress.lock().await.tick(code);
@@ -597,10 +626,11 @@ pub async fn run_parallel_streaming(
                 });
             }
 
-            // Spawn loop ended. Drain any remaining channel items as skipped.
-            while rx.recv().await.is_some() {
-                summary.skipped += 1;
-            }
+            // Spawn loop ended. If it stopped early, close the channel so
+            // the reader stops reading, then count what it had already
+            // queued as skipped. After a normal EOF the channel is already
+            // closed and empty, so this is a no-op.
+            summary.skipped += close_and_drain(&mut rx, opts.close_on_stop).await;
 
             // Wait for all spawned tasks to finish.
             let mut worst = 0i32;
@@ -620,6 +650,9 @@ pub async fn run_parallel_streaming(
             worst
         })
         .await;
+    // Read after every task has joined, so a threshold tripped by the
+    // last running task is seen too.
+    summary.threshold_reached = fail_cancel.load(Ordering::SeqCst);
 
     {
         let p = progress.lock().await;
@@ -631,6 +664,29 @@ pub async fn run_parallel_streaming(
     }
     summary.elapsed = start.elapsed();
     (worst, summary)
+}
+
+/// Count the lines left in the channel as skipped. With `close` (see
+/// `ExecutorOptions::close_on_stop`) the channel is closed first, which
+/// makes the reader's pending `tx.closed()` resolve, so it stops reading
+/// at once instead of reading to EOF — which, for a pipe that never
+/// ends, would hang the run after a `--max-errors` stop. Lines it had not
+/// read yet are then neither counted nor examined. Without `close` the
+/// reader runs to EOF (or to its first read error) and every line it
+/// reads is counted, so the count does not depend on how far the reader
+/// had got.
+async fn close_and_drain(
+    rx: &mut tokio::sync::mpsc::UnboundedReceiver<PreparedLine>,
+    close: bool,
+) -> u64 {
+    if close {
+        rx.close();
+    }
+    let mut n = 0;
+    while rx.recv().await.is_some() {
+        n += 1;
+    }
+    n
 }
 
 /// `finish()` makes the bar jump to 100%; `abandon()` leaves it at the
@@ -735,6 +791,7 @@ mod tests {
             continue_on_warning: false,
             streaming: false,
             no_progress: false,
+            close_on_stop: false,
         }
     }
 
@@ -745,6 +802,7 @@ mod tests {
             continue_on_warning: true,
             streaming: false,
             no_progress: false,
+            close_on_stop: false,
         }
     }
 
