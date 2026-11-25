@@ -67,6 +67,14 @@ mod tests {
         let args = parse(&["put-bucket-versioning", "s3://b"]);
         let err = check_state_flag(&args).expect_err("neither flag must be rejected");
         assert_eq!(err.kind(), clap::error::ErrorKind::MissingRequiredArgument);
+        // The usage line must name the s7cmd subcommand. If the literal
+        // passed to `subcommand_for_error` drifts from the real subcommand
+        // name, it silently falls back to the top-level `s7cmd [COMMAND]`.
+        assert!(
+            err.to_string()
+                .contains("Usage: s7cmd put-bucket-versioning "),
+            "unexpected usage line: {err}"
+        );
         assert!(
             err.to_string()
                 .contains("one of --enabled or --suspended must be specified")

@@ -434,13 +434,13 @@ async fn run_streaming(args: BatchRunArgs) -> i32 {
 
 /// Fold a streaming-reader failure (read I/O error, over-long line,
 /// non-UTF-8 input, reader panic) into the executor's exit code. The run
-/// was truncated, so success (0) and the warning / partial codes
-/// (2 / 3 / 4) are promoted to failure (1) — `code.max(1)` would have
-/// kept 2-4. Out-of-band outcomes above 4 (130 = interrupted by Ctrl-C,
-/// 101 = a line panicked) are kept as-is so callers can still tell why
-/// the run stopped; the reader error itself is already logged.
+/// was truncated, so it is a failure (1), combined through the executor's
+/// `worse_of` so batch-run has a single exit-code ordering. That ordering
+/// ranks 1 above every other code, including 130 (interrupted) and 101
+/// (a line panicked): a truncated script must never look like anything
+/// but a failure. The reader error itself is already logged.
 fn with_reader_failure(code: i32) -> i32 {
-    if code > 4 { code } else { 1 }
+    executor::worse_of(code, 1)
 }
 
 /// Pick the summary representation: human-readable line by default,
@@ -1116,9 +1116,9 @@ mod tests {
     }
 
     #[test]
-    fn with_reader_failure_keeps_interrupt_and_panic_codes() {
-        assert_eq!(with_reader_failure(130), 130);
-        assert_eq!(with_reader_failure(101), 101);
+    fn with_reader_failure_overrides_interrupt_and_panic_codes() {
+        assert_eq!(with_reader_failure(130), 1);
+        assert_eq!(with_reader_failure(101), 1);
     }
 
     /// A UTF-8 BOM on the first script line must be stripped in streaming
