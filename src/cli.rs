@@ -502,12 +502,19 @@ fn build_cli_command() -> clap::Command {
 /// Falls back to the top-level command for an unknown name.
 #[allow(dead_code)] // used from main.rs / util_bin; cli_routing test includes this file directly
 pub fn subcommand_for_error(name: &str) -> clap::Command {
-    let mut top = cli_command();
-    // Build once so clap fills in usage/bin-name metadata for subcommands.
-    top.build();
-    match top.find_subcommand(name) {
+    // `check_state_flag` failures call this once per bad line in
+    // batch-run, so cache the *built* tree rather than cloning and
+    // building all ~40 subcommands each time; only the one subcommand
+    // that is found gets cloned.
+    static BUILT: LazyLock<clap::Command> = LazyLock::new(|| {
+        let mut top = cli_command();
+        // Build once so clap fills in usage/bin-name metadata for subcommands.
+        top.build();
+        top
+    });
+    match BUILT.find_subcommand(name) {
         Some(sub) => sub.clone().bin_name(format!("s7cmd {name}")),
-        None => top,
+        None => BUILT.clone(),
     }
 }
 

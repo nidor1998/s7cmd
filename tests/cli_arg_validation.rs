@@ -76,9 +76,11 @@ fn subcommand_version_flag_is_rejected() {
                 Some(2),
                 "{sub} {flag}: stdout={stdout} stderr={stderr}"
             );
+            // Any version line — `s7cmd-<sub>`, an engine binary name such
+            // as `s3ls-rs`, or a bare `1.2.0` — would land on stdout.
             assert!(
-                !stdout.contains(&format!("s7cmd-{sub}")),
-                "{sub} {flag} must not print an engine version: {stdout}"
+                stdout.is_empty(),
+                "{sub} {flag} must not print a version: {stdout}"
             );
         }
     }
