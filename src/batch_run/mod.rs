@@ -121,6 +121,7 @@ fn check_format_lines<R: BufRead>(mut reader: R, source: &str) -> bool {
     loop {
         line_no += 1;
         let line = match parser::read_line_capped(&mut reader) {
+            Ok(Some(s)) if line_no == 1 => parser::strip_bom(s),
             Ok(Some(s)) => s,
             Ok(None) => return false,
             Err(e) => {
@@ -411,11 +412,11 @@ async fn run_streaming(args: BatchRunArgs) -> i32 {
         Ok(Ok(())) => code,
         Ok(Err(e)) => {
             tracing::error!("{}", flatten(&e.to_string()));
-            code.max(1)
+            with_reader_failure(code)
         }
         Err(e) => {
             tracing::error!("reader task panicked: {e}");
-            code.max(1)
+            with_reader_failure(code)
         }
     };
 
@@ -429,6 +430,16 @@ async fn run_streaming(args: BatchRunArgs) -> i32 {
     }
 
     final_code
+}
+
+/// Fold a streaming-reader failure (read I/O error, over-long line,
+/// non-UTF-8 input, reader panic) into the executor's exit code. The run
+/// was truncated, so it is a failure (1) even when every line that did
+/// run exited 0 or only warned (3 / 4) — `code.max(1)` would have kept
+/// those warning codes. Uses the executor's severity ranking so the
+/// result agrees with how per-line codes are combined.
+fn with_reader_failure(code: i32) -> i32 {
+    executor::worse_of(code, 1)
 }
 
 /// Pick the summary representation: human-readable line by default,
@@ -473,6 +484,7 @@ where
             result = read_line_capped_async(&mut reader) => {
                 line_no += 1;
                 let text = match result {
+                    Ok(Some(t)) if line_no == 1 => parser::strip_bom(t),
                     Ok(Some(t)) => t,
                     Ok(None) => return Ok(()), // EOF
                     Err(e) => {
@@ -1093,6 +1105,36 @@ mod tests {
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
     }
 
+    #[test]
+    fn with_reader_failure_promotes_success_and_warnings_to_failure() {
+        assert_eq!(with_reader_failure(0), 1);
+        assert_eq!(with_reader_failure(3), 1);
+        assert_eq!(with_reader_failure(4), 1);
+        assert_eq!(with_reader_failure(2), 1);
+        assert_eq!(with_reader_failure(1), 1);
+        assert_eq!(with_reader_failure(101), 1);
+    }
+
+    /// A UTF-8 BOM on the first script line must be stripped in streaming
+    /// mode too, so the line reaches the executor as a real command.
+    #[tokio::test]
+    async fn streaming_reader_strips_utf8_bom_from_first_line() {
+        let input = "\u{FEFF}head-bucket s3://b1\n";
+        let reader = tokio::io::BufReader::new(input.as_bytes());
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<PreparedLine>();
+        let interrupt: Interrupt = Arc::new(AtomicBool::new(false));
+        streaming_reader(reader, tx, interrupt, "test".to_string())
+            .await
+            .unwrap();
+        let line = rx.recv().await.expect("one prepared line");
+        assert_eq!(line.raw, "head-bucket s3://b1");
+        assert!(
+            matches!(line.kind, executor::PreparedLineKind::Cmd(_)),
+            "BOM-prefixed first line must parse as a command"
+        );
+        assert!(rx.recv().await.is_none());
+    }
+
     /// `streaming_reader` is generic over `AsyncBufRead`; in production
     /// it's called with both `tokio::io::stdin()` and `tokio::fs::File`.
     /// On a read I/O error it must name the *actual* source (file path or
@@ -1142,6 +1184,14 @@ mod tests {
     #[test]
     fn check_format_lines_only_blank_and_comment_is_clean() {
         let input: &[u8] = b"\n# comment\n   \n";
+        assert!(!check_format_lines(input, "test"));
+    }
+
+    #[test]
+    fn check_format_lines_bom_prefixed_script_is_clean() {
+        let input: &[u8] = "\u{FEFF}# header\nhead-bucket s3://b1\n".as_bytes();
+        assert!(!check_format_lines(input, "test"));
+        let input: &[u8] = "\u{FEFF}head-bucket s3://b1\n".as_bytes();
         assert!(!check_format_lines(input, "test"));
     }
 

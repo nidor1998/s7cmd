@@ -7,7 +7,6 @@
 //              batch-run instead of failing one line).
 use anyhow::Result;
 use aws_sdk_s3::types::RequestPaymentConfiguration;
-use clap::CommandFactory;
 use tracing::info;
 
 use s3util_rs::config::ClientConfig;
@@ -59,7 +58,7 @@ pub async fn run_put_bucket_request_payment(
 /// code as upstream, without terminating the process.
 pub fn check_state_flag(args: &PutBucketRequestPaymentArgs) -> Result<(), clap::Error> {
     if !args.requester && !args.bucket_owner {
-        let mut cmd = PutBucketRequestPaymentArgs::command();
+        let mut cmd = crate::cli::subcommand_for_error("put-bucket-request-payment");
         return Err(cmd.error(
             clap::error::ErrorKind::MissingRequiredArgument,
             "one of --requester or --bucket-owner must be specified",

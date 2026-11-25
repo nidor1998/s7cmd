@@ -305,7 +305,7 @@ fn severity_rank(code: i32) -> u32 {
 /// Returns whichever of `a` / `b` ranks higher by `severity_rank`.
 /// Ties keep `a` (the existing accumulator), so callers can write
 /// `worst = worse_of(worst, code)` without surprises.
-fn worse_of(a: i32, b: i32) -> i32 {
+pub(crate) fn worse_of(a: i32, b: i32) -> i32 {
     if severity_rank(b) > severity_rank(a) {
         b
     } else {

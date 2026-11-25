@@ -7,7 +7,6 @@
 //              batch-run instead of failing one line).
 use anyhow::Result;
 use aws_sdk_s3::types::AccelerateConfiguration;
-use clap::CommandFactory;
 use tracing::info;
 
 use s3util_rs::config::ClientConfig;
@@ -59,7 +58,7 @@ pub async fn run_put_bucket_accelerate_configuration(
 /// code as upstream, without terminating the process.
 pub fn check_state_flag(args: &PutBucketAccelerateConfigurationArgs) -> Result<(), clap::Error> {
     if !args.enabled && !args.suspended {
-        let mut cmd = PutBucketAccelerateConfigurationArgs::command();
+        let mut cmd = crate::cli::subcommand_for_error("put-bucket-accelerate-configuration");
         return Err(cmd.error(
             clap::error::ErrorKind::MissingRequiredArgument,
             "one of --enabled or --suspended must be specified",

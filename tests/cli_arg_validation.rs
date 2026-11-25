@@ -40,6 +40,50 @@ fn sync_no_args_exits_2() {
     assert!(!stderr.is_empty(), "sync with no args must produce stderr");
 }
 
+/// The missing-positional error for `sync` / `clean` comes from
+/// `FromArgMatches`, not the parser, so it has no command context of its
+/// own. It must still be a fully formatted clap error: newline-terminated,
+/// with an `s7cmd <sub>` usage line.
+#[test]
+fn sync_and_clean_no_args_print_formatted_error_with_usage() {
+    for (sub, usage) in [
+        ("sync", "Usage: s7cmd sync"),
+        ("clean", "Usage: s7cmd clean"),
+    ] {
+        let (code, _stdout, stderr) = run(s7cmd_cmd().arg(sub));
+        assert_eq!(code, Some(2), "{sub}: stderr={stderr}");
+        assert!(
+            stderr.contains(usage),
+            "{sub}: expected `{usage}`; got: {stderr}"
+        );
+        assert!(
+            stderr.ends_with('\n'),
+            "{sub}: stderr must end with a newline: {stderr:?}"
+        );
+    }
+}
+
+/// `--version` belongs to the top level only. The upstream parsers for
+/// sync / ls / clean declare their own, which reported the engine crate's
+/// version (`s7cmd-sync 1.63.0`) instead of s7cmd's.
+#[test]
+fn subcommand_version_flag_is_rejected() {
+    for sub in ["sync", "ls", "clean", "cp"] {
+        for flag in ["--version", "-V"] {
+            let (code, stdout, stderr) = run(s7cmd_cmd().args([sub, flag]));
+            assert_eq!(
+                code,
+                Some(2),
+                "{sub} {flag}: stdout={stdout} stderr={stderr}"
+            );
+            assert!(
+                !stdout.contains(&format!("s7cmd-{sub}")),
+                "{sub} {flag} must not print an engine version: {stdout}"
+            );
+        }
+    }
+}
+
 // ---- ls ----
 
 #[test]
@@ -346,6 +390,26 @@ fn put_bucket_versioning_no_args_exits_2() {
     let (code, _stdout, stderr) = run(s7cmd_cmd().arg("put-bucket-versioning"));
     assert_eq!(code, Some(2));
     assert!(!stderr.is_empty());
+}
+
+/// The state-flag check runs after parsing, against a hand-built clap
+/// command. Its usage line must name s7cmd, not upstream's `s3util-rs`.
+#[test]
+fn state_flag_errors_show_s7cmd_usage() {
+    for sub in [
+        "put-bucket-versioning",
+        "put-bucket-request-payment",
+        "put-bucket-accelerate-configuration",
+    ] {
+        let (code, _stdout, stderr) = run(s7cmd_cmd().args([sub, "s3://example-bucket"]));
+        assert_eq!(code, Some(2), "{sub}: stderr={stderr}");
+        assert!(stderr.contains("must be specified"), "{sub}: {stderr}");
+        assert!(
+            stderr.contains(&format!("Usage: s7cmd {sub}")),
+            "{sub}: expected s7cmd usage; got: {stderr}"
+        );
+        assert!(!stderr.contains("s3util-rs"), "{sub}: {stderr}");
+    }
 }
 
 // ---- get-bucket-lifecycle-configuration ----

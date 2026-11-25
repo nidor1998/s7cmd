@@ -63,6 +63,7 @@ pub fn read_all<R: BufRead>(mut reader: R) -> Result<Vec<ParsedLine>> {
     loop {
         line_no += 1;
         let line = match read_line_capped(&mut reader) {
+            Ok(Some(s)) if line_no == 1 => strip_bom(s),
             Ok(Some(s)) => s,
             Ok(None) => break,
             Err(e) => return Err(anyhow!("read error at line {line_no}: {e}")),
@@ -86,6 +87,18 @@ pub fn read_all<R: BufRead>(mut reader: R) -> Result<Vec<ParsedLine>> {
         }
     }
     Ok(out)
+}
+
+/// Strip a leading UTF-8 byte order mark (U+FEFF). Editors such as
+/// Windows Notepad prepend one to UTF-8 files; left in place it glues
+/// onto the first token (`\u{FEFF}ls` is not a subcommand) and defeats
+/// the `#` comment check, because `str::trim` does not treat U+FEFF as
+/// whitespace. Call this on the first line of a script only.
+pub(crate) fn strip_bom(line: String) -> String {
+    match line.strip_prefix('\u{FEFF}') {
+        Some(rest) => rest.to_string(),
+        None => line,
+    }
 }
 
 /// Read one line from `reader`, capped at `MAX_LINE_LEN` bytes (excluding
@@ -193,6 +206,32 @@ mod tests {
         assert!(
             matches!(&lines[1].kind, ParsedLineKind::Ok(a) if a == &vec!["s7cmd".to_string(), "cp".to_string(), "/a".to_string(), "s3://b2/k".to_string()])
         );
+    }
+
+    #[test]
+    fn read_all_strips_utf8_bom_from_first_line() {
+        let input = "\u{FEFF}ls s3://b1\n# c\n";
+        let lines = read_all(input.as_bytes()).unwrap();
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].raw, "ls s3://b1");
+        assert!(
+            matches!(&lines[0].kind, ParsedLineKind::Ok(a) if a == &vec!["s7cmd".to_string(), "ls".to_string(), "s3://b1".to_string()])
+        );
+    }
+
+    #[test]
+    fn read_all_bom_before_comment_is_still_a_comment() {
+        let input = "\u{FEFF}# header\nls s3://b1\n";
+        let lines = read_all(input.as_bytes()).unwrap();
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].line_no, 2);
+    }
+
+    #[test]
+    fn strip_bom_only_strips_a_leading_bom() {
+        assert_eq!(strip_bom("\u{FEFF}ls".to_string()), "ls");
+        assert_eq!(strip_bom("ls".to_string()), "ls");
+        assert_eq!(strip_bom("ls \u{FEFF}".to_string()), "ls \u{FEFF}");
     }
 
     #[test]
