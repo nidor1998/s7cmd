@@ -483,10 +483,39 @@ fn build_cli_command() -> clap::Command {
             } else {
                 sub
             };
+            // Upstream parsers (s3sync, s3ls-rs, s3rm-rs) declare their own
+            // `version`, so `s7cmd sync --version` would report the engine
+            // crate's version under a `s7cmd-sync` name. s7cmd's version is
+            // the top-level `s7cmd --version`; drop the per-subcommand flag
+            // so every subcommand behaves like `cp` (no `--version`).
+            let sub = sub.version(None::<&'static str>).disable_version_flag(true);
             hide_credential_env_values(sub)
         });
     }
     cmd
+}
+
+/// Return the s7cmd subcommand `name` (as seen in `s7cmd <name>`), ready
+/// to format a `clap::Error` against, so the error's `Usage:` line reads
+/// `s7cmd <name> ...` rather than the upstream crate's binary name
+/// (`s3util-rs`, `s3sync`, ...) or the bare top-level `s7cmd [COMMAND]`.
+/// Falls back to the top-level command for an unknown name.
+#[allow(dead_code)] // used from main.rs / util_bin; cli_routing test includes this file directly
+pub fn subcommand_for_error(name: &str) -> clap::Command {
+    // `check_state_flag` failures call this once per bad line in
+    // batch-run, so cache the *built* tree rather than cloning and
+    // building all ~40 subcommands each time; only the one subcommand
+    // that is found gets cloned.
+    static BUILT: LazyLock<clap::Command> = LazyLock::new(|| {
+        let mut top = cli_command();
+        // Build once so clap fills in usage/bin-name metadata for subcommands.
+        top.build();
+        top
+    });
+    match BUILT.find_subcommand(name) {
+        Some(sub) => sub.clone().bin_name(format!("s7cmd {name}")),
+        None => BUILT.clone(),
+    }
 }
 
 /// Mark every env-backed credential argument `hide_env_values` so a secret
