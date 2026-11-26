@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Removed the per-subcommand `--version` flag inherited from the underlying libraries (for `sync`, `ls` and `clean` it
+  reported the engine crate's version rather than s7cmd's). Use `s7cmd --version`.
+
+### Fixed
+
+#### All subcommands
+
+- Argument errors detected after parsing (for example `s7cmd sync` with no arguments) are now formatted against the
+  subcommand: they end with a newline and show its usage line.
+
+#### put-bucket-versioning, put-bucket-request-payment, put-bucket-accelerate-configuration
+
+- Errors for the state flags now show `Usage: s7cmd <subcommand>` instead of `Usage: s3util-rs ...`.
+
+#### batch-run
+
+- A UTF-8 BOM at the start of the script is now stripped from the first line in read-all, `--streaming` and
+  `--check-format` modes.
+- With `--streaming`, a script read error (for example invalid UTF-8) now always exits with 1, including when the
+  lines run before it exited 0, 3, 4, 130 (interrupted) or 101 (a line panicked). A read error reached after
+  `--max-errors` has already ended the run is shown as a warning and does not change the exit code.
+- With `--streaming` on an input that never ends (stdin or a FIFO), `--max-errors` and Ctrl-C now stop the run
+  promptly instead of waiting forever for the next line. In parallel mode, no new lines are started after the error
+  threshold is reached.
+- A second Ctrl-C now force-quits with exit code 130.
+- A single Ctrl-C now ends a `--streaming` run that is waiting to open a FIFO with no writer (exit code 0, as for any
+  idle interrupted run); previously a second press was needed.
+
 ## [1.9.0] - 2026-11-22
 
 Update for the end of life (EOL) of the `chrono` crate and Lua 5.4.
