@@ -476,6 +476,34 @@ impl tokio::io::AsyncRead for ThreadReader {
     }
 }
 
+/// Open the script at `path`, giving up if `interrupt` fires first.
+/// Returns `None` on interrupt.
+///
+/// Opening a FIFO blocks until a writer opens the other end, which may
+/// never happen. The open runs on its own thread rather than through
+/// `tokio::fs` (tokio's blocking pool): the runtime waits for blocking-pool
+/// work at shutdown, so an abandoned open would still keep the process
+/// alive until a writer showed up. A detached thread does not hold up the
+/// process exit (the same reasoning as `ThreadReader`). `notify_one`
+/// stores a permit, so a Ctrl-C that landed before this call is seen too.
+async fn open_script_interruptible(
+    path: &str,
+    interrupt: &tokio::sync::Notify,
+) -> Option<std::io::Result<std::fs::File>> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let path = path.to_string();
+    std::thread::spawn(move || {
+        let _ = tx.send(std::fs::File::open(&path));
+    });
+    tokio::select! {
+        biased;
+        _ = interrupt.notified() => None,
+        opened = rx => Some(opened.unwrap_or_else(|_| {
+            Err(std::io::Error::other("script open thread exited without a result"))
+        })),
+    }
+}
+
 /// Streaming mode. Read and execute lines concurrently. The SIGINT
 /// listener is installed BEFORE script reading because read and execute
 /// are interleaved — Ctrl-C must abort both halves of the pipeline.
@@ -525,17 +553,21 @@ async fn run_streaming(args: BatchRunArgs) -> i32 {
             async move { streaming_reader(reader, tx, interrupt_for_reader, source).await },
         )
     } else {
-        match tokio::fs::File::open(&args.script).await {
+        // Ctrl-C while the open is pending ends the run like an idle
+        // interrupt (exit 0, as for `-` — see below); nothing has run.
+        let Some(opened) = open_script_interruptible(&args.script, &interrupt_notify).await else {
+            return 0;
+        };
+        match opened {
             Ok(f) => {
-                let is_file = f.metadata().await.map(|m| m.is_file()).unwrap_or(false);
+                let is_file = f.metadata().map(|m| m.is_file()).unwrap_or(false);
                 if is_file {
-                    let reader = tokio::io::BufReader::new(f);
+                    let reader = tokio::io::BufReader::new(tokio::fs::File::from_std(f));
                     tokio::spawn(async move {
                         streaming_reader(reader, tx, interrupt_for_reader, source).await
                     })
                 } else {
                     opts.close_on_stop = true;
-                    let f = f.into_std().await;
                     let reader = tokio::io::BufReader::new(ThreadReader::spawn(f));
                     tokio::spawn(async move {
                         streaming_reader(reader, tx, interrupt_for_reader, source).await

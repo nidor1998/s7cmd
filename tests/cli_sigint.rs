@@ -272,3 +272,41 @@ fn batch_run_streaming_max_errors_stop_exits_with_open_fifo_script() {
         "the invalid line's exit code; got {status:?}"
     );
 }
+
+/// A FIFO script with no writer: opening it blocks until a writer shows
+/// up. A single SIGINT must end the run while the open is still pending,
+/// without a second Ctrl-C and without anyone opening the write end.
+#[test]
+fn batch_run_streaming_sigint_while_opening_fifo_script_exits_0() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let fifo = dir.path().join("cmds.fifo");
+    let made = Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .expect("run mkfifo");
+    assert!(made.success(), "mkfifo failed: {made:?}");
+
+    let mut child = s7cmd()
+        .args(["batch-run", "--streaming", "--no-summary"])
+        .arg(&fifo)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("failed to spawn s7cmd");
+
+    std::thread::sleep(STARTUP_DELAY);
+    let _ = kill(Pid::from_raw(child.id() as i32), Signal::SIGINT);
+
+    let status = wait_bounded(&mut child).unwrap_or_else(|| {
+        let _ = child.kill();
+        panic!(
+            "streaming batch-run blocked opening a FIFO did not exit within {WAIT_TIMEOUT:?} of one SIGINT"
+        );
+    });
+    assert_eq!(
+        status.code(),
+        Some(0),
+        "interrupted idle streaming batch must exit 0; got {status:?}"
+    );
+}
