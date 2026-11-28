@@ -761,3 +761,103 @@ fn head_object_help_hides_credential_env_values() {
         ],
     );
 }
+
+// ---- Help text documented by s3sync 1.64.1 ----
+
+fn help_stdout(sub: &str) -> String {
+    let output = Command::cargo_bin("s7cmd")
+        .unwrap()
+        .args([sub, "--help"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{sub} --help must succeed");
+    String::from_utf8(output.stdout).unwrap()
+}
+
+/// The help text following `--<flag> <VALUE>` up to the next blank line.
+fn option_help<'a>(help: &'a str, flag: &str) -> &'a str {
+    let start = help
+        .find(&format!("      --{flag} <"))
+        .unwrap_or_else(|| panic!("--{flag} not found in help"));
+    let rest = &help[start..];
+    &rest[..rest.find("\n\n").unwrap_or(rest.len())]
+}
+
+/// Size suffixes are case-sensitive: a suffix ending in a lowercase `b`
+/// means bits. Every `sync` option that takes a size says so.
+#[test]
+fn sync_help_documents_case_sensitive_size_suffixes() {
+    let help = help_stdout("sync");
+    for flag in [
+        "filter-smaller-size",
+        "filter-larger-size",
+        "rate-limit-bandwidth",
+        "multipart-threshold",
+        "multipart-chunksize",
+        "lua-vm-memory-limit",
+    ] {
+        let text = option_help(&help, flag);
+        assert!(
+            text.contains("A suffix ending in a lowercase b means bits, not bytes"),
+            "--{flag} must document the lowercase-b suffix; got:\n{text}"
+        );
+    }
+}
+
+/// The examples in the note must be valid for the option they are attached
+/// to: the options with a minimum (5MiB / 1MiB) use an example above it.
+#[test]
+fn sync_help_size_suffix_examples_respect_option_minimums() {
+    let help = help_stdout("sync");
+    for flag in [
+        "rate-limit-bandwidth",
+        "multipart-threshold",
+        "multipart-chunksize",
+    ] {
+        let text = option_help(&help, flag);
+        assert!(
+            text.contains("(e.g. 64Mib = 8MiB)"),
+            "--{flag} must use an example above its minimum; got:\n{text}"
+        );
+    }
+    for flag in [
+        "filter-smaller-size",
+        "filter-larger-size",
+        "lua-vm-memory-limit",
+    ] {
+        let text = option_help(&help, flag);
+        assert!(text.contains("(e.g. 8Mb = 1MB)"), "--{flag}; got:\n{text}");
+    }
+}
+
+/// `cp` and `mv` take the same sizes and carry the same note.
+#[test]
+fn cp_and_mv_help_document_case_sensitive_size_suffixes() {
+    for sub in ["cp", "mv"] {
+        let help = help_stdout(sub);
+        for flag in [
+            "rate-limit-bandwidth",
+            "multipart-threshold",
+            "multipart-chunksize",
+        ] {
+            let text = option_help(&help, flag);
+            assert!(
+                text.contains("lowercase b means bits, not bytes"),
+                "{sub} --{flag} must document the lowercase-b suffix; got:\n{text}"
+            );
+        }
+    }
+}
+
+/// `--if-match` now also covers `CopyObject` (`--server-side-copy`).
+#[test]
+fn sync_help_if_match_lists_copy_object() {
+    let help = help_stdout("sync");
+    let start = help.find("      --if-match\n").expect("--if-match in help");
+    let text = &help[start..];
+    let text = &text[..text.find("\n\n").unwrap_or(text.len())];
+    assert!(
+        text.contains("PutObject/CopyObject/CompleteMultipartUpload/DeleteObject"),
+        "--if-match must list CopyObject; got:\n{text}"
+    );
+}
