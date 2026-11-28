@@ -729,6 +729,46 @@ fn sigint_during_cp_download_exits_130() {
     let _ = std::fs::remove_dir_all(&local_dir);
 }
 
+/// Ctrl+C while `cp - s3://…` waits on a stdin that stays open and silent
+/// (ported from s3util-rs 1.12.0). The test keeps the write end of the pipe
+/// open, which is what a producer that survives the Ctrl+C looks like
+/// (`kill -INT` on s7cmd alone, a producer that ignores SIGINT, an
+/// interactive terminal). The blocking stdin read cannot be cancelled, so
+/// this also covers `main` shutting the runtime down in the background: the
+/// process must exit 130 promptly instead of waiting for the producer.
+#[test]
+#[cfg(target_family = "unix")]
+fn sigint_during_cp_pending_stdin_read_exits_130() {
+    let fake = spawn_fake_s3(None);
+    let mut args = vec![
+        "cp".to_string(),
+        "-".to_string(),
+        format!("s3://{BUCKET}/stdin.bin"),
+    ];
+    args.extend(target_client_args(&fake.endpoint));
+    let mut child = Command::new(env!("CARGO_BIN_EXE_s7cmd"))
+        .args(&args)
+        .env_remove("RUST_LOG")
+        .env_remove("AWS_PROFILE")
+        .env_remove("AWS_ENDPOINT_URL")
+        .env_remove("AWS_ENDPOINT_URL_S3")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn s7cmd");
+    let mut stdin = child.stdin.take().expect("stdin must be piped");
+    stdin
+        .write_all(b"partial input")
+        .expect("failed to write to stdin");
+    stdin.flush().expect("failed to flush stdin");
+
+    // Let the child install its Ctrl+C handler and block on stdin.
+    std::thread::sleep(Duration::from_secs(1));
+    interrupt_and_expect_130(child, "cp-stdin-probe");
+    drop(stdin);
+}
+
 /// Ctrl+C while `mv` is blocked mid-download: same 130 guarantee as `cp`,
 /// plus the safety half of the contract — an interrupted `mv` must never
 /// have deleted its source object.
