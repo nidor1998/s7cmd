@@ -47,8 +47,9 @@ own README. Read them to decide whether s7cmd is worth adopting:
   [full README](https://github.com/nidor1998/s3sync/blob/main/FULL_README.md)).
   An alternative to `aws s3 sync` for users who need reliable
   synchronization and evidence of data integrity: end-to-end object
-  integrity check (ETag and additional checksums), ETag- and
-  checksum-based incremental transfer, flexible filtering (regex,
+  integrity check (ETag and additional checksums:
+  SHA256/SHA1/CRC32/CRC32C/CRC64NVME/MD5/SHA512/XXHASH128/XXHASH3/XXHASH64),
+  ETag- and checksum-based incremental transfer, flexible filtering (regex,
   size, modified time, user-defined metadata, tagging), versioning and
   point-in-time snapshot, server-side copy, Amazon S3 Express One Zone
   support, sync statistics report, rate limiting, and Lua scripting
@@ -141,7 +142,8 @@ supports post-transfer verification with the
 - In the case of S3 to S3, s7cmd simply compares the ETags calculated
   by S3.
 - Optionally, s7cmd can also calculate and compare additional checksums
-  (SHA256/SHA1/CRC32/CRC32C/CRC64NVME) for each object.
+  (SHA256/SHA1/CRC32/CRC32C/CRC64NVME/MD5/SHA512/XXHASH128/XXHASH3/XXHASH64)
+  for each object.
 
 For example, a sync with an additional SHA256 checksum reports the
 verification result in its summary line:
