@@ -99,6 +99,47 @@ fn bucket_only_path_no_key_exits_1() {
     );
 }
 
+#[test]
+fn missing_payload_file_exits_1_naming_the_file() {
+    let (ok, _stdout, stderr, code) = run(s7cmd().args([
+        "put-object-annotation",
+        "s3://bucket/key",
+        "--annotation-name",
+        "note",
+        "--annotation-payload",
+        "/nonexistent/s7cmd-annotation-payload",
+    ]));
+    assert!(!ok);
+    assert_eq!(code, Some(1), "stderr: {stderr}");
+    assert!(
+        stderr.contains("reading annotation payload from /nonexistent/s7cmd-annotation-payload"),
+        "stderr: {stderr}"
+    );
+}
+
+// A directory can be opened on unix but not read, so the failure comes from
+// the read rather than the open.
+#[cfg(unix)]
+#[test]
+fn directory_as_payload_file_exits_1_naming_the_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().to_str().unwrap();
+    let (ok, _stdout, stderr, code) = run(s7cmd().args([
+        "put-object-annotation",
+        "s3://bucket/key",
+        "--annotation-name",
+        "note",
+        "--annotation-payload",
+        path,
+    ]));
+    assert!(!ok);
+    assert_eq!(code, Some(1), "stderr: {stderr}");
+    assert!(
+        stderr.contains(&format!("reading annotation payload from {path}")),
+        "stderr: {stderr}"
+    );
+}
+
 // NOTE: s3util-rs's auto_complete_shell_short_circuits_without_target test
 // is omitted — s7cmd hides the per-subcommand --auto-complete-shell flag
 // and exposes only the top-level form (covered by tests/cli_help.rs).

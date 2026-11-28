@@ -1354,6 +1354,14 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn capped_async_rejects_non_utf8_final_line_without_terminator() {
+        let bytes: &[u8] = &[b'l', b's', 0xff, 0xfe];
+        let mut r = tokio::io::BufReader::new(bytes);
+        let err = read_line_capped_async(&mut r).await.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+    }
+
+    #[tokio::test]
     async fn capped_async_rejects_long_line_without_terminator() {
         let s: String = std::iter::repeat_n('x', MAX_LINE_LEN + 1).collect();
         let bytes = s.as_bytes();

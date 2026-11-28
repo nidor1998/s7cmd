@@ -161,6 +161,76 @@ mod tests {
         }
     }
 
+    fn s3_prefix(path: &str) -> (String, String) {
+        match parse_from_args(vec!["s3sync", path, "/tmp/s7cmd-sync-prefix-test/"]) {
+            Ok(args) => match Config::try_from(args).unwrap().source {
+                s3sync::types::StoragePath::S3 { bucket, prefix } => (bucket, prefix),
+                _ => panic!("{path} must be an S3 path"),
+            },
+            Err(e) => panic!("{path} must be accepted: {e}"),
+        }
+    }
+
+    /// Any UTF-8 string is a valid S3 key, so the prefix of an S3 path is
+    /// taken exactly as given (s3sync 1.64.1): `?` and `#` are part of it,
+    /// percent escapes are not decoded, and `.` / `..` are not collapsed.
+    /// Before, the path was parsed as a URL and a different key could be
+    /// addressed silently.
+    #[test]
+    fn s3_prefix_is_taken_exactly_as_given() {
+        let cases = [
+            ("s3://test-bucket/data#old/", "data#old/"),
+            ("s3://test-bucket/data?old/", "data?old/"),
+            ("s3://test-bucket/data#", "data#"),
+            ("s3://test-bucket/data?", "data?"),
+            ("s3://test-bucket/a?b#c?d#e/", "a?b#c?d#e/"),
+            ("s3://test-bucket/a#b?c/", "a#b?c/"),
+            ("s3://test-bucket/#top", "#top"),
+            ("s3://test-bucket/?top", "?top"),
+            (
+                "s3://test-bucket/dir/こんにちは#☃?x y/",
+                "dir/こんにちは#☃?x y/",
+            ),
+            ("s3://test-bucket/a%23b%3Fc#d", "a%23b%3Fc#d"),
+            ("s3://test-bucket/%FF", "%FF"),
+            ("s3://test-bucket/100%", "100%"),
+            ("s3://test-bucket/a%20b c", "a%20b c"),
+            ("s3://test-bucket/a/../b", "a/../b"),
+            ("s3://test-bucket/./a/./b/", "./a/./b/"),
+            ("s3://test-bucket/a?x/../y#%2e%2e/z", "a?x/../y#%2e%2e/z"),
+            ("s3://test-bucket/dir\\file", "dir\\file"),
+            ("s3://test-bucket//", "/"),
+            ("s3://test-bucket/", ""),
+            ("s3://test-bucket", ""),
+        ];
+
+        for (path, expected_prefix) in cases {
+            let (bucket, prefix) = s3_prefix(path);
+            assert_eq!(bucket, "test-bucket", "path: {path}");
+            assert_eq!(prefix, expected_prefix, "path: {path}");
+        }
+    }
+
+    /// Without `/` after the bucket name, there is no prefix to attach `?`
+    /// or `#` to, so the path is rejected instead of addressing something
+    /// else.
+    #[test]
+    fn s3_path_with_query_or_fragment_after_bucket_is_rejected() {
+        for path in [
+            "s3://my-bucket?old",
+            "s3://my-bucket#old",
+            "s3://my-bucket?old/key",
+            "s3://my-bucket#old/key",
+        ] {
+            for args in [
+                vec!["s3sync", path, "/tmp/s7cmd-sync-prefix-test/"],
+                vec!["s3sync", "/tmp/s7cmd-sync-prefix-test/", path],
+            ] {
+                assert!(parse_from_args(args).is_err(), "{path} must be rejected");
+            }
+        }
+    }
+
     #[test]
     fn sigint_exit_code_is_130() {
         assert_eq!(SIGINT_EXIT_CODE, 130);

@@ -907,3 +907,41 @@ fn batch_run_parallel_at_cap_is_accepted() {
         "MAX_PARALLEL must be accepted and run; stderr={stderr}"
     );
 }
+
+// ---- `?` / `#` directly after the bucket name ----
+
+/// `s3://bucket?x` has no prefix to attach `?x` to. It must be an argument
+/// error (exit 2) before any request is sent — the endpoint below is never
+/// contacted.
+#[test]
+fn query_or_fragment_directly_after_bucket_name_exits_2() {
+    let cases: [&[&str]; 8] = [
+        &["sync", "s3://bucket?old", "/tmp/s7cmd-arg-validation-dst/"],
+        &["sync", "/tmp/s7cmd-arg-validation-src/", "s3://bucket#old"],
+        &[
+            "cp",
+            "s3://bucket?old/key",
+            "/tmp/s7cmd-arg-validation-file",
+        ],
+        &[
+            "mv",
+            "/tmp/s7cmd-arg-validation-file",
+            "s3://bucket#old/key",
+        ],
+        &["rm", "s3://bucket?old/key"],
+        &["ls", "s3://bucket?old"],
+        &["clean", "--force", "s3://bucket#old"],
+        &["head-bucket", "s3://bucket?old"],
+    ];
+
+    for args in cases {
+        let (code, _stdout, stderr) = run(s7cmd_cmd()
+            .args(args)
+            .env("AWS_ENDPOINT_URL", "http://127.0.0.1:9"));
+        assert_eq!(code, Some(2), "{args:?} must exit 2; stderr={stderr}");
+        assert!(
+            stderr.contains("invalid value 's3://bucket"),
+            "{args:?} must name the rejected path; stderr={stderr}"
+        );
+    }
+}

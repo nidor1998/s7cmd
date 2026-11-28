@@ -152,6 +152,7 @@ mod tests {
             is_stdio_source: false,
             is_stdio_target: false,
             no_fail_on_verify_error: false,
+            fail_on_unreadable_source_tags: false,
             skip_existing,
             dry_run: false,
             // Added in s3util-rs 1.6.0: object-annotation sync toggles for

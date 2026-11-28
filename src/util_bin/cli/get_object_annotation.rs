@@ -5,8 +5,8 @@
 //              then atomically renames onto <OUTFILE> (upstream renames first,
 //              then verifies), plus the accompanying write_verified_output_*
 //              and verify_saved_file_err_when_file_unreadable unit tests. The
-//              detect_checksum / check_integrity unsupported-algorithm handling
-//              tracks upstream 1.7.0.
+//              detect_checksum / check_integrity tracks upstream 1.12.0:
+//              SHA512, MD5 and the XXHASH family are verified, not rejected.
 //              Report println made pipe-safe (ported from s3util-rs 1.9.2).
 
 use std::io::Write as _;
@@ -29,14 +29,12 @@ use crate::pipe_safe::println_pipe_safe;
 
 use super::ExitStatus;
 
-/// Pick the single additional checksum S3 returned. Algorithms s3util can
-/// recompute locally are preferred; if only an algorithm s3util cannot verify
-/// (e.g. SHA512, MD5, or the XXHASH family) is present, it is still returned so
-/// the caller can treat it as an integrity error rather than silently skipping
-/// verification or panicking. Returns `None` when no additional checksum is
-/// present.
+/// Pick the single additional checksum S3 returned. The CRC family is checked
+/// first (cheapest to recompute), then the SHA family, then SHA512, MD5 and the
+/// XXHASH family. Every algorithm S3 can return is surfaced, so the integrity
+/// check verifies it instead of silently skipping verification. Returns `None`
+/// when no additional checksum is present.
 fn detect_checksum(out: &GetObjectAnnotationOutput) -> Option<(ChecksumAlgorithm, String)> {
-    // Supported algorithms first (s3util can recompute these).
     if let Some(v) = out.checksum_crc64_nvme() {
         return Some((ChecksumAlgorithm::Crc64Nvme, v.to_string()));
     }
@@ -52,9 +50,6 @@ fn detect_checksum(out: &GetObjectAnnotationOutput) -> Option<(ChecksumAlgorithm
     if let Some(v) = out.checksum_sha256() {
         return Some((ChecksumAlgorithm::Sha256, v.to_string()));
     }
-    // Algorithms S3 can return that s3util cannot recompute — surfaced (not
-    // ignored) so `check_integrity` rejects them instead of writing unverified
-    // data or panicking in `AdditionalChecksum::new`.
     if let Some(v) = out.checksum_sha512() {
         return Some((ChecksumAlgorithm::Sha512, v.to_string()));
     }
@@ -113,9 +108,10 @@ fn check_integrity(
         None => {}
     }
     if let Some((algo, expected)) = checksum {
-        // Reject algorithms s3util cannot recompute (e.g. SHA512) up front:
-        // verifying them would panic in `AdditionalChecksum::new`, so treat an
-        // unsupported checksum as an integrity error instead.
+        // Defensive only: `detect_checksum` reads just the typed SDK accessors,
+        // all of which `is_supported` accepts, so this cannot fire today. It
+        // guards against `detect_checksum` gaining an algorithm that
+        // `AdditionalChecksum::new` cannot build (it would panic there).
         if !AdditionalChecksum::is_supported(algo) {
             anyhow::bail!(
                 "s3://{bucket}/{key} carries a {} checksum, which s3util cannot verify",
@@ -512,11 +508,11 @@ mod tests {
         assert_eq!(val, "crc32val");
     }
 
-    // Every additional checksum S3 can return that s3util cannot recompute must
-    // be surfaced (not ignored), so the integrity check can reject it instead of
-    // silently skipping verification or panicking.
+    // Every additional checksum S3 can return must be surfaced (not ignored),
+    // so the integrity check verifies it instead of silently skipping
+    // verification.
     #[test]
-    fn detect_checksum_surfaces_every_unsupported_algorithm() {
+    fn detect_checksum_surfaces_every_new_algorithm() {
         let cases = [
             (
                 GetObjectAnnotationOutput::builder()
@@ -561,9 +557,9 @@ mod tests {
         }
     }
 
-    // A supported checksum still wins when an unsupported one is also present.
+    // The SHA family is checked before SHA512 when both are present.
     #[test]
-    fn detect_checksum_prefers_supported_over_unsupported() {
+    fn detect_checksum_prefers_sha256_over_sha512() {
         let out = GetObjectAnnotationOutput::builder()
             .annotation_payload(empty_payload())
             .checksum_sha256("sha256val")
@@ -616,10 +612,11 @@ mod tests {
         assert!(matches!(res, IntegrityCheck::Unverifiable));
     }
 
+    // Every algorithm S3 can return is verified against the payload: a
+    // matching checksum passes and a wrong one is an integrity error.
     #[test]
-    fn check_integrity_err_on_every_unsupported_checksum() {
-        // Every algorithm s3util cannot recompute must return a clean error
-        // rather than panic in `AdditionalChecksum::new`.
+    fn check_integrity_verifies_every_new_algorithm() {
+        let payload = b"hello world";
         for algo in [
             ChecksumAlgorithm::Sha512,
             ChecksumAlgorithm::Md5,
@@ -627,14 +624,64 @@ mod tests {
             ChecksumAlgorithm::Xxhash3,
             ChecksumAlgorithm::Xxhash128,
         ] {
-            let checksum = (algo.clone(), "anybase64value".to_string());
-            let err =
-                check_integrity(b"hello", None, None, None, Some(&checksum), "b", "k").unwrap_err();
+            let checksum = (
+                algo.clone(),
+                annotation::compute_checksum_base64(payload, algo.clone()),
+            );
+            let res = check_integrity(
+                payload,
+                Some(payload.len() as i64),
+                None,
+                None,
+                Some(&checksum),
+                "b",
+                "k",
+            )
+            .unwrap();
+            assert!(matches!(res, IntegrityCheck::Verified), "{algo:?}");
+
+            // The same checksum does not match different bytes.
+            let err = check_integrity(b"hello WORLD", None, None, None, Some(&checksum), "b", "k")
+                .unwrap_err();
             assert!(
-                format!("{err:#}").contains("s3util cannot verify"),
+                format!("{err:#}").contains("checksum verification failed"),
                 "{algo:?}: unexpected error: {err:#}"
             );
         }
+    }
+
+    // Known answers computed independently with Python's hashlib, so the
+    // verification is not only consistent with itself.
+    #[test]
+    fn check_integrity_verifies_md5_and_sha512_known_answers() {
+        for (algo, expected) in [
+            (ChecksumAlgorithm::Md5, "kAFQmDzST7DWlj99KOF/cg=="),
+            (
+                ChecksumAlgorithm::Sha512,
+                "3a81oZNherrMQXNJriBBMRLm+k6JqX6iCp7u5ktV05ohkpkqJ0/BqDa6PCOj/uu9RU1EI2Q86A4qmslPpUyknw==",
+            ),
+        ] {
+            let checksum = (algo.clone(), expected.to_string());
+            let res =
+                check_integrity(b"abc", Some(3), None, None, Some(&checksum), "b", "k").unwrap();
+            assert!(matches!(res, IntegrityCheck::Verified), "{algo:?}");
+        }
+    }
+
+    #[test]
+    fn check_integrity_err_on_unknown_algorithm() {
+        // An algorithm s3util cannot recompute must return a clean error
+        // rather than panic in `AdditionalChecksum::new`.
+        let checksum = (
+            ChecksumAlgorithm::from("UNKNOWN"),
+            "anybase64value".to_string(),
+        );
+        let err =
+            check_integrity(b"hello", None, None, None, Some(&checksum), "b", "k").unwrap_err();
+        assert!(
+            format!("{err:#}").contains("s3util cannot verify"),
+            "unexpected error: {err:#}"
+        );
     }
 
     #[test]

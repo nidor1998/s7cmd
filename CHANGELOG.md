@@ -5,19 +5,104 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.10.0] - 2026-11-28
 
-### Changed
+Adds the `MD5`, `SHA512`, `XXHASH128`, `XXHASH3` and `XXHASH64` additional checksum algorithms and brings in the bug
+fixes of the underlying libraries.
 
-- Removed the per-subcommand `--version` flag inherited from the underlying libraries (for `sync`, `ls` and `clean` it
-  reported the engine crate's version rather than s7cmd's). Use `s7cmd --version`.
+**Upgrade notes:**
+
+- `sync`: the prefix of an S3 path is now used exactly as given (see *Fixed*). Scripts that relied on `%20` being
+  decoded, on `?`/`#` cutting the prefix short, or on `.`/`..` being collapsed now address a different key.
+- `cp`/`mv` between S3 buckets may send one extra `GetObjectTagging` request per untagged object. If the tags cannot
+  be read, `cp` exits 3 and `mv` fails before copying; pass `--disable-tagging` or `--tagging` to proceed.
+- `cp`/`mv` now fail when the source S3 object is overwritten during the transfer, and reject a local source that is
+  not a regular file.
+- `clean` against an S3-compatible store that omits `Deleted` entries from `DeleteObjects` responses now reports
+  those objects as failed (exit 3).
+- Building from source now requires Rust 1.100.0 or later.
+
+### Added
+
+#### sync, cp, mv
+
+- Added `MD5`, `SHA512`, `XXHASH128`, `XXHASH3` and `XXHASH64` to `--additional-checksum-algorithm` (and to `sync`'s
+  `--check-additional-checksum` and `--check-mtime-and-additional-checksum`). Like `SHA1`/`SHA256`, a multipart
+  upload gets a composite checksum and they cannot be combined with `--full-object-checksum`.
+- `cp`/`mv` downloads with `--enable-additional-checksum` now verify these checksums on the source object.
+  Previously such a checksum was ignored.
+
+### Security
+
+- Updated `url` to `v2.5.9` to address [RUSTSEC-2026-0592](https://rustsec.org/advisories/RUSTSEC-2026-0592).
 
 ### Fixed
 
 #### All subcommands
 
+- `?` or `#` directly after the bucket name (e.g. `s3://bucket?x`) is now rejected with an argument error.
+  Previously it was dropped, passed to S3 as part of the bucket name, or silently addressed a different key,
+  depending on the subcommand.
 - Argument errors detected after parsing (for example `s7cmd sync` with no arguments) are now formatted against the
   subcommand: they end with a newline and show its usage line.
+
+#### sync
+
+- The prefix of an S3 path is now used exactly as given, because any UTF-8 string is a valid S3 key: `?` and `#` are
+  part of the prefix, percent escapes are not decoded, and `.`/`..` segments are not collapsed. Previously the path
+  was parsed as a URL, so a different key could be addressed silently.
+- `--delete` no longer deletes target objects that still exist in a local source that could not be read (e.g.
+  permission denied). Such a directory or file was skipped with a warning and its objects were treated as removed;
+  with `--delete` it is now an error and nothing is deleted.
+- `--if-match` is no longer ignored for single-part objects with `--server-side-copy`.
+- `--metadata` no longer discards the origin metadata added by `--enable-versioning` and
+  `--put-last-modified-metadata`. With `--enable-versioning` this caused the same versions to be synced on every run.
+- `--force-retry-count` now applies to timeouts and connection errors in multipart upload requests and `CopyObject`.
+- The remaining parts of a multipart upload are now stopped as soon as one part fails.
+- Fixed false mismatches with `--check-etag --auto-chunksize` and with `--check-additional-checksum` for objects
+  uploaded in a single part whose local file is not smaller than the multipart threshold. Such objects were treated
+  as modified.
+- Fixed panics with `--enable-versioning` (a sync warning, or a delete marker reaching the Lua filter callback, also
+  with `--point-in-time`) and when a ranged `GetObject` for a later part failed during a multipart download.
+- Objects synced from S3 to local storage are no longer counted as skipped when a preprocess callback is registered.
+- `--max-parallel-listings` now lists local subdirectories concurrently.
+
+#### cp, mv
+
+- S3-to-S3 copies no longer silently drop the source object's tags when the caller cannot read them. When
+  `HeadObject` returns no tag count, the tags are read with `GetObjectTagging`; if that fails, `cp` copies without
+  tags and exits 3, and `mv` fails before copying anything.
+- A transfer now fails when the source S3 object is overwritten while it is being copied, instead of copying a mix
+  of the old and new objects. For `mv`, the source is not deleted.
+- A local source that is not a regular file (a pipe or FIFO, a socket, a device, or a file that reports 0 bytes but
+  returns data, such as a `/proc` file) is now rejected. Previously an empty object was uploaded and `mv` deleted
+  the source. Read such input from stdin instead (`... | s7cmd cp - s3://...`).
+- `cp - s3://...` no longer uploads a truncated object when interrupted with Ctrl+C, and now stops on Ctrl+C while
+  it is waiting for input.
+- When one part of a multipart upload fails or the transfer is cancelled, the other part uploads are stopped before
+  the upload is aborted, so no part stays stored under the aborted upload ID.
+- `--rate-limit-bandwidth` now applies to the whole of a multipart upload, not only the first part.
+- An S3-to-S3 copy of a single-part source with an additional checksum that is uploaded as multipart is now a
+  chunk-size warning (exit 3) instead of a checksum mismatch error.
+- `--metadata` no longer discards the metadata added by `--put-last-modified-metadata`.
+- A local path containing `:` (e.g. `report:2024.txt`) is no longer rejected as a URL with an unknown scheme.
+
+#### clean
+
+- A malformed `DeleteObjects` response from an S3-compatible store can no longer cause a retry to delete a key that
+  was not selected, and a retry for a versioned object no longer falls back to an unversioned delete.
+- An object whose outcome a `DeleteObjects` response does not determine is now recorded as a failure (error code
+  `NotReported` or `Ambiguous`, exit 3) instead of being treated as processed.
+
+#### put-bucket-replication, get-bucket-replication
+
+- The `Not` filter and `Destination.EncryptionConfiguration.UseSourceMultiRegionKey` are now accepted and printed.
+  Passing the output of `get-bucket-replication` to `put-bucket-replication` silently removed these settings.
+
+#### get-object-annotation
+
+- A `SHA512`, `MD5`, `XXHASH128`, `XXHASH3` or `XXHASH64` checksum returned with the payload is now verified.
+  Previously the command exited 1 without writing the payload.
 
 #### put-bucket-versioning, put-bucket-request-payment, put-bucket-accelerate-configuration
 
@@ -36,6 +121,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A second Ctrl-C now force-quits with exit code 130.
 - A single Ctrl-C now ends a `--streaming` run that is waiting to open a FIFO with no writer (exit code 0, as for any
   idle interrupted run); previously a second press was needed.
+
+### Changed
+
+- Removed the per-subcommand `--version` flag inherited from the underlying libraries (for `sync`, `ls` and `clean` it
+  reported the engine crate's version rather than s7cmd's). Use `s7cmd --version`.
+- Documented in the help text that size suffixes are case-sensitive: a suffix ending in a lowercase `b` means bits,
+  not bytes (e.g. `8mb` is 1MB). The behavior is unchanged.
+- Moved the minimum publish age for dependency resolution from `.cargo/min-publish-age.toml` to
+  `.cargo/config.toml`.
+- s3sync `v1.63.0 -> v1.64.1`
+- s3util-rs `v1.11.0 -> v1.12.1`
+- s3rm-rs `v1.7.0 -> v1.7.2`
+- s3ls-rs `v1.4.0 -> v1.4.2`
+- aws-sdk-s3 `v1.161.0` (unchanged)
+- MSRV `1.99.0 -> 1.100.0`
+- Updated other dependencies
+
+### Underlying libraries
+
+```toml
+s3sync = "=1.64.1"
+s3util-rs = "=1.12.1"
+s3rm-rs = "=1.7.2"
+s3ls-rs = "=1.4.2"
+```
 
 ## [1.9.0] - 2026-11-22
 

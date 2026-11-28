@@ -645,3 +645,99 @@ fn per_subcommand_auto_complete_shell_is_fully_disarmed() {
         "expected the inherited flag on most subcommands, saw only {seen}"
     );
 }
+
+// ---- `?` / `#` in S3 paths ----
+
+/// One argument list per subcommand family, with `{}` where the S3 path
+/// goes. Each family is backed by a different library: `sync` by s3sync,
+/// `ls` by s3ls-rs, `clean` by s3rm-rs, the rest by s3util-rs.
+const S3_PATH_ARG_SHAPES: &[&[&str]] = &[
+    &["sync", "{}", "/tmp/s7cmd-routing-dst/"],
+    &["sync", "/tmp/s7cmd-routing-src/", "{}"],
+    &["cp", "{}", "/tmp/s7cmd-routing-file"],
+    &["cp", "/tmp/s7cmd-routing-file", "{}"],
+    &["mv", "{}", "/tmp/s7cmd-routing-file"],
+    &["mv", "/tmp/s7cmd-routing-file", "{}"],
+    &["rm", "{}"],
+    &["head-object", "{}"],
+    &["get-object-tagging", "{}"],
+    &["delete-object-tagging", "{}"],
+    &["list-object-annotations", "{}"],
+    &["presign", "{}"],
+    &["ls", "{}"],
+    &["clean", "--force", "{}"],
+];
+
+fn parse_with_s3_path(shape: &[&str], s3_path: &str) -> Result<Cli, clap::Error> {
+    let mut args = vec!["s7cmd".to_string()];
+    args.extend(shape.iter().map(|arg| arg.replace("{}", s3_path)));
+    Cli::try_parse_from(args)
+}
+
+/// Any UTF-8 string is a valid S3 key, so `?` and `#` after the `/` that
+/// ends the bucket name belong to the key or prefix and must be accepted.
+/// This is also the control for the test below: the same argument lists
+/// parse once the `/` is present.
+#[test]
+fn accepts_question_mark_and_hash_in_key_or_prefix() {
+    for shape in S3_PATH_ARG_SHAPES {
+        for s3_path in [
+            "s3://bucket/?old",
+            "s3://bucket/#old",
+            "s3://bucket/data?old#x",
+            "s3://bucket/data#old?x",
+        ] {
+            if let Err(e) = parse_with_s3_path(shape, s3_path) {
+                panic!("{shape:?} must accept {s3_path}: {e}");
+            }
+        }
+    }
+}
+
+/// Without a `/` after the bucket name there is no key or prefix to attach
+/// `?` or `#` to, so every subcommand rejects the path as an argument
+/// error. Previously, depending on the subcommand, the rest was dropped,
+/// passed to S3 as part of the bucket name, or addressed a different key.
+#[test]
+fn rejects_question_mark_or_hash_directly_after_bucket_name() {
+    for shape in S3_PATH_ARG_SHAPES {
+        for s3_path in [
+            "s3://bucket?old",
+            "s3://bucket#old",
+            "s3://bucket?old/key",
+            "s3://bucket#old/key",
+        ] {
+            let Err(e) = parse_with_s3_path(shape, s3_path) else {
+                panic!("{shape:?} must reject {s3_path}");
+            };
+            assert_eq!(
+                e.kind(),
+                clap::error::ErrorKind::ValueValidation,
+                "{shape:?} with {s3_path}: {e}"
+            );
+        }
+    }
+}
+
+/// Bucket-level subcommands take a bare bucket, so `?` / `#` after it is
+/// rejected there as well.
+#[test]
+fn bucket_subcommands_reject_question_mark_or_hash_after_bucket_name() {
+    for sub in [
+        "create-bucket",
+        "delete-bucket",
+        "head-bucket",
+        "get-bucket-tagging",
+        "get-bucket-policy",
+        "get-bucket-versioning",
+    ] {
+        Cli::try_parse_from(["s7cmd", sub, "s3://bucket"])
+            .unwrap_or_else(|e| panic!("{sub} must accept a bare bucket: {e}"));
+        for s3_path in ["s3://bucket?old", "s3://bucket#old"] {
+            assert!(
+                Cli::try_parse_from(["s7cmd", sub, s3_path]).is_err(),
+                "{sub} must reject {s3_path}"
+            );
+        }
+    }
+}

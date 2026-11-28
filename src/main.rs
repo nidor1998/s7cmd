@@ -52,8 +52,26 @@ pub(crate) mod signal_test_lock {
     }
 }
 
-#[tokio::main]
-async fn main() -> ExitCode {
+fn main() -> ExitCode {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("failed to build the tokio runtime");
+    let exit_code = runtime.block_on(run());
+
+    // Ported from s3util-rs 1.12.0: `tokio::io::stdin()` reads on a
+    // blocking-pool thread, and that read cannot be cancelled. Dropping the
+    // runtime waits for it, so after a Ctrl+C during `cp - s3://...` the
+    // process would still hang until the producer writes or closes the pipe.
+    // Everything the run awaited has already finished here, so on Ctrl+C
+    // leave that thread behind.
+    if util_bin::cli::ctrl_c_handler::is_ctrl_c_received() {
+        runtime.shutdown_background();
+    }
+    exit_code
+}
+
+async fn run() -> ExitCode {
     let matches = cli_command().get_matches();
     let cli_args = match Cli::from_arg_matches(&matches) {
         Ok(c) => c,
