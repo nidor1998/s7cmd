@@ -72,9 +72,22 @@ fn main() -> ExitCode {
 }
 
 async fn run() -> ExitCode {
-    let cli_args = match Cli::from_arg_matches(&cli_command().get_matches()) {
+    let matches = cli_command().get_matches();
+    let cli_args = match Cli::from_arg_matches(&matches) {
         Ok(c) => c,
-        Err(e) => e.exit(),
+        // Errors raised by `FromArgMatches` (e.g. `s7cmd sync` with no
+        // positional args — upstream declares them `required = false` but
+        // non-optional) carry no command context: unformatted, clap prints
+        // the bare message with no trailing newline and no usage. Format
+        // against the matched subcommand so the output matches a normal
+        // clap parse error.
+        Err(e) => {
+            let mut cmd = match matches.subcommand_name() {
+                Some(name) => cli::subcommand_for_error(name),
+                None => cli_command(),
+            };
+            e.format(&mut cmd).exit()
+        }
     };
 
     // --auto-complete-shell only works at the top level: generate completions

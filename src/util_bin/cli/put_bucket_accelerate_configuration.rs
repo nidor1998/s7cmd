@@ -7,7 +7,6 @@
 //              batch-run instead of failing one line).
 use anyhow::Result;
 use aws_sdk_s3::types::AccelerateConfiguration;
-use clap::CommandFactory;
 use tracing::info;
 
 use s3util_rs::config::ClientConfig;
@@ -59,7 +58,7 @@ pub async fn run_put_bucket_accelerate_configuration(
 /// code as upstream, without terminating the process.
 pub fn check_state_flag(args: &PutBucketAccelerateConfigurationArgs) -> Result<(), clap::Error> {
     if !args.enabled && !args.suspended {
-        let mut cmd = PutBucketAccelerateConfigurationArgs::command();
+        let mut cmd = crate::cli::subcommand_for_error("put-bucket-accelerate-configuration");
         return Err(cmd.error(
             clap::error::ErrorKind::MissingRequiredArgument,
             "one of --enabled or --suspended must be specified",
@@ -82,6 +81,14 @@ mod tests {
         let args = parse(&["put-bucket-accelerate-configuration", "s3://b"]);
         let err = check_state_flag(&args).expect_err("neither flag must be rejected");
         assert_eq!(err.kind(), clap::error::ErrorKind::MissingRequiredArgument);
+        // The usage line must name the s7cmd subcommand. If the literal
+        // passed to `subcommand_for_error` drifts from the real subcommand
+        // name, it silently falls back to the top-level `s7cmd [COMMAND]`.
+        assert!(
+            err.to_string()
+                .contains("Usage: s7cmd put-bucket-accelerate-configuration "),
+            "unexpected usage line: {err}"
+        );
         assert!(
             err.to_string()
                 .contains("one of --enabled or --suspended must be specified")

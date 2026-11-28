@@ -43,6 +43,8 @@ fixes of the underlying libraries.
 - `?` or `#` directly after the bucket name (e.g. `s3://bucket?x`) is now rejected with an argument error.
   Previously it was dropped, passed to S3 as part of the bucket name, or silently addressed a different key,
   depending on the subcommand.
+- Argument errors detected after parsing (for example `s7cmd sync` with no arguments) are now formatted against the
+  subcommand: they end with a newline and show its usage line.
 
 #### sync
 
@@ -102,8 +104,28 @@ fixes of the underlying libraries.
 - A `SHA512`, `MD5`, `XXHASH128`, `XXHASH3` or `XXHASH64` checksum returned with the payload is now verified.
   Previously the command exited 1 without writing the payload.
 
+#### put-bucket-versioning, put-bucket-request-payment, put-bucket-accelerate-configuration
+
+- Errors for the state flags now show `Usage: s7cmd <subcommand>` instead of `Usage: s3util-rs ...`.
+
+#### batch-run
+
+- A UTF-8 BOM at the start of the script is now stripped from the first line in read-all, `--streaming` and
+  `--check-format` modes.
+- With `--streaming`, a script read error (for example invalid UTF-8) now always exits with 1, including when the
+  lines run before it exited 0, 3, 4, 130 (interrupted) or 101 (a line panicked). A read error reached after
+  `--max-errors` has already ended the run is shown as a warning and does not change the exit code.
+- With `--streaming` on an input that never ends (stdin or a FIFO), `--max-errors` and Ctrl-C now stop the run
+  promptly instead of waiting forever for the next line. In parallel mode, no new lines are started after the error
+  threshold is reached.
+- A second Ctrl-C now force-quits with exit code 130.
+- A single Ctrl-C now ends a `--streaming` run that is waiting to open a FIFO with no writer (exit code 0, as for any
+  idle interrupted run); previously a second press was needed.
+
 ### Changed
 
+- Removed the per-subcommand `--version` flag inherited from the underlying libraries (for `sync`, `ls` and `clean` it
+  reported the engine crate's version rather than s7cmd's). Use `s7cmd --version`.
 - Documented in the help text that size suffixes are case-sensitive: a suffix ending in a lowercase `b` means bits,
   not bytes (e.g. `8mb` is 1MB). The behavior is unchanged.
 - Moved the minimum publish age for dependency resolution from `.cargo/min-publish-age.toml` to

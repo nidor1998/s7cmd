@@ -120,7 +120,12 @@ fn check_format_lines<R: BufRead>(mut reader: R, source: &str) -> bool {
     let mut line_no: usize = 0;
     loop {
         line_no += 1;
-        let line = match parser::read_line_capped(&mut reader) {
+        let read = if line_no == 1 {
+            parser::read_first_line(&mut reader)
+        } else {
+            parser::read_line_capped(&mut reader)
+        };
+        let line = match read {
             Ok(Some(s)) => s,
             Ok(None) => return false,
             Err(e) => {
@@ -293,14 +298,7 @@ async fn run_read_all(args: BatchRunArgs) -> i32 {
     // in-flight commands cancel via their own per-subcommand cancellation
     // handlers (registered inside each dispatched command).
     let interrupt: Interrupt = Arc::new(AtomicBool::new(false));
-    {
-        let interrupt = Arc::clone(&interrupt);
-        tokio::spawn(async move {
-            if tokio::signal::ctrl_c().await.is_ok() {
-                interrupt.store(true, Ordering::SeqCst);
-            }
-        });
-    }
+    spawn_sigint_listener(Arc::clone(&interrupt), None);
 
     let workers = resolve_workers(args.parallel);
     let opts = ExecutorOptions {
@@ -312,6 +310,7 @@ async fn run_read_all(args: BatchRunArgs) -> i32 {
         // progress bar would be visual noise interleaved with JSON, so
         // suppress it just like `--no-progress` does.
         no_progress: args.no_progress || args.json_tracing,
+        close_on_stop: false,
     };
 
     let dispatch: DispatchFn =
@@ -337,21 +336,186 @@ async fn run_read_all(args: BatchRunArgs) -> i32 {
     code
 }
 
+/// Install the batch-run SIGINT (Ctrl-C) listener: on the signal, set
+/// `interrupt` and wake `notify` if given. The OS-level handler is
+/// registered here, synchronously, before the caller starts any work —
+/// `tokio::signal::ctrl_c()` inside a spawned task would register only
+/// when the task is first polled, and a SIGINT landing before that would
+/// hit the default disposition and kill the process with no summary.
+///
+/// The first signal asks for a graceful stop. The handler stays
+/// installed for the life of the process, so the default "Ctrl-C kills"
+/// behaviour never comes back on its own; a later signal therefore
+/// force-quits with 130, for a line stuck in a call that ignores its own
+/// cancellation. A signal within `DUPLICATE_WINDOW` of the first is
+/// treated as the same Ctrl-C delivered twice (once from the terminal's
+/// process group, once from a wrapper that forwards it), which must not
+/// cut short the graceful cancel. The window is far shorter than two
+/// deliberate key presses, so pressing Ctrl-C again does force-quit.
+fn spawn_sigint_listener(interrupt: Interrupt, notify: Option<Arc<tokio::sync::Notify>>) {
+    const DUPLICATE_WINDOW: std::time::Duration = std::time::Duration::from_millis(50);
+    let mut first_at: Option<std::time::Instant> = None;
+    let mut on_signal = move || {
+        if let Some(at) = first_at {
+            if at.elapsed() < DUPLICATE_WINDOW {
+                return;
+            }
+            let _ = writeln!(
+                std::io::stderr(),
+                "batch-run: second interrupt, exiting immediately (no summary)"
+            );
+            std::process::exit(130);
+        }
+        first_at = Some(std::time::Instant::now());
+        interrupt.store(true, Ordering::SeqCst);
+        if let Some(notify) = &notify {
+            notify.notify_one();
+        }
+    };
+
+    #[cfg(any(unix, windows))]
+    {
+        #[cfg(unix)]
+        let listener = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt());
+        #[cfg(windows)]
+        let listener = tokio::signal::windows::ctrl_c();
+        let mut listener = match listener {
+            Ok(l) => l,
+            Err(e) => {
+                // Without a listener Ctrl-C keeps its default effect of
+                // ending the process.
+                tracing::debug!("could not install the SIGINT listener: {e}");
+                return;
+            }
+        };
+        tokio::spawn(async move {
+            while listener.recv().await.is_some() {
+                on_signal();
+            }
+        });
+    }
+
+    // Other targets: the portable listener, registered on first poll.
+    #[cfg(not(any(unix, windows)))]
+    tokio::spawn(async move {
+        while tokio::signal::ctrl_c().await.is_ok() {
+            on_signal();
+        }
+    });
+}
+
+/// `AsyncRead` over a script source read by a dedicated std thread.
+///
+/// Used for sources that may never end (stdin, a FIFO). A blocking read
+/// of one cannot be cancelled; done on tokio's blocking pool (as
+/// `tokio::io::stdin()` and `tokio::fs::File` do) it would keep the
+/// runtime from shutting down after an early stop until the pipe closed —
+/// forever for `tail -f cmds | s7cmd batch-run --streaming -`. A plain
+/// thread is not waited for: when `main` returns, the process exits and
+/// the thread goes with it, while the runtime still waits, as usual, for
+/// any other blocking work in flight.
+struct ThreadReader {
+    rx: tokio::sync::mpsc::Receiver<std::io::Result<Vec<u8>>>,
+    buf: Vec<u8>,
+    pos: usize,
+}
+
+impl ThreadReader {
+    fn spawn<R: std::io::Read + Send + 'static>(mut source: R) -> Self {
+        let (tx, rx) = tokio::sync::mpsc::channel(4);
+        std::thread::spawn(move || {
+            loop {
+                let mut chunk = vec![0u8; 8 * 1024];
+                let msg = match source.read(&mut chunk) {
+                    Ok(0) => break, // EOF: dropping `tx` ends the stream
+                    Ok(n) => {
+                        chunk.truncate(n);
+                        Ok(chunk)
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(e) => Err(e),
+                };
+                let failed = msg.is_err();
+                // A send error means the reader side is gone: stop.
+                if tx.blocking_send(msg).is_err() || failed {
+                    break;
+                }
+            }
+        });
+        ThreadReader {
+            rx,
+            buf: Vec::new(),
+            pos: 0,
+        }
+    }
+}
+
+impl tokio::io::AsyncRead for ThreadReader {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        out: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        use std::task::Poll;
+        if self.pos >= self.buf.len() {
+            match self.rx.poll_recv(cx) {
+                Poll::Pending => return Poll::Pending,
+                Poll::Ready(None) => return Poll::Ready(Ok(())), // EOF
+                Poll::Ready(Some(Err(e))) => return Poll::Ready(Err(e)),
+                Poll::Ready(Some(Ok(chunk))) => {
+                    self.buf = chunk;
+                    self.pos = 0;
+                }
+            }
+        }
+        let n = out.remaining().min(self.buf.len() - self.pos);
+        let start = self.pos;
+        out.put_slice(&self.buf[start..start + n]);
+        self.pos += n;
+        Poll::Ready(Ok(()))
+    }
+}
+
+/// Open the script at `path`, giving up if `interrupt` fires first.
+/// Returns `None` on interrupt.
+///
+/// Opening a FIFO blocks until a writer opens the other end, which may
+/// never happen. The open runs on its own thread rather than through
+/// `tokio::fs` (tokio's blocking pool): the runtime waits for blocking-pool
+/// work at shutdown, so an abandoned open would still keep the process
+/// alive until a writer showed up. A detached thread does not hold up the
+/// process exit (the same reasoning as `ThreadReader`). `notify_one`
+/// stores a permit, so a Ctrl-C that landed before this call is seen too.
+async fn open_script_interruptible(
+    path: &str,
+    interrupt: &tokio::sync::Notify,
+) -> Option<std::io::Result<std::fs::File>> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let path = path.to_string();
+    std::thread::spawn(move || {
+        let _ = tx.send(std::fs::File::open(&path));
+    });
+    tokio::select! {
+        biased;
+        _ = interrupt.notified() => None,
+        opened = rx => Some(opened.unwrap_or_else(|_| {
+            Err(std::io::Error::other("script open thread exited without a result"))
+        })),
+    }
+}
+
 /// Streaming mode. Read and execute lines concurrently. The SIGINT
 /// listener is installed BEFORE script reading because read and execute
 /// are interleaved — Ctrl-C must abort both halves of the pipeline.
 async fn run_streaming(args: BatchRunArgs) -> i32 {
-    // Install SIGINT listener early — it sets the shared flag the reader
-    // and executor both check.
+    // Install SIGINT listener early — it sets the shared flag the
+    // executor checks and wakes the reader.
     let interrupt: Interrupt = Arc::new(AtomicBool::new(false));
-    {
-        let interrupt = Arc::clone(&interrupt);
-        tokio::spawn(async move {
-            if tokio::signal::ctrl_c().await.is_ok() {
-                interrupt.store(true, Ordering::SeqCst);
-            }
-        });
-    }
+    // Wakes the reader when Ctrl-C lands while it is parked on a read, so
+    // a stalled input does not keep the run alive. `notify_one` stores a
+    // permit, so a signal that arrives between reads is not lost either.
+    let interrupt_notify = Arc::new(tokio::sync::Notify::new());
+    spawn_sigint_listener(Arc::clone(&interrupt), Some(Arc::clone(&interrupt_notify)));
 
     let workers = resolve_workers(args.parallel);
     let opts = ExecutorOptions {
@@ -361,6 +525,7 @@ async fn run_streaming(args: BatchRunArgs) -> i32 {
         streaming: args.streaming,
         // See `run_read_all` for the `--json-tracing` rationale.
         no_progress: args.no_progress || args.json_tracing,
+        close_on_stop: false, // decided below, once the script is open
     };
     let dispatch: DispatchFn =
         Arc::new(|cmd| Box::pin(async move { crate::dispatch::dispatch(cmd).await }));
@@ -370,23 +535,44 @@ async fn run_streaming(args: BatchRunArgs) -> i32 {
     // Spawn reader task. It reads the script line-by-line, tokenizes/
     // parses/validates each, and forwards a `PreparedLine` on the
     // channel — invalid lines included, as `Invalid` entries. On EOF,
-    // read I/O error, ctrl-c, or receiver-dropped, the task returns.
+    // read I/O error, ctrl-c, or the executor closing the channel after
+    // an early stop, the task returns.
     // File-open failure is reported here before any executor work and
     // short-circuits the run.
-    let interrupt_for_reader = Arc::clone(&interrupt);
+    let interrupt_for_reader = Arc::clone(&interrupt_notify);
     let source = script_source_label(&args.script).to_string();
+    // `close_on_stop` (see `ExecutorOptions`) for any source that may
+    // never end: stdin, and any path that is not a regular file — a FIFO,
+    // `/dev/stdin`, a process substitution. Those are read on their own
+    // thread (`ThreadReader`); a regular file through `tokio::fs`.
+    let mut opts = opts;
     let reader_handle: tokio::task::JoinHandle<Result<()>> = if args.script == "-" {
-        let reader = tokio::io::BufReader::new(tokio::io::stdin());
+        opts.close_on_stop = true;
+        let reader = tokio::io::BufReader::new(ThreadReader::spawn(std::io::stdin()));
         tokio::spawn(
             async move { streaming_reader(reader, tx, interrupt_for_reader, source).await },
         )
     } else {
-        match tokio::fs::File::open(&args.script).await {
+        // Ctrl-C while the open is pending ends the run like an idle
+        // interrupt (exit 0, as for `-` — see below); nothing has run.
+        let Some(opened) = open_script_interruptible(&args.script, &interrupt_notify).await else {
+            return 0;
+        };
+        match opened {
             Ok(f) => {
-                let reader = tokio::io::BufReader::new(f);
-                tokio::spawn(async move {
-                    streaming_reader(reader, tx, interrupt_for_reader, source).await
-                })
+                let is_file = f.metadata().map(|m| m.is_file()).unwrap_or(false);
+                if is_file {
+                    let reader = tokio::io::BufReader::new(tokio::fs::File::from_std(f));
+                    tokio::spawn(async move {
+                        streaming_reader(reader, tx, interrupt_for_reader, source).await
+                    })
+                } else {
+                    opts.close_on_stop = true;
+                    let reader = tokio::io::BufReader::new(ThreadReader::spawn(f));
+                    tokio::spawn(async move {
+                        streaming_reader(reader, tx, interrupt_for_reader, source).await
+                    })
+                }
             }
             Err(e) => {
                 tracing::error!("{}: {e}", args.script);
@@ -404,18 +590,44 @@ async fn run_streaming(args: BatchRunArgs) -> i32 {
         executor::run_parallel_streaming(rx, opts, dispatch, interrupt).await
     };
 
-    // Wait for the reader to finish (it may still be holding on a slow
-    // pipe; if the executor finished early, the reader will exit on its
-    // next `tx.send` because the receiver is gone).
+    // Wait for the reader to finish. It has already returned: the
+    // executor only returns once the channel is closed and drained. For a
+    // file script that means EOF, so every line after an early stop is
+    // counted as skipped. For `-` (`close_on_stop`) the executor closes
+    // the channel itself after an early stop, which the reader observes
+    // even while parked on a pipe that never ends. The blocking read
+    // behind it runs on a `ThreadReader` thread, which does not hold up
+    // the process exit.
+    //
+    // The exit code comes from the lines that ran. A Ctrl-C that only
+    // stopped the reader (no line was running or skipped) leaves it at
+    // that — an idle interrupted run exits 0, as pinned by
+    // `tests/cli_sigint.rs`. A line cut short by Ctrl-C reports 130
+    // itself and so does reach the exit code.
     let final_code = match reader_handle.await {
         Ok(Ok(())) => code,
+        // `--max-errors` ended the run. Decided by position, not timing:
+        // the reader reads ahead of the executor, so every line that ran —
+        // including the ones that reached the threshold — comes before the
+        // bad line, and the run stopped before the bad line would have run.
+        // The script was not cut short, so the exit code is what the lines
+        // that ran produced, for every source and every interleaving. The
+        // error is still shown, as a warning, when the reader got that far
+        // (a source closed on stop may be closed before it does).
+        Ok(Err(e)) if summary.threshold_reached => {
+            tracing::warn!(
+                "{} (past the --max-errors stop; not counted)",
+                flatten(&e.to_string())
+            );
+            code
+        }
         Ok(Err(e)) => {
             tracing::error!("{}", flatten(&e.to_string()));
-            code.max(1)
+            with_reader_failure(code)
         }
         Err(e) => {
             tracing::error!("reader task panicked: {e}");
-            code.max(1)
+            with_reader_failure(code)
         }
     };
 
@@ -429,6 +641,23 @@ async fn run_streaming(args: BatchRunArgs) -> i32 {
     }
 
     final_code
+}
+
+/// Fold a streaming-reader failure (read I/O error, over-long line,
+/// non-UTF-8 input, reader panic) into the executor's exit code. The run
+/// was truncated, so it is a failure (1), combined through the executor's
+/// `worse_of` so batch-run has a single exit-code ordering. That ordering
+/// ranks 1 above every other code, including 130 (interrupted) and 101
+/// (a line panicked): a truncated script must never look like anything
+/// but a failure. The reader error itself is already logged.
+///
+/// This holds even when the user also pressed Ctrl-C (executor code 130):
+/// Ctrl-C makes the reader return `Ok` without reading further, so an
+/// `Err` comes from a line read before the interrupt — a real defect in
+/// the script, which exiting 130 would hide. A read error when
+/// `--max-errors` ended the run does not come here; see `run_streaming`.
+fn with_reader_failure(code: i32) -> i32 {
+    executor::worse_of(code, 1)
 }
 
 /// Pick the summary representation: human-readable line by default,
@@ -447,15 +676,17 @@ fn format_summary(summary: &summary::Summary, json_tracing: bool) -> String {
 /// failures are pushed as `PreparedLineKind::Invalid` so the executor
 /// can count them toward `--max-errors` like any other failure — they
 /// do NOT short-circuit the reader. Returns:
-///   - `Ok(())` on EOF, on Ctrl-C (interrupt set), or when the receiver
-///     has been dropped.
+///   - `Ok(())` on EOF, on Ctrl-C (`interrupt` notified), or when the
+///     executor has closed the channel after stopping early (stdin
+///     scripts, see `ExecutorOptions::close_on_stop`). Lines past that
+///     point are never read, so they are never reported.
 ///   - `Err(_)` only on a true read I/O error (file unreadable, line
-///     cap exceeded, non-UTF-8). The caller prints it and bumps the
-///     exit code to >= 1.
+///     cap exceeded, non-UTF-8) hit before the channel was closed. The
+///     caller prints it and bumps the exit code to 1.
 async fn streaming_reader<R>(
     mut reader: R,
     tx: tokio::sync::mpsc::UnboundedSender<PreparedLine>,
-    interrupt: Interrupt,
+    interrupt: Arc<tokio::sync::Notify>,
     source: String,
 ) -> Result<()>
 where
@@ -466,15 +697,26 @@ where
     loop {
         tokio::select! {
             biased;
-            _ = tokio::signal::ctrl_c() => {
-                interrupt.store(true, Ordering::SeqCst);
-                return Ok(());
-            }
-            result = read_line_capped_async(&mut reader) => {
+            _ = interrupt.notified() => return Ok(()),
+            // The executor stopped (`--max-errors` or Ctrl-C) and closed
+            // the channel: nothing more will run, so stop reading.
+            _ = tx.closed() => return Ok(()),
+            result = read_script_line_async(&mut reader, line_no + 1) => {
                 line_no += 1;
                 let text = match result {
                     Ok(Some(t)) => t,
                     Ok(None) => return Ok(()), // EOF
+                    // The executor had already stopped and closed the
+                    // channel when this read failed: the line was past the
+                    // stop point and was never going to run. Show it, but
+                    // it does not fail the run.
+                    Err(e) if tx.is_closed() => {
+                        tracing::warn!(
+                            "{source} read error at line {line_no}: {e} \
+                             (after the run stopped; not counted)"
+                        );
+                        return Ok(());
+                    }
                     Err(e) => {
                         return Err(anyhow::anyhow!(
                             "{source} read error at line {line_no}: {e}"
@@ -501,7 +743,7 @@ where
                 });
 
                 if tx.send(prepared).is_err() {
-                    // Receiver dropped; executor finished early.
+                    // Channel closed; executor finished early.
                     return Ok(());
                 }
             }
@@ -515,6 +757,33 @@ where
 /// `Ok(Some(line))` (newline stripped) or `Err` on cap-exceeded /
 /// non-UTF-8 / I/O error.
 async fn read_line_capped_async<R>(reader: &mut R) -> std::io::Result<Option<String>>
+where
+    R: tokio::io::AsyncBufRead + Unpin,
+{
+    read_line_capped_async_to(reader, parser::MAX_LINE_LEN).await
+}
+
+/// Read script line `line_no` (1-based). The first line goes through the
+/// same BOM handling as `parser::read_first_line`: the BOM is stripped and
+/// does not count toward `MAX_LINE_LEN`.
+async fn read_script_line_async<R>(
+    reader: &mut R,
+    line_no: usize,
+) -> std::io::Result<Option<String>>
+where
+    R: tokio::io::AsyncBufRead + Unpin,
+{
+    if line_no == 1 {
+        parser::finish_first_line(
+            read_line_capped_async_to(reader, parser::FIRST_LINE_READ_CAP).await?,
+        )
+    } else {
+        read_line_capped_async(reader).await
+    }
+}
+
+/// [`read_line_capped_async`] with an explicit byte cap.
+async fn read_line_capped_async_to<R>(reader: &mut R, cap: usize) -> std::io::Result<Option<String>>
 where
     R: tokio::io::AsyncBufRead + Unpin,
 {
@@ -536,7 +805,7 @@ where
             Some(idx) => {
                 buf.extend_from_slice(&available[..idx]);
                 reader.consume(idx + 1);
-                if buf.len() > parser::MAX_LINE_LEN {
+                if buf.len() > cap {
                     return Err(parser::too_long_err());
                 }
                 return String::from_utf8(buf)
@@ -547,7 +816,7 @@ where
                 buf.extend_from_slice(available);
                 let n = available.len();
                 reader.consume(n);
-                if buf.len() > parser::MAX_LINE_LEN {
+                if buf.len() > cap {
                     return Err(parser::too_long_err());
                 }
             }
@@ -1101,6 +1370,182 @@ mod tests {
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
     }
 
+    #[test]
+    fn with_reader_failure_promotes_success_and_warnings_to_failure() {
+        assert_eq!(with_reader_failure(0), 1);
+        assert_eq!(with_reader_failure(3), 1);
+        assert_eq!(with_reader_failure(4), 1);
+        assert_eq!(with_reader_failure(2), 1);
+        assert_eq!(with_reader_failure(1), 1);
+    }
+
+    #[test]
+    fn with_reader_failure_overrides_interrupt_and_panic_codes() {
+        assert_eq!(with_reader_failure(130), 1);
+        assert_eq!(with_reader_failure(101), 1);
+    }
+
+    /// A UTF-8 BOM on the first script line must be stripped in streaming
+    /// mode too, so the line reaches the executor as a real command.
+    #[tokio::test]
+    async fn streaming_reader_strips_utf8_bom_from_first_line() {
+        let input = "\u{FEFF}head-bucket s3://b1\n";
+        let reader = tokio::io::BufReader::new(input.as_bytes());
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<PreparedLine>();
+        let interrupt = Arc::new(tokio::sync::Notify::new());
+        streaming_reader(reader, tx, interrupt, "test".to_string())
+            .await
+            .unwrap();
+        let line = rx.recv().await.expect("one prepared line");
+        assert_eq!(line.raw, "head-bucket s3://b1");
+        assert!(
+            matches!(line.kind, executor::PreparedLineKind::Cmd(_)),
+            "BOM-prefixed first line must parse as a command"
+        );
+        assert!(rx.recv().await.is_none());
+    }
+
+    /// After a `--max-errors` stop the executor must not wait for the
+    /// script to end: with an input that stalls (`tail -f cmds | ...`),
+    /// the run used to hang because the executor drained the channel
+    /// until the reader saw EOF. Now the executor closes the channel and
+    /// the reader, parked on the stalled read, returns at once.
+    async fn stalled_input_stops_after_threshold(workers: usize) {
+        use tokio::io::AsyncWriteExt;
+        let (mut writer, read_half) = tokio::io::duplex(1024);
+        // One failing line, then the input stalls (writer kept open).
+        writer.write_all(b"head-bucket s3://b1\n").await.unwrap();
+        let reader = tokio::io::BufReader::new(read_half);
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<PreparedLine>();
+        let interrupt_notify = Arc::new(tokio::sync::Notify::new());
+        let reader_handle = tokio::spawn(streaming_reader(
+            reader,
+            tx,
+            interrupt_notify,
+            "stdin".to_string(),
+        ));
+        let opts = ExecutorOptions {
+            workers,
+            error_threshold: Some(1),
+            continue_on_warning: false,
+            streaming: true,
+            no_progress: true,
+            close_on_stop: true,
+        };
+        let dispatch: DispatchFn = Arc::new(|_cmd| Box::pin(async { 1 }));
+        let interrupt: Interrupt = Arc::new(AtomicBool::new(false));
+        let run = async {
+            let (code, summary) = if workers == 1 {
+                executor::run_sequential_streaming(rx, opts, dispatch, interrupt).await
+            } else {
+                executor::run_parallel_streaming(rx, opts, dispatch, interrupt).await
+            };
+            (code, summary, reader_handle.await)
+        };
+        let (code, summary, reader_result) =
+            tokio::time::timeout(std::time::Duration::from_secs(5), run)
+                .await
+                .expect("batch-run hung on a stalled input after --max-errors stop");
+        assert_eq!(code, 1);
+        assert_eq!(summary.failed, 1);
+        assert!(matches!(reader_result, Ok(Ok(()))), "{reader_result:?}");
+        drop(writer);
+    }
+
+    #[tokio::test]
+    async fn sequential_streaming_stalled_input_stops_after_threshold() {
+        stalled_input_stops_after_threshold(1).await;
+    }
+
+    #[tokio::test]
+    async fn parallel_streaming_stalled_input_stops_after_threshold() {
+        stalled_input_stops_after_threshold(2).await;
+    }
+
+    /// Streaming mode applies the same BOM allowance as `read_all`: the
+    /// BOM on line 1 does not count toward `MAX_LINE_LEN`.
+    #[tokio::test]
+    async fn streaming_first_line_bom_does_not_count_toward_cap() {
+        let body = "x".repeat(MAX_LINE_LEN);
+        let input = format!("\u{FEFF}{body}\n{body}x\n");
+        let mut r = tokio::io::BufReader::new(input.as_bytes());
+        assert_eq!(
+            read_script_line_async(&mut r, 1).await.unwrap(),
+            Some(body.clone())
+        );
+        // Later lines get no allowance.
+        assert!(read_script_line_async(&mut r, 2).await.is_err());
+    }
+
+    /// A file script is not closed early: after a `--max-errors` stop the
+    /// reader still runs to EOF, so every remaining line of this (valid)
+    /// script is counted as skipped and the count does not depend on
+    /// reader timing.
+    #[tokio::test]
+    async fn file_script_counts_every_line_after_stop_as_skipped() {
+        for workers in [1, 2] {
+            let script = "head-bucket s3://b1\n".repeat(50);
+            let reader = tokio::io::BufReader::new(std::io::Cursor::new(script.into_bytes()));
+            let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<PreparedLine>();
+            let reader_handle = tokio::spawn(streaming_reader(
+                reader,
+                tx,
+                Arc::new(tokio::sync::Notify::new()),
+                "script.txt".to_string(),
+            ));
+            let opts = ExecutorOptions {
+                workers,
+                error_threshold: Some(1),
+                continue_on_warning: false,
+                streaming: true,
+                no_progress: true,
+                close_on_stop: false,
+            };
+            let dispatch: DispatchFn = Arc::new(|_cmd| Box::pin(async { 1 }));
+            let interrupt: Interrupt = Arc::new(AtomicBool::new(false));
+            let (_, summary) = if workers == 1 {
+                executor::run_sequential_streaming(rx, opts, dispatch, interrupt).await
+            } else {
+                executor::run_parallel_streaming(rx, opts, dispatch, interrupt).await
+            };
+            assert!(matches!(reader_handle.await, Ok(Ok(()))));
+            assert_eq!(
+                summary.failed + summary.skipped,
+                50,
+                "workers={workers}: {summary:?}"
+            );
+        }
+    }
+
+    /// `ThreadReader` delivers a source's bytes and then EOF.
+    #[tokio::test]
+    async fn thread_reader_reads_to_eof() {
+        let data: Vec<u8> = (0..50_000u32).map(|i| (i % 251) as u8).collect();
+        let mut r = ThreadReader::spawn(std::io::Cursor::new(data.clone()));
+        let mut got = Vec::new();
+        tokio::io::AsyncReadExt::read_to_end(&mut r, &mut got)
+            .await
+            .unwrap();
+        assert_eq!(got, data);
+    }
+
+    /// Ctrl-C must wake a reader parked on a stalled input.
+    #[tokio::test]
+    async fn streaming_reader_returns_on_interrupt_while_parked() {
+        let (_writer, read_half) = tokio::io::duplex(64);
+        let reader = tokio::io::BufReader::new(read_half);
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<PreparedLine>();
+        let interrupt_notify = Arc::new(tokio::sync::Notify::new());
+        interrupt_notify.notify_one();
+        let r = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            streaming_reader(reader, tx, interrupt_notify, "stdin".to_string()),
+        )
+        .await
+        .expect("reader ignored the interrupt");
+        assert!(r.is_ok());
+    }
+
     /// `streaming_reader` is generic over `AsyncBufRead`; in production
     /// it's called with both `tokio::io::stdin()` and `tokio::fs::File`.
     /// On a read I/O error it must name the *actual* source (file path or
@@ -1113,7 +1558,7 @@ mod tests {
         let s: String = std::iter::repeat_n('x', MAX_LINE_LEN + 1).collect();
         let reader = tokio::io::BufReader::new(s.as_bytes());
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<PreparedLine>();
-        let interrupt: Interrupt = Arc::new(AtomicBool::new(false));
+        let interrupt = Arc::new(tokio::sync::Notify::new());
         let err = streaming_reader(reader, tx, interrupt, "/tmp/script.txt".to_string())
             .await
             .unwrap_err();
@@ -1150,6 +1595,14 @@ mod tests {
     #[test]
     fn check_format_lines_only_blank_and_comment_is_clean() {
         let input: &[u8] = b"\n# comment\n   \n";
+        assert!(!check_format_lines(input, "test"));
+    }
+
+    #[test]
+    fn check_format_lines_bom_prefixed_script_is_clean() {
+        let input: &[u8] = "\u{FEFF}# header\nhead-bucket s3://b1\n".as_bytes();
+        assert!(!check_format_lines(input, "test"));
+        let input: &[u8] = "\u{FEFF}head-bucket s3://b1\n".as_bytes();
         assert!(!check_format_lines(input, "test"));
     }
 
